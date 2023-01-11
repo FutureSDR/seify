@@ -17,3 +17,4 @@ hackrfone = { git = "https://github.com/newAM/hackrfone", version = "0.2.3", opt
 rtlsdr-rs = { git = "https://github.com/ccostes/rtl-sdr-rs", optional = true }
 aaronia-rtsa = { version = "0.0.1", optional = true }
 soapysdr = { version = "0.3.2", optional = true }
+thiserror = "1.0.38"
