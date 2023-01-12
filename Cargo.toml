@@ -13,8 +13,9 @@ aaronia = ["dep:aaronia-rtsa"]
 soapy = ["dep:soapysdr"]
 
 [dependencies]
-hackrfone = { git = "https://github.com/newAM/hackrfone", version = "0.2.3", optional = true }
-rtlsdr-rs = { git = "https://github.com/ccostes/rtl-sdr-rs", optional = true }
 aaronia-rtsa = { version = "0.0.1", optional = true }
+hackrfone = { git = "https://github.com/newAM/hackrfone", version = "0.2.3", optional = true }
+nom = "7.1.2"
+rtlsdr-rs = { git = "https://github.com/ccostes/rtl-sdr-rs", optional = true }
 soapysdr = { version = "0.3.2", optional = true }
 thiserror = "1.0.38"
