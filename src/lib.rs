@@ -1,3 +1,6 @@
+mod config;
+pub use config::Config;
+
 // #[cfg(feature = "aaronia")]
 // pub mod aaronia;
 // #[cfg(feature = "aaronia")]
@@ -19,9 +22,16 @@ pub use rtlsdr::RtlSdr;
 // pub use soapy::Soapy;
 
 use std::any::Any;
-use std::collections::HashMap;
-use std::str::FromStr;
 use thiserror::Error;
+
+/// Seify Error
+#[derive(Debug, Error, PartialEq)]
+pub enum Error {
+    #[error("Value Error")]
+    ValueError,
+    #[error("Not Found")]
+    NotFound,
+}
 
 pub enum Driver {
     // #[cfg(feature = "aaronia")]
@@ -100,112 +110,3 @@ impl SupportedFrequencies {
     }
 }
 
-/// Seify Error
-#[derive(Debug, Error, PartialEq)]
-pub enum Error {
-    #[error("Value Error")]
-    ValueError,
-    #[error("Not Found")]
-    NotFound,
-}
-
-/// Configuration.
-#[derive(Debug)]
-pub struct Config {
-    map: HashMap<String, String>,
-}
-
-impl Config {
-    pub fn new() -> Self {
-        Self {
-            map: HashMap::new(),
-        }
-    }
-    pub fn get<V: FromStr<Err = impl std::error::Error>>(
-        &self,
-        v: impl AsRef<str>,
-    ) -> Result<V, Error> {
-        self.map
-            .get(v.as_ref())
-            .ok_or(Error::NotFound)
-            .and_then(|v| v.parse().or(Err(Error::ValueError)))
-    }
-    pub fn set<K: Into<String>, V: Into<String>>(&mut self, key: K, value: V) -> Option<String> {
-        self.map.insert(key.into(), value.into())
-    }
-}
-
-use nom::bytes::complete::tag;
-use nom::multi::separated_list0;
-use nom::sequence::separated_pair;
-use nom::error::{FromExternalError, ParseError};
-use nom::IResult;
-use nom::character::complete::alphanumeric1;
-
-fn parse_string<'a, E>(input: &'a str) -> IResult<&'a str, &'a str, E>
-where
-    E: ParseError<&'a str> + FromExternalError<&'a str, std::num::ParseIntError> + std::fmt::Debug,
-{
-    alphanumeric1(input)
-}
-
-impl FromStr for Config {
-    type Err = Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let v = separated_list0(
-            tag(","),
-            separated_pair(parse_string::<nom::error::Error<_>>, tag("="), parse_string),
-        )(s)
-        .or(Err(Error::ValueError))?;
-        Ok(Config {
-            map: HashMap::from_iter(v.1.iter().cloned().map(|(a, b)| (a.into(), b.into()))),
-        })
-    }
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn deserialize_empty() {
-        let c: Config = "".parse().unwrap();
-        assert_eq!(c.map.len(), 0);
-    }
-    #[test]
-    fn deserialize_single() {
-        let c: Config = "foo=bar".parse().unwrap();
-        assert_eq!(c.get::<String>("foo").unwrap(), "bar");
-        assert_eq!(c.map.len(), 1);
-    }
-    #[test]
-    fn deserialize_more() {
-        let c: Config = "foo=bar,fo=ba".parse().unwrap();
-        assert_eq!(c.get::<String>("foo").unwrap(), "bar");
-        assert_eq!(c.get::<String>("fo").unwrap(), "ba");
-        assert_eq!(c.map.len(), 2);
-    }
-    // #[test]
-    // fn deserialize_quoted() {
-    //     let c: Config = "foo=bar,fo=\"ba ,\"".parse().unwrap();
-    //     assert_eq!(c.get::<String>("foo").unwrap(), "bar");
-    //     assert_eq!(c.get::<String>("fo").unwrap(), "ba ,");
-    //     assert_eq!(c.map.len(), 2);
-    // }
-    #[test]
-    fn config_get() {
-        let c: Config = "foo=123,bar=lol".parse().unwrap();
-        assert_eq!(c.map.len(), 2);
-        assert_eq!(c.get::<u32>("foo").unwrap(), 123);
-        assert_eq!(c.get::<String>("foo").unwrap(), "123");
-        assert_eq!(c.get::<String>("fooo"), Err(Error::NotFound));
-        assert_eq!(c.get::<String>("bar").unwrap(), "lol");
-        assert_eq!(c.get::<u32>("bar"), Err(Error::ValueError));
-    }
-}
