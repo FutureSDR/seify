@@ -44,11 +44,14 @@ pub enum Driver {
     // Soapy,
 }
 
+/// Enumerate devices.
 pub fn enumerate() -> Result<Vec<Args>, Error> {
-    enumerate_with_args("")
+    enumerate_with_args(Args::new())
 }
-pub fn enumerate_with_args<A: AsRef<str>>(a: A) -> Result<Vec<Args>, Error> {
-    let args: Args = a.as_ref().parse()?;
+
+/// Enumerate devices with given [Args].
+pub fn enumerate_with_args<A: TryInto<Args>>(a: A) -> Result<Vec<Args>, Error> {
+    let args: Args = a.try_into().or(Err(Error::ValueError))?;
     let mut devs = Vec::new();
     let driver = args.get::<String>("driver").ok();
 

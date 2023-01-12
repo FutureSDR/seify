@@ -1,20 +1,20 @@
+use nom::branch::alt;
+use nom::bytes::complete::escaped;
 use nom::bytes::complete::tag;
 use nom::bytes::complete::take_while1;
 use nom::character::complete::multispace0;
+use nom::character::complete::none_of;
 use nom::error::{FromExternalError, ParseError};
 use nom::multi::separated_list0;
 use nom::sequence::delimited;
 use nom::sequence::separated_pair;
 use nom::IResult;
-use nom::branch::alt;
-use nom::character::complete::none_of;
-use nom::bytes::complete::escaped;
 use std::collections::HashMap;
 use std::str::FromStr;
 
 use crate::Error;
 
-/// Argsuration.
+/// Arguments.
 #[derive(Debug)]
 pub struct Args {
     map: HashMap<String, String>,
@@ -50,12 +50,15 @@ where
     let esc_or_empty_double = alt((esc_double, tag("")));
     let filter = |c: char| c != ',' && c != '=' && !c.is_whitespace();
 
-    delimited(multispace0, 
+    delimited(
+        multispace0,
         alt((
-        delimited(tag("'"), esc_or_empty_single, tag("'")),
-        delimited(tag("\""), esc_or_empty_double, tag("\"")),
-        take_while1(filter))),
-        multispace0)(input)
+            delimited(tag("'"), esc_or_empty_single, tag("'")),
+            delimited(tag("\""), esc_or_empty_double, tag("\"")),
+            take_while1(filter),
+        )),
+        multispace0,
+    )(input)
 }
 
 impl FromStr for Args {
@@ -74,6 +77,22 @@ impl FromStr for Args {
         Ok(Args {
             map: HashMap::from_iter(v.1.iter().cloned().map(|(a, b)| (a.into(), b.into()))),
         })
+    }
+}
+
+impl TryInto<Args> for &str {
+    type Error = Error;
+
+    fn try_into(self) -> Result<Args, Self::Error> {
+        self.parse()
+    }
+}
+
+impl TryInto<Args> for String {
+    type Error = Error;
+
+    fn try_into(self) -> Result<Args, Self::Error> {
+        self.parse()
     }
 }
 
