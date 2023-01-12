@@ -14,13 +14,13 @@ use std::str::FromStr;
 
 use crate::Error;
 
-/// Configuration.
+/// Argsuration.
 #[derive(Debug)]
-pub struct Config {
+pub struct Args {
     map: HashMap<String, String>,
 }
 
-impl Config {
+impl Args {
     pub fn new() -> Self {
         Self {
             map: HashMap::new(),
@@ -58,7 +58,7 @@ where
         multispace0)(input)
 }
 
-impl FromStr for Config {
+impl FromStr for Args {
     type Err = Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -71,13 +71,13 @@ impl FromStr for Config {
             ),
         )(s)
         .or(Err(Error::ValueError))?;
-        Ok(Config {
+        Ok(Args {
             map: HashMap::from_iter(v.1.iter().cloned().map(|(a, b)| (a.into(), b.into()))),
         })
     }
 }
 
-impl Default for Config {
+impl Default for Args {
     fn default() -> Self {
         Self::new()
     }
@@ -88,45 +88,45 @@ mod tests {
     use super::*;
     #[test]
     fn deserialize_empty() {
-        let c: Config = "".parse().unwrap();
+        let c: Args = "".parse().unwrap();
         assert_eq!(c.map.len(), 0);
     }
     #[test]
     fn deserialize_single() {
-        let c: Config = "foo=bar".parse().unwrap();
+        let c: Args = "foo=bar".parse().unwrap();
         assert_eq!(c.get::<String>("foo").unwrap(), "bar");
         assert_eq!(c.map.len(), 1);
     }
     #[test]
     fn deserialize_more() {
-        let c: Config = "foo=bar,fo=ba".parse().unwrap();
+        let c: Args = "foo=bar,fo=ba".parse().unwrap();
         assert_eq!(c.get::<String>("foo").unwrap(), "bar");
         assert_eq!(c.get::<String>("fo").unwrap(), "ba");
         assert_eq!(c.map.len(), 2);
     }
     #[test]
     fn deserialize_whitespace() {
-        let c: Config = "   foo  = bar  ,     fo=ba    ".parse().unwrap();
+        let c: Args = "   foo  = bar  ,     fo=ba    ".parse().unwrap();
         assert_eq!(c.get::<String>("foo").unwrap(), "bar");
         assert_eq!(c.get::<String>("fo").unwrap(), "ba");
         assert_eq!(c.map.len(), 2);
     }
     #[test]
     fn deserialize_nonascii() {
-        let c: Config = "   f-oo  = b_ar".parse().unwrap();
+        let c: Args = "   f-oo  = b_ar".parse().unwrap();
         assert_eq!(c.get::<String>("f-oo").unwrap(), "b_ar");
         assert_eq!(c.map.len(), 1);
     }
     #[test]
     fn deserialize_dquoted() {
-        let c: Config = "foo=bar,fo=\"ba ,\"".parse().unwrap();
+        let c: Args = "foo=bar,fo=\"ba ,\"".parse().unwrap();
         assert_eq!(c.get::<String>("foo").unwrap(), "bar");
         assert_eq!(c.get::<String>("fo").unwrap(), "ba ,");
         assert_eq!(c.map.len(), 2);
     }
     #[test]
     fn deserialize_squoted() {
-        let c: Config = "foo=bar,fo='ba ,\"', hello   ='a s d f '".parse().unwrap();
+        let c: Args = "foo=bar,fo='ba ,\"', hello   ='a s d f '".parse().unwrap();
         assert_eq!(c.get::<String>("foo").unwrap(), "bar");
         assert_eq!(c.get::<String>("fo").unwrap(), "ba ,\"");
         assert_eq!(c.get::<String>("hello").unwrap(), "a s d f ");
@@ -134,7 +134,7 @@ mod tests {
     }
     #[test]
     fn config_get() {
-        let c: Config = "foo=123,bar=lol".parse().unwrap();
+        let c: Args = "foo=123,bar=lol".parse().unwrap();
         assert_eq!(c.map.len(), 2);
         assert_eq!(c.get::<u32>("foo").unwrap(), 123);
         assert_eq!(c.get::<String>("foo").unwrap(), "123");

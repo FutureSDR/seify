@@ -1,5 +1,5 @@
-mod config;
-pub use config::Config;
+mod args;
+pub use args::Args;
 
 // #[cfg(feature = "aaronia")]
 // pub mod aaronia;
@@ -42,6 +42,24 @@ pub enum Driver {
     RtlSdr,
     // #[cfg(feature = "soapy")]
     // Soapy,
+}
+
+pub fn enumerate() -> Result<Vec<Args>, Error> {
+    enumerate_with_args("")
+}
+pub fn enumerate_with_args<A: AsRef<str>>(a: A) -> Result<Vec<Args>, Error> {
+    let args: Args = a.as_ref().parse()?;
+    let mut devs = Vec::new();
+    let driver = args.get::<String>("driver").ok();
+
+    if cfg!(feature = "rtlsdr") && (driver.is_none() || driver.as_ref().unwrap() == "rtlsdr") {
+        devs.append(&mut RtlSdr::probe(&args)?)
+    }
+    if cfg!(feature = "hackrf") && (driver.is_none() || driver.as_ref().unwrap() == "rtlsdr") {
+        devs.append(&mut HackRf::probe(&args)?)
+    }
+
+    Ok(Vec::new())
 }
 
 pub trait DeviceTrait {
@@ -109,4 +127,3 @@ impl SupportedFrequencies {
         false
     }
 }
-
