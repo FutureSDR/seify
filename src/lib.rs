@@ -33,6 +33,7 @@ pub enum Error {
     NotFound,
 }
 
+#[derive(Debug)]
 pub enum Driver {
     // #[cfg(feature = "aaronia")]
     // AaroniaHttp,
@@ -58,7 +59,7 @@ pub fn enumerate_with_args<A: TryInto<Args>>(a: A) -> Result<Vec<Args>, Error> {
     if cfg!(feature = "rtlsdr") && (driver.is_none() || driver.as_ref().unwrap() == "rtlsdr") {
         devs.append(&mut RtlSdr::probe(&args)?)
     }
-    if cfg!(feature = "hackrf") && (driver.is_none() || driver.as_ref().unwrap() == "rtlsdr") {
+    if cfg!(feature = "hackrf") && (driver.is_none() || driver.as_ref().unwrap() == "hackrf") {
         devs.append(&mut HackRf::probe(&args)?)
     }
 

@@ -80,6 +80,8 @@ impl FromStr for Args {
     }
 }
 
+// impl for T: AsRef<str> once this issue is resolved
+// https://github.com/rust-lang/rust/issues/50133#issuecomment-64690839
 impl TryInto<Args> for &str {
     type Error = Error;
 
@@ -89,6 +91,14 @@ impl TryInto<Args> for &str {
 }
 
 impl TryInto<Args> for String {
+    type Error = Error;
+
+    fn try_into(self) -> Result<Args, Self::Error> {
+        self.parse()
+    }
+}
+
+impl TryInto<Args> for &String {
     type Error = Error;
 
     fn try_into(self) -> Result<Args, Self::Error> {
