@@ -8,8 +8,8 @@ pub use device::DeviceTrait;
 pub mod impls;
 
 mod stream;
-pub use stream::RXStreamer;
-pub use stream::TXStreamer;
+pub use stream::RxStreamer;
+pub use stream::TxStreamer;
 
 use std::str::FromStr;
 use thiserror::Error;
@@ -26,11 +26,12 @@ pub enum Error {
 }
 
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum Driver {
     // #[cfg(feature = "aaronia")]
     // AaroniaHttp,
-    // #[cfg(feature = "hackrf")]
-    // HackRf,
+    #[cfg(feature = "hackrf")]
+    HackRf,
     #[cfg(feature = "rtlsdr")]
     RtlSdr,
     // #[cfg(feature = "soapy")]
@@ -42,11 +43,17 @@ impl FromStr for Driver {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let s = s.to_lowercase();
-        if cfg!(feature = "rtlsdr") && (s == "rtlsdr" || s == "rtl-sdr" || s == "rtl") {
-            return Ok(Driver::RtlSdr);
+        #[cfg(feature = "rtlsdr")]
+        {
+            if s == "rtlsdr" || s == "rtl-sdr" || s == "rtl" {
+                return Ok(Driver::RtlSdr);
+            }
         }
-        if cfg!(feature = "hackrf") && (s == "hackrf") {
-            return Ok(Driver::HackRf);
+        #[cfg(feature = "hackrf")]
+        {
+            if s == "hackrf" {
+                return Ok(Driver::HackRf);
+            }
         }
         Err(Error::ValueError)
     }
@@ -69,13 +76,13 @@ pub fn enumerate_with_args<A: TryInto<Args>>(a: A) -> Result<Vec<Args>, Error> {
     let driver = args.get::<String>("driver").ok();
 
     if cfg!(feature = "rtlsdr") && (driver.is_none() || driver.as_ref().unwrap() == "rtlsdr") {
-        devs.append(&mut RtlSdr::probe(&args)?)
+        devs.append(&mut impls::RtlSdr::probe(&args)?)
     }
 
     #[cfg(feature = "hackrf")]
     {
         if cfg!(feature = "hackrf") && (driver.is_none() || driver.as_ref().unwrap() == "hackrf") {
-            devs.append(&mut HackRf::probe(&args)?)
+            devs.append(&mut impls::HackRf::probe(&args)?)
         }
     }
 
@@ -106,7 +113,7 @@ impl Range {
     pub fn contains(&self, value: f64) -> bool {
         for item in &self.items {
             match *item {
-                RangeItem::Range(a, b) => {
+                RangeItem::Interval(a, b) => {
                     if a <= value && value <= b {
                         return true;
                     }

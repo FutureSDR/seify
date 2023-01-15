@@ -2,13 +2,13 @@ use num_complex::Complex32;
 
 use crate::Error;
 
-pub trait RXStreamer {
+pub trait RxStreamer {
     /// Get the stream's maximum transmission unit (MTU) in number of elements.
     ///
     /// The MTU specifies the maximum payload transfer in a stream operation.
     /// This value can be used as a stream buffer allocation size that can
     /// best optimize throughput given the underlying stream implementation.
-    pub fn mtu(&self) -> Result<usize, Error>;
+    fn mtu(&self) -> Result<usize, Error>;
 
     /// Activate a stream.
     ///
@@ -16,14 +16,14 @@ pub trait RXStreamer {
     ///
     /// # Arguments:
     ///   * `time_ns` -- optional activation time in nanoseconds
-    pub fn activate(&mut self, time_ns: Option<i64>) -> Result<(), Error>;
+    fn activate(&mut self, time_ns: Option<i64>) -> Result<(), Error>;
 
     /// Deactivate a stream.
     /// The implementation will control switches or halt data flow.
     ///
     /// # Arguments:
     ///   * `time_ns` -- optional deactivation time in nanoseconds
-    pub fn deactivate(&mut self, time_ns: Option<i64>) -> Result<(), Error>;
+    fn deactivate(&mut self, time_ns: Option<i64>) -> Result<(), Error>;
 
     /// Read samples from the stream into the provided buffers.
     ///
@@ -33,16 +33,31 @@ pub trait RXStreamer {
     ///
     /// # Panics
     ///  * If `buffers` is not the same length as the `channels` array passed to `Device::rx_stream`.
-    pub fn read(&mut self, buffers: &[&mut[Complex32]], timeout_us: i64) -> Result<usize, Error>;
+    fn read(&mut self, buffers: &[&mut[Complex32]], timeout_us: i64) -> Result<usize, Error>;
 }
 
-pub trait TXStreamer {
+impl RxStreamer for Box<dyn RxStreamer> {
+    fn mtu(&self) -> Result<usize, Error> {
+        self.as_ref().mtu()
+    }
+    fn activate(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
+        self.as_mut().activate(time_ns)
+    }
+    fn deactivate(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
+        self.as_mut().deactivate(time_ns)
+    }
+    fn read(&mut self, buffers: &[&mut[Complex32]], timeout_us: i64) -> Result<usize, Error> {
+        self.as_mut().read(buffers, timeout_us)
+    }
+}
+
+pub trait TxStreamer {
     /// Get the stream's maximum transmission unit (MTU) in number of elements.
     ///
     /// The MTU specifies the maximum payload transfer in a stream operation.
     /// This value can be used as a stream buffer allocation size that can
     /// best optimize throughput given the underlying stream implementation.
-    pub fn mtu(&self) -> Result<usize, Error>;
+    fn mtu(&self) -> Result<usize, Error>;
 
     /// Activate a stream.
     ///
@@ -50,14 +65,14 @@ pub trait TXStreamer {
     ///
     /// # Arguments:
     ///   * `time_ns` -- optional activation time in nanoseconds
-    pub fn activate(&mut self, time_ns: Option<i64>) -> Result<(), Error>;
+    fn activate(&mut self, time_ns: Option<i64>) -> Result<(), Error>;
 
     /// Deactivate a stream.
     /// The implementation will control switches or halt data flow.
     ///
     /// # Arguments:
     ///   * `time_ns` -- optional deactivation time in nanoseconds
-    pub fn deactivate(&mut self, time_ns: Option<i64>) -> Result<(), Error>;
+    fn deactivate(&mut self, time_ns: Option<i64>) -> Result<(), Error>;
 
     /// Attempt to write samples to the device from the provided buffer.
     ///
@@ -75,7 +90,7 @@ pub trait TXStreamer {
     /// # Panics
     ///  * If `buffers` is not the same length as the `channels` array passed to `Device::tx_stream`.
     ///  * If all the buffers in `buffers` are not the same length.
-    pub fn write(&mut self, buffers: &[&[Complex32]], at_ns: Option<i64>, end_burst: bool, timeout_us: i64) -> Result<usize, Error>;
+    fn write(&mut self, buffers: &[&[Complex32]], at_ns: Option<i64>, end_burst: bool, timeout_us: i64) -> Result<usize, Error>;
 
     /// Write all samples to the device.
     ///
@@ -94,6 +109,24 @@ pub trait TXStreamer {
     /// # Panics
     ///  * If `buffers` is not the same length as the `channels` array passed to `Device::rx_stream`.
     ///  * If all the buffers in `buffers` are not the same length.
-    pub fn write_all(&mut self, buffers: &[&[Complex32]], at_ns: Option<i64>, end_burst: bool, timeout_us: i64) -> Result<(), Error>;
+    fn write_all(&mut self, buffers: &[&[Complex32]], at_ns: Option<i64>, end_burst: bool, timeout_us: i64) -> Result<(), Error>;
+}
+
+impl TxStreamer for Box<dyn TxStreamer> {
+    fn mtu(&self) -> Result<usize, Error> {
+        self.as_ref().mtu()
+    }
+    fn activate(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
+        self.as_mut().activate(time_ns)
+    }
+    fn deactivate(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
+        self.as_mut().deactivate(time_ns)
+    }
+    fn write(&mut self, buffers: &[&[Complex32]], at_ns: Option<i64>, end_burst: bool, timeout_us: i64) -> Result<usize, Error> {
+        self.as_mut().write(buffers, at_ns, end_burst, timeout_us)
+    }
+    fn write_all(&mut self, buffers: &[&[Complex32]], at_ns: Option<i64>, end_burst: bool, timeout_us: i64) -> Result<(), Error> {
+        self.as_mut().write_all(buffers, at_ns, end_burst, timeout_us)
+    }
 }
 
