@@ -4,28 +4,14 @@ pub use args::Args;
 mod device;
 pub use device::Device;
 pub use device::DeviceTrait;
+
+pub mod impls;
+
+mod stream;
+pub use stream::RXStreamer;
+pub use stream::TXStreamer;
+
 use std::str::FromStr;
-
-// #[cfg(feature = "aaronia")]
-// pub mod aaronia;
-// #[cfg(feature = "aaronia")]
-// pub use aaronia::Http;
-
-#[cfg(feature = "hackrf")]
-pub mod hackrf;
-#[cfg(feature = "hackrf")]
-pub use hackrf::HackRf;
-
-#[cfg(feature = "rtlsdr")]
-pub mod rtlsdr;
-#[cfg(feature = "rtlsdr")]
-pub use rtlsdr::RtlSdr;
-
-// #[cfg(feature = "soapy")]
-// pub mod soapy;
-// #[cfg(feature = "soapy")]
-// pub use soapy::Soapy;
-
 use thiserror::Error;
 
 /// Seify Error
@@ -35,14 +21,16 @@ pub enum Error {
     ValueError,
     #[error("Not Found")]
     NotFound,
+    #[error("Not Supported")]
+    NotSupported,
 }
 
 #[derive(Debug)]
 pub enum Driver {
     // #[cfg(feature = "aaronia")]
     // AaroniaHttp,
-    #[cfg(feature = "hackrf")]
-    HackRf,
+    // #[cfg(feature = "hackrf")]
+    // HackRf,
     #[cfg(feature = "rtlsdr")]
     RtlSdr,
     // #[cfg(feature = "soapy")]
@@ -83,44 +71,48 @@ pub fn enumerate_with_args<A: TryInto<Args>>(a: A) -> Result<Vec<Args>, Error> {
     if cfg!(feature = "rtlsdr") && (driver.is_none() || driver.as_ref().unwrap() == "rtlsdr") {
         devs.append(&mut RtlSdr::probe(&args)?)
     }
-    if cfg!(feature = "hackrf") && (driver.is_none() || driver.as_ref().unwrap() == "hackrf") {
-        devs.append(&mut HackRf::probe(&args)?)
+
+    #[cfg(feature = "hackrf")]
+    {
+        if cfg!(feature = "hackrf") && (driver.is_none() || driver.as_ref().unwrap() == "hackrf") {
+            devs.append(&mut HackRf::probe(&args)?)
+        }
     }
 
     Ok(Vec::new())
 }
 
-pub struct RXStreamer {}
-
-pub struct TXStreamer {}
-
-/// Frequency Range or item.
+/// Component of a [Range].
+///
+/// Can be an interval or an individual value.
 #[derive(Debug)]
-pub enum Frequency {
-    /// Range inclusive.
-    Range(f64, f64),
-    /// Exact frequency.
-    Val(f64),
+pub enum RangeItem {
+    /// Interval (inclusive).
+    Interval(f64, f64),
+    /// Exact value.
+    Value(f64),
 }
 
-pub struct SupportedFrequencies {
-    freqs: Vec<Frequency>,
+/// Range of possible values, comprised of [RangeItem]s, which can be individual values or
+/// Intervals.
+pub struct Range {
+    items: Vec<RangeItem>,
 }
 
-impl SupportedFrequencies {
-    pub fn new(freqs: Vec<Frequency>) -> Self {
-        Self { freqs }
+impl Range {
+    pub fn new(items: Vec<RangeItem>) -> Self {
+        Self { items }
     }
-    pub fn contains(&self, freq: f64) -> bool {
-        for item in &self.freqs {
+    pub fn contains(&self, value: f64) -> bool {
+        for item in &self.items {
             match *item {
-                Frequency::Range(a, b) => {
-                    if a <= freq && freq <= b {
+                RangeItem::Range(a, b) => {
+                    if a <= value && value <= b {
                         return true;
                     }
                 }
-                Frequency::Val(v) => {
-                    if (v - freq).abs() <= f64::EPSILON {
+                RangeItem::Value(v) => {
+                    if (v - value).abs() <= f64::EPSILON {
                         return true;
                     }
                 }
