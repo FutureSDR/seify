@@ -64,6 +64,11 @@ impl FromStr for Driver {
     }
 }
 
+pub enum Direction {
+    Rx,
+    Tx,
+}
+
 /// Enumerate devices.
 pub fn enumerate() -> Result<Vec<Args>, Error> {
     enumerate_with_args(Args::new())
