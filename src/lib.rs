@@ -1,6 +1,11 @@
 mod args;
 pub use args::Args;
 
+mod device;
+pub use device::Device;
+pub use device::DeviceTrait;
+use std::str::FromStr;
+
 // #[cfg(feature = "aaronia")]
 // pub mod aaronia;
 // #[cfg(feature = "aaronia")]
@@ -21,7 +26,6 @@ pub use rtlsdr::RtlSdr;
 // #[cfg(feature = "soapy")]
 // pub use soapy::Soapy;
 
-use std::any::Any;
 use thiserror::Error;
 
 /// Seify Error
@@ -45,6 +49,21 @@ pub enum Driver {
     // Soapy,
 }
 
+impl FromStr for Driver {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let s = s.to_lowercase();
+        if cfg!(feature = "rtlsdr") && (s == "rtlsdr" || s == "rtl-sdr" || s == "rtl") {
+            return Ok(Driver::RtlSdr);
+        }
+        if cfg!(feature = "hackrf") && (s == "hackrf") {
+            return Ok(Driver::HackRf);
+        }
+        Err(Error::ValueError)
+    }
+}
+
 /// Enumerate devices.
 pub fn enumerate() -> Result<Vec<Args>, Error> {
     enumerate_with_args(Args::new())
@@ -64,32 +83,6 @@ pub fn enumerate_with_args<A: TryInto<Args>>(a: A) -> Result<Vec<Args>, Error> {
     }
 
     Ok(Vec::new())
-}
-
-pub trait DeviceTrait {
-    fn driver(&self) -> Driver;
-    fn serial(&self) -> Option<String>;
-    fn url(&self) -> Option<String>;
-}
-pub struct Device<T: DeviceTrait + Any> {
-    dev: T,
-}
-
-impl<T: DeviceTrait + Any> Device<T> {
-    pub fn inner<D: Any>(&mut self) -> Result<&mut D, Error> {
-        (&mut self.dev as &mut dyn Any)
-            .downcast_mut::<D>()
-            .ok_or(Error::ValueError)
-    }
-    pub fn driver(&self) -> Driver {
-        self.dev.driver()
-    }
-    pub fn serial(&self) -> Option<String> {
-        self.dev.serial()
-    }
-    pub fn url(&self) -> Option<String> {
-        self.dev.url()
-    }
 }
 
 pub struct RXStreamer {}

@@ -8,6 +8,9 @@ impl HackRf {
     pub fn probe(_args: &Args) -> Result<Vec<Args>, Error> {
         Ok(Vec::new())
     }
+    pub fn open(_args: &Args) -> Result<Self, Error> {
+        Err(Error::NotFound)
+    }
 }
 
 impl DeviceTrait for HackRf {
@@ -15,11 +18,11 @@ impl DeviceTrait for HackRf {
         todo!()
     }
 
-    fn serial(&self) -> Option<String> {
+    fn id(&self) -> Result<String, Error> {
         todo!()
     }
 
-    fn url(&self) -> Option<String> {
+    fn info(&self) -> Result<Args, Error> {
         todo!()
     }
 }
