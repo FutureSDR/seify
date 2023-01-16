@@ -199,7 +199,7 @@ pub struct Device<T: DeviceTrait + Any + ?Sized> {
     dev: Arc<T>,
 }
 
-impl Device<dyn DeviceTrait<RxStreamer = Box<dyn RxStreamer>, TxStreamer = Box<dyn TxStreamer>>> {
+impl Device<GenericDevice> {
     pub fn new() -> Result<Self, Error> {
         let mut devs = crate::enumerate()?;
         if devs.is_empty() {
@@ -235,7 +235,7 @@ impl Device<dyn DeviceTrait<RxStreamer = Box<dyn RxStreamer>, TxStreamer = Box<d
     }
 }
 
-type GenericDevice = Arc<dyn DeviceTrait<RxStreamer = Box<dyn RxStreamer>, TxStreamer = Box<dyn TxStreamer>>>;
+pub type GenericDevice = dyn DeviceTrait<RxStreamer = Box<dyn RxStreamer>, TxStreamer = Box<dyn TxStreamer>>;
 
 impl<T: DeviceTrait + Any> Device<T> {
     pub fn from_device(dev: T) -> Self {
