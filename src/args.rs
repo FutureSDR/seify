@@ -15,7 +15,7 @@ use std::str::FromStr;
 use crate::Error;
 
 /// Arguments.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Args {
     map: HashMap<String, String>,
 }
@@ -103,6 +103,13 @@ impl TryInto<Args> for &String {
 
     fn try_into(self) -> Result<Args, Self::Error> {
         self.parse()
+    }
+}
+
+impl Into<Args> for &Args {
+
+    fn into(self) -> Args {
+        self.clone()
     }
 }
 

@@ -10,7 +10,7 @@ impl RtlSdr {
     pub fn probe(_args: &Args) -> Result<Vec<Args>, Error> {
         Ok(Vec::new())
     }
-    pub fn open(_args: &Args) -> Result<Self, Error> {
+    pub fn open<A: TryInto<Args>>(_args: A) -> Result<Self, Error> {
         todo!()
     }
 }
