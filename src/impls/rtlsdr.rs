@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+#![allow(unused_variables)]
 use rtlsdr_rs::RtlSdr as Sdr;
 
 use crate::Args;
@@ -13,7 +15,12 @@ pub struct TxDummy;
 
 impl RtlSdr {
     pub fn probe(_args: &Args) -> Result<Vec<Args>, Error> {
-        Ok(vec!["driver=rtlsdr, serial=0".try_into()?])
+        let rtls = rtlsdr_rs::enumerate().or(Err(Error::DeviceError))?;
+        let mut devs = Vec::new();
+        for r in rtls {
+            devs.push(format!("driver=rtlsdr, index={}", r.index).try_into()?);
+        }
+        Ok(devs)
     }
     pub fn open<A: TryInto<Args>>(_args: A) -> Result<Self, Error> {
         Ok(RtlSdr {
