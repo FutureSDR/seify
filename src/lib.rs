@@ -7,9 +7,9 @@ pub use device::DeviceTrait;
 
 pub mod impls;
 
-mod stream;
-pub use stream::RxStreamer;
-pub use stream::TxStreamer;
+mod streamer;
+pub use streamer::RxStreamer;
+pub use streamer::TxStreamer;
 
 use std::str::FromStr;
 use thiserror::Error;
@@ -17,6 +17,8 @@ use thiserror::Error;
 /// Seify Error
 #[derive(Debug, Error, PartialEq)]
 pub enum Error {
+    #[error("DeviceError")]
+    DeviceError,
     #[error("Value Error")]
     ValueError,
     #[error("Not Found")]
@@ -86,7 +88,7 @@ pub fn enumerate_with_args<A: TryInto<Args>>(a: A) -> Result<Vec<Args>, Error> {
         }
     }
 
-    Ok(Vec::new())
+    Ok(devs)
 }
 
 /// Component of a [Range].

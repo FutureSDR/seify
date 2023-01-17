@@ -1,0 +1,3 @@
+[submodule "crates/rtl-sdr-rs"]
+	path = crates/rtl-sdr-rs
+	url = https://github.com/bastibl/rtl-sdr-rs.git

@@ -1,17 +1,24 @@
+use rtlsdr_rs::RtlSdr as Sdr;
+
 use crate::Args;
 use crate::DeviceTrait;
+use crate::Driver;
 use crate::Error;
 
-pub struct RtlSdr {}
+pub struct RtlSdr {
+    dev: Sdr,
+}
 pub struct RxStreamer;
 pub struct TxDummy;
 
 impl RtlSdr {
     pub fn probe(_args: &Args) -> Result<Vec<Args>, Error> {
-        Ok(Vec::new())
+        Ok(vec!["driver=rtlsdr, serial=0".try_into()?])
     }
     pub fn open<A: TryInto<Args>>(_args: A) -> Result<Self, Error> {
-        todo!()
+        Ok(RtlSdr {
+            dev: Sdr::open(0).or(Err(Error::DeviceError))?
+        })
     }
 }
 
@@ -20,7 +27,7 @@ impl DeviceTrait for RtlSdr {
     type TxStreamer = TxDummy;
 
     fn driver(&self) -> crate::Driver {
-        todo!()
+        Driver::RtlSdr        
     }
 
     fn id(&self) -> Result<String, Error> {
