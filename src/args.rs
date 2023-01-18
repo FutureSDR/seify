@@ -106,10 +106,15 @@ impl TryInto<Args> for &String {
     }
 }
 
-impl Into<Args> for &Args {
+impl From<&Args> for Args {
+    fn from(value: &Args) -> Self {
+        value.clone()
+    }
+}
 
-    fn into(self) -> Args {
-        self.clone()
+impl From<()> for Args {
+    fn from(_value: ()) -> Self {
+        Args::new()
     }
 }
 
