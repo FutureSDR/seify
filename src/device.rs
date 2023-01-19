@@ -1,7 +1,6 @@
 #![allow(dead_code)]
 #![allow(unused_variables)]
 use std::any::Any;
-use std::sync::Arc;
 
 use crate::impls;
 use crate::Args;
@@ -197,8 +196,8 @@ pub trait DeviceTrait {
     fn get_sample_rate_range(&self, direction: Direction, channel: usize) -> Result<Range, Error>;
 }
 
-pub struct Device<T: DeviceTrait + Any + ?Sized> {
-    dev: Arc<T>,
+pub struct Device<T: DeviceTrait + Any> {
+    dev: T,
 }
 
 impl Device<GenericDevice> {
@@ -221,7 +220,7 @@ impl Device<GenericDevice> {
         {
             if driver.is_none() || matches!(driver, Some(Driver::RtlSdr)) {
                 return Ok(Device {
-                    dev: Arc::new(DeviceWrapper { dev: impls::RtlSdr::open(&args)?}),
+                    dev: Box::new(DeviceWrapper { dev: impls::RtlSdr::open(&args)?}),
                 });
             }
         }
@@ -237,13 +236,18 @@ impl Device<GenericDevice> {
     }
 }
 
-pub type GenericDevice = dyn DeviceTrait<RxStreamer = Box<dyn RxStreamer>, TxStreamer = Box<dyn TxStreamer>>;
+pub type GenericDevice = Box<dyn DeviceTrait<RxStreamer = Box<dyn RxStreamer>, TxStreamer = Box<dyn TxStreamer>>>;
 
 impl<T: DeviceTrait + Any> Device<T> {
     pub fn from_device(dev: T) -> Self {
-        Self { dev: Arc::new(dev) }
+        Self { dev }
     }
-    pub fn inner<D: Any>(&mut self) -> Result<&mut D, Error> {
+    pub fn inner<D: Any>(&self) -> Result<&D, Error> {
+        (&self.dev as &dyn Any)
+            .downcast_ref::<D>()
+            .ok_or(Error::ValueError)
+    }
+    pub fn inner_mut<D: Any>(&mut self) -> Result<&mut D, Error> {
         (&mut self.dev as &mut dyn Any)
             .downcast_mut::<D>()
             .ok_or(Error::ValueError)
@@ -301,6 +305,182 @@ impl<
         args: Args,
     ) -> Result<Self::TxStreamer, Error> {
         Ok(Box::new(self.dev.tx_stream_with_args(channels, args)?))
+    }
+
+    fn antennas(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
+        todo!()
+    }
+
+    fn antenna(&self, direction: Direction, channel: usize) -> Result<String, Error> {
+        todo!()
+    }
+
+    fn set_antenna(&self, direction: Direction, channel: usize, name: &str) -> Result<(), Error> {
+        todo!()
+    }
+
+    fn gain_elements(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
+        todo!()
+    }
+
+    fn suports_agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+        todo!()
+    }
+
+    fn enable_agc(&self, direction: Direction, channel: usize, agc: bool) -> Result<(), Error> {
+        todo!()
+    }
+
+    fn agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+        todo!()
+    }
+
+    fn set_gain(&self, direction: Direction, channel: usize, gain: f64) -> Result<(), Error> {
+        todo!()
+    }
+
+    fn gain(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
+        todo!()
+    }
+
+    fn gain_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
+        todo!()
+    }
+
+    fn set_gain_element(
+        &self,
+        direction: Direction,
+        channel: usize,
+        name: &str,
+        gain: f64,
+    ) -> Result<(), Error> {
+        todo!()
+    }
+
+    fn gain_element(&self, direction: Direction, channel: usize, name: &str) -> Result<f64, Error> {
+        todo!()
+    }
+
+    fn gain_element_range(
+        &self,
+        direction: Direction,
+        channel: usize,
+        name: &str,
+    ) -> Result<Range, Error> {
+        todo!()
+    }
+
+    fn frequency_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
+        todo!()
+    }
+
+    fn frequency(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
+        todo!()
+    }
+
+    fn set_frequency(
+        &self,
+        direction: Direction,
+        channel: usize,
+        frequency: f64,
+        args: Args,
+    ) -> Result<(), Error> {
+        todo!()
+    }
+
+    fn list_frequencies(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
+        todo!()
+    }
+
+    fn component_frequency_range(
+        &self,
+        direction: Direction,
+        channel: usize,
+        name: &str,
+    ) -> Result<Range, Error> {
+        todo!()
+    }
+
+    fn component_frequency(
+        &self,
+        direction: Direction,
+        channel: usize,
+        name: &str,
+    ) -> Result<f64, Error> {
+        todo!()
+    }
+
+    fn set_component_frequency(
+        &self,
+        direction: Direction,
+        channel: usize,
+        name: &str,
+        frequency: f64,
+        args: Args,
+    ) -> Result<(), Error> {
+        todo!()
+    }
+
+    fn sample_rate(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
+        todo!()
+    }
+
+    fn set_sample_rate(
+        &self,
+        direction: Direction,
+        channel: usize,
+        rate: f64,
+    ) -> Result<(), Error> {
+        todo!()
+    }
+
+    fn get_sample_rate_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
+        todo!()
+    }
+}
+
+impl DeviceTrait for GenericDevice {
+    type RxStreamer = Box<dyn RxStreamer>;
+    type TxStreamer = Box<dyn TxStreamer>;
+
+    fn driver(&self) -> Driver {
+        self.as_ref().driver()
+    }
+    fn id(&self) -> Result<String, Error> {
+        self.as_ref().id()
+    }
+    fn info(&self) -> Result<Args, Error> {
+        self.as_ref().info()
+    }
+    fn num_channels(&self, direction: Direction) -> Result<usize, Error> {
+        self.as_ref().num_channels(direction)
+    }
+    fn full_duplex(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+        self.as_ref().full_duplex(direction, channel)
+    }
+
+    fn rx_stream(&self, channels: &[usize]) -> Result<Self::RxStreamer, Error> {
+        Ok(Box::new(self.as_ref().rx_stream(channels)?))
+    }
+
+    fn rx_stream_with_args(
+        &self,
+        channels: &[usize],
+        args: Args,
+    ) -> Result<Self::RxStreamer, Error> {
+        Ok(Box::new(self.as_ref().rx_stream_with_args(channels, args)?))
+    }
+
+    fn tx_stream(&self, channels: &[usize]) -> Result<Self::TxStreamer, Error> {
+        Ok(Box::new(self.as_ref().tx_stream(channels)?))
+    }
+
+    fn tx_stream_with_args(
+        &self,
+        channels: &[usize],
+        args: Args,
+    ) -> Result<Self::TxStreamer, Error> {
+        Ok(Box::new(self.as_ref().tx_stream_with_args(channels, args)?))
     }
 
     fn antennas(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {

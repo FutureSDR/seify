@@ -33,7 +33,7 @@ pub trait RxStreamer {
     ///
     /// # Panics
     ///  * If `buffers` is not the same length as the `channels` array passed to `Device::rx_stream`.
-    fn read(&mut self, buffers: &[&mut[Complex32]], timeout_us: i64) -> Result<usize, Error>;
+    fn read(&mut self, buffers: &mut [&mut [Complex32]], timeout_us: i64) -> Result<usize, Error>;
 }
 
 impl RxStreamer for Box<dyn RxStreamer> {
@@ -46,7 +46,7 @@ impl RxStreamer for Box<dyn RxStreamer> {
     fn deactivate(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
         self.as_mut().deactivate(time_ns)
     }
-    fn read(&mut self, buffers: &[&mut[Complex32]], timeout_us: i64) -> Result<usize, Error> {
+    fn read(&mut self, buffers: &mut [&mut [Complex32]], timeout_us: i64) -> Result<usize, Error> {
         self.as_mut().read(buffers, timeout_us)
     }
 }
@@ -90,7 +90,13 @@ pub trait TxStreamer {
     /// # Panics
     ///  * If `buffers` is not the same length as the `channels` array passed to `Device::tx_stream`.
     ///  * If all the buffers in `buffers` are not the same length.
-    fn write(&mut self, buffers: &[&[Complex32]], at_ns: Option<i64>, end_burst: bool, timeout_us: i64) -> Result<usize, Error>;
+    fn write(
+        &mut self,
+        buffers: &[&[Complex32]],
+        at_ns: Option<i64>,
+        end_burst: bool,
+        timeout_us: i64,
+    ) -> Result<usize, Error>;
 
     /// Write all samples to the device.
     ///
@@ -109,7 +115,13 @@ pub trait TxStreamer {
     /// # Panics
     ///  * If `buffers` is not the same length as the `channels` array passed to `Device::rx_stream`.
     ///  * If all the buffers in `buffers` are not the same length.
-    fn write_all(&mut self, buffers: &[&[Complex32]], at_ns: Option<i64>, end_burst: bool, timeout_us: i64) -> Result<(), Error>;
+    fn write_all(
+        &mut self,
+        buffers: &[&[Complex32]],
+        at_ns: Option<i64>,
+        end_burst: bool,
+        timeout_us: i64,
+    ) -> Result<(), Error>;
 }
 
 impl TxStreamer for Box<dyn TxStreamer> {
@@ -122,11 +134,23 @@ impl TxStreamer for Box<dyn TxStreamer> {
     fn deactivate(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
         self.as_mut().deactivate(time_ns)
     }
-    fn write(&mut self, buffers: &[&[Complex32]], at_ns: Option<i64>, end_burst: bool, timeout_us: i64) -> Result<usize, Error> {
+    fn write(
+        &mut self,
+        buffers: &[&[Complex32]],
+        at_ns: Option<i64>,
+        end_burst: bool,
+        timeout_us: i64,
+    ) -> Result<usize, Error> {
         self.as_mut().write(buffers, at_ns, end_burst, timeout_us)
     }
-    fn write_all(&mut self, buffers: &[&[Complex32]], at_ns: Option<i64>, end_burst: bool, timeout_us: i64) -> Result<(), Error> {
-        self.as_mut().write_all(buffers, at_ns, end_burst, timeout_us)
+    fn write_all(
+        &mut self,
+        buffers: &[&[Complex32]],
+        at_ns: Option<i64>,
+        end_burst: bool,
+        timeout_us: i64,
+    ) -> Result<(), Error> {
+        self.as_mut()
+            .write_all(buffers, at_ns, end_burst, timeout_us)
     }
 }
-

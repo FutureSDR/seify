@@ -1,24 +1,36 @@
-#![allow(dead_code)]
-#![allow(unused_variables)]
+use num_complex::Complex32;
+use rtlsdr_rs::enumerate;
 use rtlsdr_rs::RtlSdr as Sdr;
 use rtlsdr_rs::TunerGain;
-use rtlsdr_rs::enumerate;
+use std::sync::Arc;
+use std::sync::Mutex;
 
 use crate::Args;
 use crate::DeviceTrait;
 use crate::Direction;
+use crate::Direction::*;
 use crate::Driver;
 use crate::Error;
+use crate::Range;
+use crate::RangeItem;
 
 pub struct RtlSdr {
-    dev: Sdr,
+    dev: Arc<Sdr>,
     index: usize,
+    i: Mutex<Inner>,
 }
-pub struct RxStreamer;
+struct Inner {
+    gain: TunerGain,
+}
+pub struct RxStreamer {
+    dev: Arc<Sdr>,
+}
 
 impl RxStreamer {
-    fn new(sdr: &Sdr) -> Self {
-        todo!()
+    fn new(dev: Arc<Sdr>) -> Self {
+        Self {
+            dev,
+        }
     }
 }
 
@@ -36,10 +48,15 @@ impl RtlSdr {
     pub fn open<A: TryInto<Args>>(args: A) -> Result<Self, Error> {
         let args = args.try_into().or(Err(Error::ValueError))?;
         let index = args.get::<usize>("index").unwrap_or(0);
-        Ok(RtlSdr {
-            dev: Sdr::open(index).or(Err(Error::DeviceError))?,
+        let dev = RtlSdr {
+            dev: Arc::new(Sdr::open(index).or(Err(Error::DeviceError))?),
             index,
-        })
+            i: Mutex::new(Inner {
+                gain: TunerGain::Auto,
+            }),
+        };
+        dev.enable_agc(Rx, 0, true)?;
+        Ok(dev)
     }
 }
 
@@ -61,8 +78,8 @@ impl DeviceTrait for RtlSdr {
 
     fn num_channels(&self, direction: Direction) -> Result<usize, Error> {
         match direction {
-            Direction::Rx => Ok(1),
-            Direction::Tx => Ok(0),
+            Rx => Ok(1),
+            Tx => Ok(0),
         }
     }
 
@@ -77,23 +94,23 @@ impl DeviceTrait for RtlSdr {
     fn rx_stream_with_args(
         &self,
         channels: &[usize],
-        args: Args,
+        _args: Args,
     ) -> Result<Self::RxStreamer, Error> {
         if channels != [0] {
             Err(Error::ValueError)
         } else {
-            Ok(RxStreamer::new(&self.dev))
+            Ok(RxStreamer::new(self.dev.clone()))
         }
     }
 
-    fn tx_stream(&self, channels: &[usize]) -> Result<Self::TxStreamer, Error> {
+    fn tx_stream(&self, _channels: &[usize]) -> Result<Self::TxStreamer, Error> {
         Err(Error::NotSupported)
     }
 
     fn tx_stream_with_args(
         &self,
-        channels: &[usize],
-        args: Args,
+        _channels: &[usize],
+        _args: Args,
     ) -> Result<Self::TxStreamer, Error> {
         Err(Error::NotSupported)
     }
@@ -103,38 +120,29 @@ impl DeviceTrait for RtlSdr {
     }
 
     fn antenna(&self, direction: Direction, channel: usize) -> Result<String, Error> {
-        if matches!(direction, Direction::Rx) && channel == 0 {
+        if matches!(direction, Rx) && channel == 0 {
             Ok("RX".to_string())
-        } else if matches!(direction, Direction::Rx) {
+        } else if matches!(direction, Rx) {
             Err(Error::ValueError)
         } else {
             Err(Error::NotSupported)
         }
     }
 
-    fn set_antenna(
-        &self,
-        direction: Direction,
-        channel: usize,
-        name: &str,
-    ) -> Result<(), Error> {
-        if matches!(direction, Direction::Rx) && channel == 0 && name == "RX" {
+    fn set_antenna(&self, direction: Direction, channel: usize, name: &str) -> Result<(), Error> {
+        if matches!(direction, Rx) && channel == 0 && name == "RX" {
             Ok(())
-        } else if matches!(direction, Direction::Rx) {
+        } else if matches!(direction, Rx) {
             Err(Error::ValueError)
         } else {
             Err(Error::NotSupported)
         }
     }
 
-    fn gain_elements(
-        &self,
-        direction: Direction,
-        channel: usize,
-    ) -> Result<Vec<String>, Error> {
-        if matches!(direction, Direction::Rx) && channel == 0 {
+    fn gain_elements(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
+        if matches!(direction, Rx) && channel == 0 {
             Ok(vec!["TUNER".to_string()])
-        } else if matches!(direction, Direction::Rx) {
+        } else if matches!(direction, Rx) {
             Err(Error::ValueError)
         } else {
             Err(Error::NotSupported)
@@ -142,29 +150,31 @@ impl DeviceTrait for RtlSdr {
     }
 
     fn suports_agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        if matches!(direction, Direction::Rx) && channel == 0 {
+        if matches!(direction, Rx) && channel == 0 {
             Ok(true)
-        } else if matches!(direction, Direction::Rx) {
+        } else if matches!(direction, Rx) {
             Err(Error::ValueError)
         } else {
             Err(Error::NotSupported)
         }
     }
 
-    fn enable_agc(
-        &self,
-        direction: Direction,
-        channel: usize,
-        agc: bool,
-    ) -> Result<(), Error> {
+    fn enable_agc(&self, direction: Direction, channel: usize, agc: bool) -> Result<(), Error> {
         let gains = self.dev.get_tuner_gains().or(Err(Error::DeviceError))?;
-        if matches!(direction, Direction::Rx) && channel == 0 {
+        if matches!(direction, Rx) && channel == 0 {
+            let mut inner = self.i.lock().unwrap();
             if agc {
-                self.dev.set_tuner_gain(TunerGain::Auto).or(Err(Error::DeviceError))
+                inner.gain = TunerGain::Auto;
+                self.dev
+                    .set_tuner_gain(inner.gain.clone())
+                    .or(Err(Error::DeviceError))
             } else {
-                self.dev.set_tuner_gain(TunerGain::Manual(gains[gains.len() / 2])).or(Err(Error::DeviceError))         
+                inner.gain = TunerGain::Manual(gains[gains.len() / 2]);
+                self.dev
+                    .set_tuner_gain(inner.gain.clone())
+                    .or(Err(Error::DeviceError))
             }
-        } else if matches!(direction, Direction::Rx) {
+        } else if matches!(direction, Rx) {
             Err(Error::ValueError)
         } else {
             Err(Error::NotSupported)
@@ -172,28 +182,26 @@ impl DeviceTrait for RtlSdr {
     }
 
     fn agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        todo!()
+        if matches!(direction, Rx) && channel == 0 {
+            let inner = self.i.lock().unwrap();
+            Ok(matches!(inner.gain, TunerGain::Auto))
+        } else if matches!(direction, Rx) {
+            Err(Error::ValueError)
+        } else {
+            Err(Error::NotSupported)
+        }
     }
 
-    fn set_gain(
-        &self,
-        direction: Direction,
-        channel: usize,
-        gain: f64,
-    ) -> Result<(), Error> {
-        todo!()
+    fn set_gain(&self, direction: Direction, channel: usize, gain: f64) -> Result<(), Error> {
+        self.set_gain_element(direction, channel, "TUNER", gain)
     }
 
     fn gain(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
-        todo!()
+        self.gain_element(direction, channel, "TUNER")
     }
 
-    fn gain_range(
-        &self,
-        direction: Direction,
-        channel: usize,
-    ) -> Result<crate::Range, Error> {
-        todo!()
+    fn gain_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
+        self.gain_element_range(direction, channel, "TUNER")
     }
 
     fn set_gain_element(
@@ -203,16 +211,30 @@ impl DeviceTrait for RtlSdr {
         name: &str,
         gain: f64,
     ) -> Result<(), Error> {
-        todo!()
+        let r = self.gain_range(direction, channel)?;
+        if r.contains(gain) && name == "TUNER" {
+            let mut inner = self.i.lock().unwrap();
+            inner.gain = TunerGain::Manual(gain as i32);
+            self.dev
+                .set_tuner_gain(inner.gain.clone())
+                .or(Err(Error::ValueError))
+        } else {
+            Err(Error::ValueError)
+        }
     }
 
-    fn gain_element(
-        &self,
-        direction: Direction,
-        channel: usize,
-        name: &str,
-    ) -> Result<f64, Error> {
-        todo!()
+    fn gain_element(&self, direction: Direction, channel: usize, name: &str) -> Result<f64, Error> {
+        if matches!(direction, Rx) && channel == 0 && name == "TUNER" {
+            let inner = self.i.lock().unwrap();
+            match inner.gain {
+                TunerGain::Auto => Err(Error::Inactive),
+                TunerGain::Manual(i) => Ok(i as f64),
+            }
+        } else if matches!(direction, Rx) {
+            Err(Error::ValueError)
+        } else {
+            Err(Error::NotSupported)
+        }
     }
 
     fn gain_element_range(
@@ -220,20 +242,25 @@ impl DeviceTrait for RtlSdr {
         direction: Direction,
         channel: usize,
         name: &str,
-    ) -> Result<crate::Range, Error> {
-        todo!()
+    ) -> Result<Range, Error> {
+        if matches!(direction, Rx) && channel == 0 && name == "TUNER" {
+            let gains = self.dev.get_tuner_gains().or(Err(Error::DeviceError))?;
+            Ok(Range::new(
+                gains.iter().map(|g| RangeItem::Value(*g as f64)).collect(),
+            ))
+        } else if matches!(direction, Rx) {
+            Err(Error::ValueError)
+        } else {
+            Err(Error::NotSupported)
+        }
     }
 
-    fn frequency_range(
-        &self,
-        direction: Direction,
-        channel: usize,
-    ) -> Result<crate::Range, Error> {
-        todo!()
+    fn frequency_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
+        self.component_frequency_range(direction, channel, "TUNER")
     }
 
     fn frequency(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
-        todo!()
+        self.component_frequency(direction, channel, "TUNER")
     }
 
     fn set_frequency(
@@ -243,15 +270,17 @@ impl DeviceTrait for RtlSdr {
         frequency: f64,
         args: Args,
     ) -> Result<(), Error> {
-        todo!()
+        self.set_component_frequency(direction, channel, "TUNER", frequency, args)
     }
 
-    fn list_frequencies(
-        &self,
-        direction: Direction,
-        channel: usize,
-    ) -> Result<Vec<String>, Error> {
-        todo!()
+    fn list_frequencies(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
+        if matches!(direction, Rx) && channel == 0 {
+            Ok(vec!["TUNER".to_string()])
+        } else if matches!(direction, Rx) {
+            Err(Error::ValueError)
+        } else {
+            Err(Error::NotSupported)
+        }
     }
 
     fn component_frequency_range(
@@ -259,8 +288,14 @@ impl DeviceTrait for RtlSdr {
         direction: Direction,
         channel: usize,
         name: &str,
-    ) -> Result<crate::Range, Error> {
-        todo!()
+    ) -> Result<Range, Error> {
+        if matches!(direction, Rx) && channel == 0 && name == "TUNER" {
+            Ok(Range::new(vec![RangeItem::Interval(0.0, 2e9)]))
+        } else if matches!(direction, Rx) {
+            Err(Error::ValueError)
+        } else {
+            Err(Error::NotSupported)
+        }
     }
 
     fn component_frequency(
@@ -269,7 +304,13 @@ impl DeviceTrait for RtlSdr {
         channel: usize,
         name: &str,
     ) -> Result<f64, Error> {
-        todo!()
+        if matches!(direction, Rx) && channel == 0 && name == "TUNER" {
+            Ok(self.dev.get_center_freq() as f64)
+        } else if matches!(direction, Rx) {
+            Err(Error::ValueError)
+        } else {
+            Err(Error::NotSupported)
+        }
     }
 
     fn set_component_frequency(
@@ -278,13 +319,25 @@ impl DeviceTrait for RtlSdr {
         channel: usize,
         name: &str,
         frequency: f64,
-        args: Args,
+        _args: Args,
     ) -> Result<(), Error> {
-        todo!()
+        if matches!(direction, Rx) && channel == 0 && self.frequency_range(direction, channel)?.contains(frequency) && name == "TUNER" {
+            self.dev.set_center_freq(frequency as u32).or(Err(Error::DeviceError))
+        } else if matches!(direction, Rx) {
+            Err(Error::ValueError)
+        } else {
+            Err(Error::NotSupported)
+        }
     }
 
     fn sample_rate(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
-        todo!()
+        if matches!(direction, Rx) && channel == 0 {
+            Ok(self.dev.get_sample_rate() as f64)
+        } else if matches!(direction, Rx) {
+            Err(Error::ValueError)
+        } else {
+            Err(Error::NotSupported)
+        }
     }
 
     fn set_sample_rate(
@@ -293,34 +346,51 @@ impl DeviceTrait for RtlSdr {
         channel: usize,
         rate: f64,
     ) -> Result<(), Error> {
-        todo!()
+        if matches!(direction, Rx) && channel == 0 && self.get_sample_rate_range(direction, channel)?.contains(rate) {
+            self.dev.set_sample_rate(rate as u32).or(Err(Error::DeviceError))
+        } else if matches!(direction, Rx) {
+            Err(Error::ValueError)
+        } else {
+            Err(Error::NotSupported)
+        }
+        
     }
 
-    fn get_sample_rate_range(
-        &self,
-        direction: Direction,
-        channel: usize,
-    ) -> Result<crate::Range, Error> {
-        todo!()
+    fn get_sample_rate_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
+        if matches!(direction, Rx) && channel == 0 {
+            Ok(Range::new(vec![RangeItem::Interval(225_001.0, 300_000.0), RangeItem::Interval(900_001.0, 3_200_000.0)]))
+        } else if matches!(direction, Rx) {
+            Err(Error::ValueError)
+        } else {
+            Err(Error::NotSupported)
+        }
     }
 }
 
 impl crate::RxStreamer for RxStreamer {
     fn mtu(&self) -> Result<usize, Error> {
-        todo!()
+        Ok(16 * 16384)
     }
-    fn activate(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
-        todo!()
+    fn activate(&mut self, _time_ns: Option<i64>) -> Result<(), Error> {
+        Ok(())
     }
-    fn deactivate(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
-        todo!()
+    fn deactivate(&mut self, _time_ns: Option<i64>) -> Result<(), Error> {
+        Ok(())
     }
     fn read(
         &mut self,
-        buffers: &[&mut [num_complex::Complex32]],
-        timeout_us: i64,
+        buffers: &mut [&mut [Complex32]],
+        _timeout_us: i64,
     ) -> Result<usize, Error> {
-        todo!()
+        debug_assert_eq!(buffers.len(), 1);
+        let mut u = vec![0u8; buffers[0].len() * 2];
+        let n = self.dev.read_sync(&mut u).or(Err(Error::DeviceError))?;
+        debug_assert_eq!(n % 2, 0);
+
+        for i in 0..n {
+            buffers[0][i] = Complex32::new(u[i *2] as f32 - 127.0, u[i * 2 + 1] as f32 - 127.0);
+        }
+        Ok(n)
     }
 }
 
@@ -328,27 +398,27 @@ impl crate::TxStreamer for TxDummy {
     fn mtu(&self) -> Result<usize, Error> {
         unreachable!()
     }
-    fn activate(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
+    fn activate(&mut self, _time_ns: Option<i64>) -> Result<(), Error> {
         unreachable!()
     }
-    fn deactivate(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
+    fn deactivate(&mut self, _time_ns: Option<i64>) -> Result<(), Error> {
         unreachable!()
     }
     fn write(
         &mut self,
-        buffers: &[&[num_complex::Complex32]],
-        at_ns: Option<i64>,
-        end_burst: bool,
-        timeout_us: i64,
+        _buffers: &[&[Complex32]],
+        _at_ns: Option<i64>,
+        _end_burst: bool,
+        _timeout_us: i64,
     ) -> Result<usize, Error> {
         unreachable!()
     }
     fn write_all(
         &mut self,
-        buffers: &[&[num_complex::Complex32]],
-        at_ns: Option<i64>,
-        end_burst: bool,
-        timeout_us: i64,
+        _buffers: &[&[Complex32]],
+        _at_ns: Option<i64>,
+        _end_burst: bool,
+        _timeout_us: i64,
     ) -> Result<(), Error> {
         unreachable!()
     }

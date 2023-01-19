@@ -25,6 +25,8 @@ pub enum Error {
     NotFound,
     #[error("Not Supported")]
     NotSupported,
+    #[error("Inactive")]
+    Inactive,
 }
 
 #[derive(Debug)]
@@ -61,6 +63,7 @@ impl FromStr for Driver {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
 pub enum Direction {
     Rx,
     Tx,
