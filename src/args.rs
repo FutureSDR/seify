@@ -18,7 +18,7 @@ use std::str::FromStr;
 use crate::Error;
 
 /// Arguments.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Clone, Serialize)]
 #[serde(transparent)]
 #[serde_as]
 pub struct Args {
@@ -47,6 +47,12 @@ impl Args {
     pub fn deserialize<D: for<'a> Deserialize<'a>>(&self) -> Option<D> {
         let s = serde_json::to_string(&self).ok()?;
         serde_json::from_str(&s).ok()
+    }
+}
+
+impl std::fmt::Debug for Args {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.map.fmt(f)
     }
 }
 
