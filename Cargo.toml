@@ -6,14 +6,14 @@ license = "Apache-2.0"
 description = "Shiny Samples from your SDR"
 
 [features]
-default = ["rtlsdr"]
+default = ["rtlsdr", "aaronia"]
 rtlsdr = ["dep:rtlsdr-rs"]
 hackrf = ["dep:hackrfone"]
 aaronia = ["dep:aaronia-rtsa"]
 soapy = ["dep:soapysdr"]
 
 [dependencies]
-aaronia-rtsa = { version = "0.0.1", optional = true }
+aaronia-rtsa = { path = "/home/basti/src/aaronia-rtsa/", optional = true }
 hackrfone = { git = "https://github.com/newAM/hackrfone", version = "0.2.3", optional = true }
 nom = "7.1.2"
 num-complex = "0.4.2"

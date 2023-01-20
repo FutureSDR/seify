@@ -221,6 +221,16 @@ impl Device<GenericDevice> {
             Err(Error::NotFound) => None,
             Err(e) => return Err(e),
         };
+        #[cfg(feature = "aaronia")]
+        {
+            if driver.is_none() || matches!(driver, Some(Driver::Aaronia)) {
+                return Ok(Device {
+                    dev: Box::new(DeviceWrapper {
+                        dev: impls::Aaronia::open(&args)?,
+                    }),
+                });
+            }
+        }
         #[cfg(feature = "rtlsdr")]
         {
             if driver.is_none() || matches!(driver, Some(Driver::RtlSdr)) {

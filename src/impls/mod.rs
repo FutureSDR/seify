@@ -1,7 +1,7 @@
-// #[cfg(feature = "aaronia")]
-// pub mod aaronia;
-// #[cfg(feature = "aaronia")]
-// pub use aaronia::Http;
+#[cfg(feature = "aaronia")]
+pub mod aaronia;
+#[cfg(feature = "aaronia")]
+pub use aaronia::Aaronia;
 
 #[cfg(feature = "hackrf")]
 pub mod hackrf;

@@ -32,8 +32,8 @@ pub enum Error {
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum Driver {
-    // #[cfg(feature = "aaronia")]
-    // AaroniaHttp,
+    #[cfg(feature = "aaronia")]
+    Aaronia,
     #[cfg(feature = "hackrf")]
     HackRf,
     #[cfg(feature = "rtlsdr")]
@@ -47,6 +47,12 @@ impl FromStr for Driver {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let s = s.to_lowercase();
+        #[cfg(feature = "aaronia")]
+        {
+            if s == "aaronia" {
+                return Ok(Driver::Aaronia);
+            }
+        }
         #[cfg(feature = "rtlsdr")]
         {
             if s == "rtlsdr" || s == "rtl-sdr" || s == "rtl" {
@@ -79,6 +85,10 @@ pub fn enumerate_with_args<A: TryInto<Args>>(a: A) -> Result<Vec<Args>, Error> {
     let args: Args = a.try_into().or(Err(Error::ValueError))?;
     let mut devs = Vec::new();
     let driver = args.get::<String>("driver").ok();
+
+    if cfg!(feature = "aaronia") && (driver.is_none() || driver.as_ref().unwrap() == "aaronia") {
+        devs.append(&mut impls::Aaronia::probe(&args)?)
+    }
 
     if cfg!(feature = "rtlsdr") && (driver.is_none() || driver.as_ref().unwrap() == "rtlsdr") {
         devs.append(&mut impls::RtlSdr::probe(&args)?)
