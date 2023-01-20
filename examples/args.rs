@@ -1,7 +1,7 @@
-use std::error::Error;
 use serde::Deserialize;
 use serde_with::serde_as;
 use serde_with::DisplayFromStr;
+use std::error::Error;
 
 use seify::Args;
 
@@ -17,7 +17,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let args: Args = "driver=\"the driver\", id=123, not=interesting".parse()?;
     println!("args:   {args:?}");
 
-    let c : Config = args.deserialize().unwrap();
+    let c: Config = args.deserialize().unwrap();
     println!("driver: {:?}", c.driver);
     println!("id:     {:?}", c.id);
 

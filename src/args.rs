@@ -9,8 +9,8 @@ use nom::multi::separated_list0;
 use nom::sequence::delimited;
 use nom::sequence::separated_pair;
 use nom::IResult;
-use serde::Serialize;
 use serde::Deserialize;
+use serde::Serialize;
 use serde_with::serde_as;
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -47,7 +47,6 @@ impl Args {
     pub fn deserialize<D: for<'a> Deserialize<'a>>(&self) -> Option<D> {
         let s = serde_json::to_string(&self).ok()?;
         serde_json::from_str(&s).ok()
-        
     }
 }
 
@@ -197,8 +196,8 @@ mod tests {
     }
     #[test]
     fn serde() {
-        use serde_with::serde_as;
         use serde::Deserialize;
+        use serde_with::serde_as;
         use serde_with::DisplayFromStr;
 
         #[serde_as]
@@ -208,9 +207,8 @@ mod tests {
             bar: u32,
         }
 
-        let c: Args = "bar=123,lol=foo".parse().unwrap();
+        let c: Args = "bar=123,hello=world".parse().unwrap();
         let s = serde_json::to_string(&c).unwrap();
-        eprintln!("s {:}", s);
         let f: Foo = serde_json::from_str(&s).unwrap();
         assert_eq!(f.bar, 123);
     }

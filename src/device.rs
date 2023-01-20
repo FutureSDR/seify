@@ -664,7 +664,7 @@ impl<
     }
 
     fn rx_stream(&self, channels: &[usize]) -> Result<Self::RxStreamer, Error> {
-        Ok(self.dev.rx_stream(channels)?)
+        self.dev.rx_stream(channels)
     }
 
     fn rx_stream_with_args(
@@ -672,11 +672,11 @@ impl<
         channels: &[usize],
         args: Args,
     ) -> Result<Self::RxStreamer, Error> {
-        Ok(self.dev.rx_stream_with_args(channels, args)?)
+        self.dev.rx_stream_with_args(channels, args)
     }
 
     fn tx_stream(&self, channels: &[usize]) -> Result<Self::TxStreamer, Error> {
-        Ok(self.dev.tx_stream(channels)?)
+        self.dev.tx_stream(channels)
     }
 
     fn tx_stream_with_args(
@@ -684,7 +684,7 @@ impl<
         channels: &[usize],
         args: Args,
     ) -> Result<Self::TxStreamer, Error> {
-        Ok(self.dev.tx_stream_with_args(channels, args)?)
+        self.dev.tx_stream_with_args(channels, args)
     }
 
     fn antennas(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
