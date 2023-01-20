@@ -1,7 +1,6 @@
 use num_complex::Complex32;
 
 use seify::enumerate;
-use seify::impls::rtlsdr;
 use seify::Args;
 use seify::Device;
 use seify::DeviceTrait;
@@ -14,8 +13,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let devs = enumerate()?;
     println!("devs: {devs:?}");
 
-    let rtl = rtlsdr::RtlSdr::open("")?;
-    let dev = Device::from_device(rtl);
+    let dev = Device::new()?;
     dev.enable_agc(Rx, 0, true)?;
     dev.set_frequency(Rx, 0, 101e6, Args::new())?;
     dev.set_sample_rate(Rx, 0, 3.2e6)?;

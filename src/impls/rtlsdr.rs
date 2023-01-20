@@ -373,7 +373,7 @@ impl crate::RxStreamer for RxStreamer {
         Ok(16 * 16384)
     }
     fn activate(&mut self, _time_ns: Option<i64>) -> Result<(), Error> {
-        Ok(())
+        self.dev.reset_buffer().or(Err(Error::DeviceError))
     }
     fn deactivate(&mut self, _time_ns: Option<i64>) -> Result<(), Error> {
         Ok(())
@@ -388,10 +388,10 @@ impl crate::RxStreamer for RxStreamer {
         let n = self.dev.read_sync(&mut u).or(Err(Error::DeviceError))?;
         debug_assert_eq!(n % 2, 0);
 
-        for i in 0..n {
+        for i in 0..n / 2 {
             buffers[0][i] = Complex32::new(u[i *2] as f32 - 127.0, u[i * 2 + 1] as f32 - 127.0);
         }
-        Ok(n)
+        Ok(n / 2)
     }
 }
 

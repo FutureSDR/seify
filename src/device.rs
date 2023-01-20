@@ -308,43 +308,43 @@ impl<
     }
 
     fn antennas(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
-        todo!()
+        self.dev.antennas(direction, channel)
     }
 
     fn antenna(&self, direction: Direction, channel: usize) -> Result<String, Error> {
-        todo!()
+        self.dev.antenna(direction, channel)
     }
 
     fn set_antenna(&self, direction: Direction, channel: usize, name: &str) -> Result<(), Error> {
-        todo!()
+        self.dev.set_antenna(direction, channel, name)
     }
 
     fn gain_elements(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
-        todo!()
+        self.dev.gain_elements(direction, channel)
     }
 
     fn suports_agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        todo!()
+        self.dev.suports_agc(direction, channel)
     }
 
     fn enable_agc(&self, direction: Direction, channel: usize, agc: bool) -> Result<(), Error> {
-        todo!()
+        self.dev.enable_agc(direction, channel, agc)
     }
 
     fn agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        todo!()
+        self.dev.agc(direction, channel)
     }
 
     fn set_gain(&self, direction: Direction, channel: usize, gain: f64) -> Result<(), Error> {
-        todo!()
+        self.dev.set_gain(direction, channel, gain)
     }
 
     fn gain(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
-        todo!()
+        self.dev.gain(direction, channel)
     }
 
     fn gain_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
-        todo!()
+        self.dev.gain_range(direction, channel)
     }
 
     fn set_gain_element(
@@ -354,11 +354,11 @@ impl<
         name: &str,
         gain: f64,
     ) -> Result<(), Error> {
-        todo!()
+        self.dev.set_gain_element(direction, channel, name, gain)
     }
 
     fn gain_element(&self, direction: Direction, channel: usize, name: &str) -> Result<f64, Error> {
-        todo!()
+        self.dev.gain_element(direction, channel, name)
     }
 
     fn gain_element_range(
@@ -367,15 +367,15 @@ impl<
         channel: usize,
         name: &str,
     ) -> Result<Range, Error> {
-        todo!()
+        self.dev.gain_element_range(direction, channel, name)
     }
 
     fn frequency_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
-        todo!()
+        self.dev.frequency_range(direction, channel)
     }
 
     fn frequency(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
-        todo!()
+        self.dev.frequency(direction, channel)
     }
 
     fn set_frequency(
@@ -385,11 +385,11 @@ impl<
         frequency: f64,
         args: Args,
     ) -> Result<(), Error> {
-        todo!()
+        self.dev.set_frequency(direction, channel, frequency, args)
     }
 
     fn list_frequencies(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
-        todo!()
+        self.dev.list_frequencies(direction, channel)
     }
 
     fn component_frequency_range(
@@ -398,7 +398,7 @@ impl<
         channel: usize,
         name: &str,
     ) -> Result<Range, Error> {
-        todo!()
+        self.dev.component_frequency_range(direction, channel, name)
     }
 
     fn component_frequency(
@@ -407,7 +407,7 @@ impl<
         channel: usize,
         name: &str,
     ) -> Result<f64, Error> {
-        todo!()
+        self.dev.component_frequency(direction, channel, name)
     }
 
     fn set_component_frequency(
@@ -418,11 +418,11 @@ impl<
         frequency: f64,
         args: Args,
     ) -> Result<(), Error> {
-        todo!()
+        self.dev.set_component_frequency(direction, channel, name, frequency, args)
     }
 
     fn sample_rate(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
-        todo!()
+        self.dev.sample_rate(direction, channel)
     }
 
     fn set_sample_rate(
@@ -431,11 +431,11 @@ impl<
         channel: usize,
         rate: f64,
     ) -> Result<(), Error> {
-        todo!()
+        self.dev.set_sample_rate(direction, channel, rate)
     }
 
     fn get_sample_rate_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
-        todo!()
+        self.dev.get_sample_rate_range(direction, channel)
     }
 }
 
