@@ -9,14 +9,20 @@ use nom::multi::separated_list0;
 use nom::sequence::delimited;
 use nom::sequence::separated_pair;
 use nom::IResult;
+use serde::Serialize;
+use serde::Deserialize;
+use serde_with::serde_as;
 use std::collections::HashMap;
 use std::str::FromStr;
 
 use crate::Error;
 
 /// Arguments.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
+#[serde(transparent)]
+#[serde_as]
 pub struct Args {
+    #[serde_with(as = "BTreeMap<_, Vec<DisplayFromStr>>")]
     map: HashMap<String, String>,
 }
 
@@ -37,6 +43,11 @@ impl Args {
     }
     pub fn set<K: Into<String>, V: Into<String>>(&mut self, key: K, value: V) -> Option<String> {
         self.map.insert(key.into(), value.into())
+    }
+    pub fn deserialize<D: for<'a> Deserialize<'a>>(&self) -> Option<D> {
+        let s = serde_json::to_string(&self).ok()?;
+        serde_json::from_str(&s).ok()
+        
     }
 }
 
@@ -127,6 +138,7 @@ impl Default for Args {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
     fn deserialize_empty() {
         let c: Args = "".parse().unwrap();
@@ -182,5 +194,24 @@ mod tests {
         assert_eq!(c.get::<String>("fooo"), Err(Error::NotFound));
         assert_eq!(c.get::<String>("bar").unwrap(), "lol");
         assert_eq!(c.get::<u32>("bar"), Err(Error::ValueError));
+    }
+    #[test]
+    fn serde() {
+        use serde_with::serde_as;
+        use serde::Deserialize;
+        use serde_with::DisplayFromStr;
+
+        #[serde_as]
+        #[derive(Deserialize)]
+        struct Foo {
+            #[serde_as(as = "DisplayFromStr")]
+            bar: u32,
+        }
+
+        let c: Args = "bar=123,lol=foo".parse().unwrap();
+        let s = serde_json::to_string(&c).unwrap();
+        eprintln!("s {:}", s);
+        let f: Foo = serde_json::from_str(&s).unwrap();
+        assert_eq!(f.bar, 123);
     }
 }
