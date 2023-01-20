@@ -484,43 +484,43 @@ impl DeviceTrait for GenericDevice {
     }
 
     fn antennas(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
-        todo!()
+        self.as_ref().antennas(direction, channel)
     }
 
     fn antenna(&self, direction: Direction, channel: usize) -> Result<String, Error> {
-        todo!()
+        self.as_ref().antenna(direction, channel)
     }
 
     fn set_antenna(&self, direction: Direction, channel: usize, name: &str) -> Result<(), Error> {
-        todo!()
+        self.as_ref().set_antenna(direction, channel, name)
     }
 
     fn gain_elements(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
-        todo!()
+        self.as_ref().gain_elements(direction, channel)
     }
 
     fn suports_agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        todo!()
+        self.as_ref().suports_agc(direction, channel)
     }
 
     fn enable_agc(&self, direction: Direction, channel: usize, agc: bool) -> Result<(), Error> {
-        todo!()
+        self.as_ref().enable_agc(direction, channel, agc)
     }
 
     fn agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        todo!()
+        self.as_ref().agc(direction, channel)
     }
 
     fn set_gain(&self, direction: Direction, channel: usize, gain: f64) -> Result<(), Error> {
-        todo!()
+        self.as_ref().set_gain(direction, channel, gain)
     }
 
     fn gain(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
-        todo!()
+        self.as_ref().gain(direction, channel)
     }
 
     fn gain_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
-        todo!()
+        self.as_ref().gain_range(direction, channel)
     }
 
     fn set_gain_element(
@@ -530,11 +530,11 @@ impl DeviceTrait for GenericDevice {
         name: &str,
         gain: f64,
     ) -> Result<(), Error> {
-        todo!()
+        self.as_ref().set_gain_element(direction, channel, name, gain)
     }
 
     fn gain_element(&self, direction: Direction, channel: usize, name: &str) -> Result<f64, Error> {
-        todo!()
+        self.as_ref().gain_element(direction, channel, name)
     }
 
     fn gain_element_range(
@@ -543,15 +543,15 @@ impl DeviceTrait for GenericDevice {
         channel: usize,
         name: &str,
     ) -> Result<Range, Error> {
-        todo!()
+        self.as_ref().gain_element_range(direction, channel, name)
     }
 
     fn frequency_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
-        todo!()
+        self.as_ref().frequency_range(direction, channel)
     }
 
     fn frequency(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
-        todo!()
+        self.as_ref().frequency(direction, channel)
     }
 
     fn set_frequency(
@@ -561,11 +561,11 @@ impl DeviceTrait for GenericDevice {
         frequency: f64,
         args: Args,
     ) -> Result<(), Error> {
-        todo!()
+        self.as_ref().set_frequency(direction, channel, frequency, args)
     }
 
     fn list_frequencies(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
-        todo!()
+       self.as_ref().list_frequencies(direction, channel)
     }
 
     fn component_frequency_range(
@@ -574,7 +574,7 @@ impl DeviceTrait for GenericDevice {
         channel: usize,
         name: &str,
     ) -> Result<Range, Error> {
-        todo!()
+        self.as_ref().component_frequency_range(direction, channel, name)
     }
 
     fn component_frequency(
@@ -583,7 +583,7 @@ impl DeviceTrait for GenericDevice {
         channel: usize,
         name: &str,
     ) -> Result<f64, Error> {
-        todo!()
+        self.as_ref().component_frequency(direction, channel, name)
     }
 
     fn set_component_frequency(
@@ -594,11 +594,11 @@ impl DeviceTrait for GenericDevice {
         frequency: f64,
         args: Args,
     ) -> Result<(), Error> {
-        todo!()
+        self.as_ref().set_component_frequency(direction, channel, name, frequency, args)
     }
 
     fn sample_rate(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
-        todo!()
+        self.as_ref().sample_rate(direction, channel)
     }
 
     fn set_sample_rate(
@@ -607,10 +607,186 @@ impl DeviceTrait for GenericDevice {
         channel: usize,
         rate: f64,
     ) -> Result<(), Error> {
-        todo!()
+        self.as_ref().set_sample_rate(direction, channel, rate)
     }
 
     fn get_sample_rate_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
-        todo!()
+        self.as_ref().get_sample_rate_range(direction, channel)
+    }
+}
+
+impl<R: RxStreamer + 'static, T: TxStreamer + 'static, D: DeviceTrait<RxStreamer=R, TxStreamer = T> + 'static> DeviceTrait for Device<D> {
+    type RxStreamer = R;
+    type TxStreamer = T;
+
+    fn driver(&self) -> Driver {
+        self.dev.driver()
+    }
+    fn id(&self) -> Result<String, Error> {
+        self.dev.id()
+    }
+    fn info(&self) -> Result<Args, Error> {
+        self.dev.info()
+    }
+    fn num_channels(&self, direction: Direction) -> Result<usize, Error> {
+        self.dev.num_channels(direction)
+    }
+    fn full_duplex(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+        self.dev.full_duplex(direction, channel)
+    }
+
+    fn rx_stream(&self, channels: &[usize]) -> Result<Self::RxStreamer, Error> {
+        Ok(self.dev.rx_stream(channels)?)
+    }
+
+    fn rx_stream_with_args(
+        &self,
+        channels: &[usize],
+        args: Args,
+    ) -> Result<Self::RxStreamer, Error> {
+        Ok(self.dev.rx_stream_with_args(channels, args)?)
+    }
+
+    fn tx_stream(&self, channels: &[usize]) -> Result<Self::TxStreamer, Error> {
+        Ok(self.dev.tx_stream(channels)?)
+    }
+
+    fn tx_stream_with_args(
+        &self,
+        channels: &[usize],
+        args: Args,
+    ) -> Result<Self::TxStreamer, Error> {
+        Ok(self.dev.tx_stream_with_args(channels, args)?)
+    }
+
+    fn antennas(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
+        self.dev.antennas(direction, channel)
+    }
+
+    fn antenna(&self, direction: Direction, channel: usize) -> Result<String, Error> {
+        self.dev.antenna(direction, channel)
+    }
+
+    fn set_antenna(&self, direction: Direction, channel: usize, name: &str) -> Result<(), Error> {
+        self.dev.set_antenna(direction, channel, name)
+    }
+
+    fn gain_elements(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
+        self.dev.gain_elements(direction, channel)
+    }
+
+    fn suports_agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+        self.dev.suports_agc(direction, channel)
+    }
+
+    fn enable_agc(&self, direction: Direction, channel: usize, agc: bool) -> Result<(), Error> {
+        self.dev.enable_agc(direction, channel, agc)
+    }
+
+    fn agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+        self.dev.agc(direction, channel)
+    }
+
+    fn set_gain(&self, direction: Direction, channel: usize, gain: f64) -> Result<(), Error> {
+        self.dev.set_gain(direction, channel, gain)
+    }
+
+    fn gain(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
+        self.dev.gain(direction, channel)
+    }
+
+    fn gain_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
+        self.dev.gain_range(direction, channel)
+    }
+
+    fn set_gain_element(
+        &self,
+        direction: Direction,
+        channel: usize,
+        name: &str,
+        gain: f64,
+    ) -> Result<(), Error> {
+        self.dev.set_gain_element(direction, channel, name, gain)
+    }
+
+    fn gain_element(&self, direction: Direction, channel: usize, name: &str) -> Result<f64, Error> {
+        self.dev.gain_element(direction, channel, name)
+    }
+
+    fn gain_element_range(
+        &self,
+        direction: Direction,
+        channel: usize,
+        name: &str,
+    ) -> Result<Range, Error> {
+        self.dev.gain_element_range(direction, channel, name)
+    }
+
+    fn frequency_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
+        self.dev.frequency_range(direction, channel)
+    }
+
+    fn frequency(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
+        self.dev.frequency(direction, channel)
+    }
+
+    fn set_frequency(
+        &self,
+        direction: Direction,
+        channel: usize,
+        frequency: f64,
+        args: Args,
+    ) -> Result<(), Error> {
+        self.dev.set_frequency(direction, channel, frequency, args)
+    }
+
+    fn list_frequencies(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
+        self.dev.list_frequencies(direction, channel)
+    }
+
+    fn component_frequency_range(
+        &self,
+        direction: Direction,
+        channel: usize,
+        name: &str,
+    ) -> Result<Range, Error> {
+        self.dev.component_frequency_range(direction, channel, name)
+    }
+
+    fn component_frequency(
+        &self,
+        direction: Direction,
+        channel: usize,
+        name: &str,
+    ) -> Result<f64, Error> {
+        self.dev.component_frequency(direction, channel, name)
+    }
+
+    fn set_component_frequency(
+        &self,
+        direction: Direction,
+        channel: usize,
+        name: &str,
+        frequency: f64,
+        args: Args,
+    ) -> Result<(), Error> {
+        self.dev.set_component_frequency(direction, channel, name, frequency, args)
+    }
+
+    fn sample_rate(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
+        self.dev.sample_rate(direction, channel)
+    }
+
+    fn set_sample_rate(
+        &self,
+        direction: Direction,
+        channel: usize,
+        rate: f64,
+    ) -> Result<(), Error> {
+        self.dev.set_sample_rate(direction, channel, rate)
+    }
+
+    fn get_sample_rate_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
+        self.dev.get_sample_rate_range(direction, channel)
     }
 }

@@ -48,6 +48,7 @@ impl RtlSdr {
     pub fn open<A: TryInto<Args>>(args: A) -> Result<Self, Error> {
         let args = args.try_into().or(Err(Error::ValueError))?;
         let index = args.get::<usize>("index").unwrap_or(0);
+        println!("index: {index}");
         let dev = RtlSdr {
             dev: Arc::new(Sdr::open(index).or(Err(Error::DeviceError))?),
             index,
