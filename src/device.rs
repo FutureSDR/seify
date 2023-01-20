@@ -69,7 +69,7 @@ pub trait DeviceTrait {
     fn set_gain(&self, direction: Direction, channel: usize, gain: f64) -> Result<(), Error>;
 
     /// Get the overall value of the gain elements in a chain in dB.
-    fn gain(&self, direction: Direction, channel: usize) -> Result<f64, Error>;
+    fn gain(&self, direction: Direction, channel: usize) -> Result<Option<f64>, Error>;
 
     /// Get the overall range of possible gain values.
     fn gain_range(&self, direction: Direction, channel: usize) -> Result<Range, Error>;
@@ -88,7 +88,12 @@ pub trait DeviceTrait {
     ) -> Result<(), Error>;
 
     /// Get the value of an individual amplification element in a chain in dB.
-    fn gain_element(&self, direction: Direction, channel: usize, name: &str) -> Result<f64, Error>;
+    fn gain_element(
+        &self,
+        direction: Direction,
+        channel: usize,
+        name: &str,
+    ) -> Result<Option<f64>, Error>;
 
     /// Get the range of possible gain values for a specific element.
     fn gain_element_range(
@@ -220,7 +225,9 @@ impl Device<GenericDevice> {
         {
             if driver.is_none() || matches!(driver, Some(Driver::RtlSdr)) {
                 return Ok(Device {
-                    dev: Box::new(DeviceWrapper { dev: impls::RtlSdr::open(&args)?}),
+                    dev: Box::new(DeviceWrapper {
+                        dev: impls::RtlSdr::open(&args)?,
+                    }),
                 });
             }
         }
@@ -236,7 +243,8 @@ impl Device<GenericDevice> {
     }
 }
 
-pub type GenericDevice = Box<dyn DeviceTrait<RxStreamer = Box<dyn RxStreamer>, TxStreamer = Box<dyn TxStreamer>>>;
+pub type GenericDevice =
+    Box<dyn DeviceTrait<RxStreamer = Box<dyn RxStreamer>, TxStreamer = Box<dyn TxStreamer>>>;
 
 impl<T: DeviceTrait + Any> Device<T> {
     pub fn from_device(dev: T) -> Self {
@@ -255,7 +263,7 @@ impl<T: DeviceTrait + Any> Device<T> {
 }
 
 struct DeviceWrapper<D: DeviceTrait> {
-    dev: D
+    dev: D,
 }
 
 impl<
@@ -339,7 +347,7 @@ impl<
         self.dev.set_gain(direction, channel, gain)
     }
 
-    fn gain(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
+    fn gain(&self, direction: Direction, channel: usize) -> Result<Option<f64>, Error> {
         self.dev.gain(direction, channel)
     }
 
@@ -357,7 +365,12 @@ impl<
         self.dev.set_gain_element(direction, channel, name, gain)
     }
 
-    fn gain_element(&self, direction: Direction, channel: usize, name: &str) -> Result<f64, Error> {
+    fn gain_element(
+        &self,
+        direction: Direction,
+        channel: usize,
+        name: &str,
+    ) -> Result<Option<f64>, Error> {
         self.dev.gain_element(direction, channel, name)
     }
 
@@ -418,7 +431,8 @@ impl<
         frequency: f64,
         args: Args,
     ) -> Result<(), Error> {
-        self.dev.set_component_frequency(direction, channel, name, frequency, args)
+        self.dev
+            .set_component_frequency(direction, channel, name, frequency, args)
     }
 
     fn sample_rate(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
@@ -515,7 +529,7 @@ impl DeviceTrait for GenericDevice {
         self.as_ref().set_gain(direction, channel, gain)
     }
 
-    fn gain(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
+    fn gain(&self, direction: Direction, channel: usize) -> Result<Option<f64>, Error> {
         self.as_ref().gain(direction, channel)
     }
 
@@ -530,10 +544,16 @@ impl DeviceTrait for GenericDevice {
         name: &str,
         gain: f64,
     ) -> Result<(), Error> {
-        self.as_ref().set_gain_element(direction, channel, name, gain)
+        self.as_ref()
+            .set_gain_element(direction, channel, name, gain)
     }
 
-    fn gain_element(&self, direction: Direction, channel: usize, name: &str) -> Result<f64, Error> {
+    fn gain_element(
+        &self,
+        direction: Direction,
+        channel: usize,
+        name: &str,
+    ) -> Result<Option<f64>, Error> {
         self.as_ref().gain_element(direction, channel, name)
     }
 
@@ -561,11 +581,12 @@ impl DeviceTrait for GenericDevice {
         frequency: f64,
         args: Args,
     ) -> Result<(), Error> {
-        self.as_ref().set_frequency(direction, channel, frequency, args)
+        self.as_ref()
+            .set_frequency(direction, channel, frequency, args)
     }
 
     fn list_frequencies(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
-       self.as_ref().list_frequencies(direction, channel)
+        self.as_ref().list_frequencies(direction, channel)
     }
 
     fn component_frequency_range(
@@ -574,7 +595,8 @@ impl DeviceTrait for GenericDevice {
         channel: usize,
         name: &str,
     ) -> Result<Range, Error> {
-        self.as_ref().component_frequency_range(direction, channel, name)
+        self.as_ref()
+            .component_frequency_range(direction, channel, name)
     }
 
     fn component_frequency(
@@ -594,7 +616,8 @@ impl DeviceTrait for GenericDevice {
         frequency: f64,
         args: Args,
     ) -> Result<(), Error> {
-        self.as_ref().set_component_frequency(direction, channel, name, frequency, args)
+        self.as_ref()
+            .set_component_frequency(direction, channel, name, frequency, args)
     }
 
     fn sample_rate(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
@@ -615,7 +638,12 @@ impl DeviceTrait for GenericDevice {
     }
 }
 
-impl<R: RxStreamer + 'static, T: TxStreamer + 'static, D: DeviceTrait<RxStreamer=R, TxStreamer = T> + 'static> DeviceTrait for Device<D> {
+impl<
+        R: RxStreamer + 'static,
+        T: TxStreamer + 'static,
+        D: DeviceTrait<RxStreamer = R, TxStreamer = T> + 'static,
+    > DeviceTrait for Device<D>
+{
     type RxStreamer = R;
     type TxStreamer = T;
 
@@ -691,7 +719,7 @@ impl<R: RxStreamer + 'static, T: TxStreamer + 'static, D: DeviceTrait<RxStreamer
         self.dev.set_gain(direction, channel, gain)
     }
 
-    fn gain(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
+    fn gain(&self, direction: Direction, channel: usize) -> Result<Option<f64>, Error> {
         self.dev.gain(direction, channel)
     }
 
@@ -709,7 +737,12 @@ impl<R: RxStreamer + 'static, T: TxStreamer + 'static, D: DeviceTrait<RxStreamer
         self.dev.set_gain_element(direction, channel, name, gain)
     }
 
-    fn gain_element(&self, direction: Direction, channel: usize, name: &str) -> Result<f64, Error> {
+    fn gain_element(
+        &self,
+        direction: Direction,
+        channel: usize,
+        name: &str,
+    ) -> Result<Option<f64>, Error> {
         self.dev.gain_element(direction, channel, name)
     }
 
@@ -770,7 +803,8 @@ impl<R: RxStreamer + 'static, T: TxStreamer + 'static, D: DeviceTrait<RxStreamer
         frequency: f64,
         args: Args,
     ) -> Result<(), Error> {
-        self.dev.set_component_frequency(direction, channel, name, frequency, args)
+        self.dev
+            .set_component_frequency(direction, channel, name, frequency, args)
     }
 
     fn sample_rate(&self, direction: Direction, channel: usize) -> Result<f64, Error> {

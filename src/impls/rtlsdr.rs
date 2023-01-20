@@ -28,9 +28,7 @@ pub struct RxStreamer {
 
 impl RxStreamer {
     fn new(dev: Arc<Sdr>) -> Self {
-        Self {
-            dev,
-        }
+        Self { dev }
     }
 }
 
@@ -48,7 +46,6 @@ impl RtlSdr {
     pub fn open<A: TryInto<Args>>(args: A) -> Result<Self, Error> {
         let args = args.try_into().or(Err(Error::ValueError))?;
         let index = args.get::<usize>("index").unwrap_or(0);
-        println!("index: {index}");
         let dev = RtlSdr {
             dev: Arc::new(Sdr::open(index).or(Err(Error::DeviceError))?),
             index,
@@ -197,7 +194,7 @@ impl DeviceTrait for RtlSdr {
         self.set_gain_element(direction, channel, "TUNER", gain)
     }
 
-    fn gain(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
+    fn gain(&self, direction: Direction, channel: usize) -> Result<Option<f64>, Error> {
         self.gain_element(direction, channel, "TUNER")
     }
 
@@ -224,12 +221,17 @@ impl DeviceTrait for RtlSdr {
         }
     }
 
-    fn gain_element(&self, direction: Direction, channel: usize, name: &str) -> Result<f64, Error> {
+    fn gain_element(
+        &self,
+        direction: Direction,
+        channel: usize,
+        name: &str,
+    ) -> Result<Option<f64>, Error> {
         if matches!(direction, Rx) && channel == 0 && name == "TUNER" {
             let inner = self.i.lock().unwrap();
             match inner.gain {
-                TunerGain::Auto => Err(Error::Inactive),
-                TunerGain::Manual(i) => Ok(i as f64),
+                TunerGain::Auto => Ok(None),
+                TunerGain::Manual(i) => Ok(Some(i as f64)),
             }
         } else if matches!(direction, Rx) {
             Err(Error::ValueError)
@@ -322,8 +324,16 @@ impl DeviceTrait for RtlSdr {
         frequency: f64,
         _args: Args,
     ) -> Result<(), Error> {
-        if matches!(direction, Rx) && channel == 0 && self.frequency_range(direction, channel)?.contains(frequency) && name == "TUNER" {
-            self.dev.set_center_freq(frequency as u32).or(Err(Error::DeviceError))
+        if matches!(direction, Rx)
+            && channel == 0
+            && self
+                .frequency_range(direction, channel)?
+                .contains(frequency)
+            && name == "TUNER"
+        {
+            self.dev
+                .set_center_freq(frequency as u32)
+                .or(Err(Error::DeviceError))
         } else if matches!(direction, Rx) {
             Err(Error::ValueError)
         } else {
@@ -347,19 +357,28 @@ impl DeviceTrait for RtlSdr {
         channel: usize,
         rate: f64,
     ) -> Result<(), Error> {
-        if matches!(direction, Rx) && channel == 0 && self.get_sample_rate_range(direction, channel)?.contains(rate) {
-            self.dev.set_sample_rate(rate as u32).or(Err(Error::DeviceError))
+        if matches!(direction, Rx)
+            && channel == 0
+            && self
+                .get_sample_rate_range(direction, channel)?
+                .contains(rate)
+        {
+            self.dev
+                .set_sample_rate(rate as u32)
+                .or(Err(Error::DeviceError))
         } else if matches!(direction, Rx) {
             Err(Error::ValueError)
         } else {
             Err(Error::NotSupported)
         }
-        
     }
 
     fn get_sample_rate_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
         if matches!(direction, Rx) && channel == 0 {
-            Ok(Range::new(vec![RangeItem::Interval(225_001.0, 300_000.0), RangeItem::Interval(900_001.0, 3_200_000.0)]))
+            Ok(Range::new(vec![
+                RangeItem::Interval(225_001.0, 300_000.0),
+                RangeItem::Interval(900_001.0, 3_200_000.0),
+            ]))
         } else if matches!(direction, Rx) {
             Err(Error::ValueError)
         } else {
@@ -378,18 +397,14 @@ impl crate::RxStreamer for RxStreamer {
     fn deactivate(&mut self, _time_ns: Option<i64>) -> Result<(), Error> {
         Ok(())
     }
-    fn read(
-        &mut self,
-        buffers: &mut [&mut [Complex32]],
-        _timeout_us: i64,
-    ) -> Result<usize, Error> {
+    fn read(&mut self, buffers: &mut [&mut [Complex32]], _timeout_us: i64) -> Result<usize, Error> {
         debug_assert_eq!(buffers.len(), 1);
         let mut u = vec![0u8; buffers[0].len() * 2];
         let n = self.dev.read_sync(&mut u).or(Err(Error::DeviceError))?;
         debug_assert_eq!(n % 2, 0);
 
         for i in 0..n / 2 {
-            buffers[0][i] = Complex32::new(u[i *2] as f32 - 127.0, u[i * 2 + 1] as f32 - 127.0);
+            buffers[0][i] = Complex32::new(u[i * 2] as f32 - 127.0, u[i * 2 + 1] as f32 - 127.0);
         }
         Ok(n / 2)
     }

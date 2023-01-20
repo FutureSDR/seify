@@ -97,7 +97,7 @@ pub fn enumerate_with_args<A: TryInto<Args>>(a: A) -> Result<Vec<Args>, Error> {
 /// Component of a [Range].
 ///
 /// Can be an interval or an individual value.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum RangeItem {
     /// Interval (inclusive).
     Interval(f64, f64),
@@ -107,6 +107,7 @@ pub enum RangeItem {
 
 /// Range of possible values, comprised of [RangeItem]s, which can be individual values or
 /// Intervals.
+#[derive(Debug, Clone)]
 pub struct Range {
     items: Vec<RangeItem>,
 }
