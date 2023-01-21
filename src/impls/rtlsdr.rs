@@ -2,6 +2,7 @@ use num_complex::Complex32;
 use rtlsdr_rs::enumerate;
 use rtlsdr_rs::RtlSdr as Sdr;
 use rtlsdr_rs::TunerGain;
+use std::any::Any;
 use std::sync::Arc;
 use std::sync::Mutex;
 
@@ -61,6 +62,14 @@ impl RtlSdr {
 impl DeviceTrait for RtlSdr {
     type RxStreamer = RxStreamer;
     type TxStreamer = TxDummy;
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
 
     fn driver(&self) -> crate::Driver {
         Driver::RtlSdr

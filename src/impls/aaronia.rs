@@ -1,6 +1,7 @@
 #![allow(unused_variables)]
 #![allow(unused_imports)]
 #![allow(dead_code)]
+use std::any::Any;
 use std::sync::Arc;
 use std::sync::Mutex;
 
@@ -76,6 +77,14 @@ impl Aaronia {
 impl DeviceTrait for Aaronia {
     type RxStreamer = RxStreamer;
     type TxStreamer = TxStreamer;
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
 
     fn driver(&self) -> crate::Driver {
         Driver::Aaronia

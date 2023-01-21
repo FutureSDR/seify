@@ -3,7 +3,6 @@ use num_complex::Complex32;
 use seify::impls::rtlsdr;
 use seify::Args;
 use seify::Device;
-use seify::DeviceTrait;
 use seify::Direction::Rx;
 use seify::RxStreamer;
 
@@ -15,6 +14,9 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     dev.enable_agc(Rx, 0, true)?;
     dev.set_frequency(Rx, 0, 101e6, Args::new())?;
     dev.set_sample_rate(Rx, 0, 3.2e6)?;
+
+    // Get typed reference to device impl
+    // let _r : &seify::impls::RtlSdr = dev.inner().unwrap();
 
     println!("driver:      {:?}", dev.driver());
     println!("id:          {:?}", dev.id()?);

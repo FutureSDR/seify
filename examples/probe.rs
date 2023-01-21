@@ -1,6 +1,5 @@
 use seify::enumerate;
 use seify::Device;
-use seify::DeviceTrait;
 use seify::Direction::Rx;
 
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {

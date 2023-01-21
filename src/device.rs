@@ -11,9 +11,14 @@ use crate::Range;
 use crate::RxStreamer;
 use crate::TxStreamer;
 
-pub trait DeviceTrait {
+pub trait DeviceTrait: Any {
     type RxStreamer: RxStreamer;
     type TxStreamer: TxStreamer;
+
+    /// Cast to Any for downcasting.
+    fn as_any(&self) -> &dyn Any;
+    /// Cast to Any for downcasting to a mutable reference.
+    fn as_any_mut(&mut self) -> &mut dyn Any;
 
     /// SDR driver
     fn driver(&self) -> Driver;
@@ -150,7 +155,11 @@ pub trait DeviceTrait {
     /// List available tunable elements in the chain.
     ///
     /// Elements should be in order RF to baseband.
-    fn frequency_components(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error>;
+    fn frequency_components(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> Result<Vec<String>, Error>;
 
     /// Get the range of tunable values for the specified element.
     fn component_frequency_range(
@@ -260,10 +269,26 @@ impl<T: DeviceTrait + Any> Device<T> {
     pub fn from_device(dev: T) -> Self {
         Self { dev }
     }
-    pub fn inner<D: Any>(&self) -> Result<&D, Error> {
-        (&self.dev as &dyn Any)
-            .downcast_ref::<D>()
-            .ok_or(Error::ValueError)
+    pub fn inner<D: DeviceTrait + Any>(&self) -> Result<&D, Error> {
+        if let Some(d) = self.dev.as_any().downcast_ref::<D>() {
+            return Ok(d);
+        }
+        let d = self
+            .dev
+            .as_any()
+            .downcast_ref::<Box<
+                (dyn DeviceTrait<
+                    RxStreamer = Box<(dyn RxStreamer + 'static)>,
+                    TxStreamer = Box<(dyn TxStreamer + 'static)>,
+                > + 'static),
+            >>()
+            .ok_or(Error::ValueError)?;
+
+        let d = (**d)
+            .as_any()
+            .downcast_ref::<DeviceWrapper<D>>()
+            .ok_or(Error::ValueError)?;
+        Ok(&d.dev)
     }
     pub fn inner_mut<D: Any>(&mut self) -> Result<&mut D, Error> {
         (&mut self.dev as &mut dyn Any)
@@ -284,6 +309,14 @@ impl<
 {
     type RxStreamer = Box<dyn RxStreamer>;
     type TxStreamer = Box<dyn TxStreamer>;
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
 
     fn driver(&self) -> Driver {
         self.dev.driver()
@@ -411,7 +444,11 @@ impl<
         self.dev.set_frequency(direction, channel, frequency, args)
     }
 
-    fn frequency_components(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
+    fn frequency_components(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> Result<Vec<String>, Error> {
         self.dev.frequency_components(direction, channel)
     }
 
@@ -466,6 +503,14 @@ impl<
 impl DeviceTrait for GenericDevice {
     type RxStreamer = Box<dyn RxStreamer>;
     type TxStreamer = Box<dyn TxStreamer>;
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
 
     fn driver(&self) -> Driver {
         self.as_ref().driver()
@@ -595,7 +640,11 @@ impl DeviceTrait for GenericDevice {
             .set_frequency(direction, channel, frequency, args)
     }
 
-    fn frequency_components(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
+    fn frequency_components(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> Result<Vec<String>, Error> {
         self.as_ref().frequency_components(direction, channel)
     }
 
@@ -652,92 +701,89 @@ impl<
         R: RxStreamer + 'static,
         T: TxStreamer + 'static,
         D: DeviceTrait<RxStreamer = R, TxStreamer = T> + 'static,
-    > DeviceTrait for Device<D>
+    > Device<D>
 {
-    type RxStreamer = R;
-    type TxStreamer = T;
-
-    fn driver(&self) -> Driver {
+    pub fn driver(&self) -> Driver {
         self.dev.driver()
     }
-    fn id(&self) -> Result<String, Error> {
+    pub fn id(&self) -> Result<String, Error> {
         self.dev.id()
     }
-    fn info(&self) -> Result<Args, Error> {
+    pub fn info(&self) -> Result<Args, Error> {
         self.dev.info()
     }
-    fn num_channels(&self, direction: Direction) -> Result<usize, Error> {
+    pub fn num_channels(&self, direction: Direction) -> Result<usize, Error> {
         self.dev.num_channels(direction)
     }
-    fn full_duplex(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+    pub fn full_duplex(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
         self.dev.full_duplex(direction, channel)
     }
 
-    fn rx_stream(&self, channels: &[usize]) -> Result<Self::RxStreamer, Error> {
+    pub fn rx_stream(&self, channels: &[usize]) -> Result<R, Error> {
         self.dev.rx_stream(channels)
     }
 
-    fn rx_stream_with_args(
+    pub fn rx_stream_with_args(
         &self,
         channels: &[usize],
         args: Args,
-    ) -> Result<Self::RxStreamer, Error> {
+    ) -> Result<R, Error> {
         self.dev.rx_stream_with_args(channels, args)
     }
 
-    fn tx_stream(&self, channels: &[usize]) -> Result<Self::TxStreamer, Error> {
+    pub fn tx_stream(&self, channels: &[usize]) -> Result<T, Error> {
         self.dev.tx_stream(channels)
     }
 
-    fn tx_stream_with_args(
+    pub fn tx_stream_with_args(
         &self,
         channels: &[usize],
         args: Args,
-    ) -> Result<Self::TxStreamer, Error> {
+    ) -> Result<T, Error> {
         self.dev.tx_stream_with_args(channels, args)
     }
 
-    fn antennas(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
+    pub fn antennas(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
         self.dev.antennas(direction, channel)
     }
 
-    fn antenna(&self, direction: Direction, channel: usize) -> Result<String, Error> {
+    pub fn antenna(&self, direction: Direction, channel: usize) -> Result<String, Error> {
         self.dev.antenna(direction, channel)
     }
 
-    fn set_antenna(&self, direction: Direction, channel: usize, name: &str) -> Result<(), Error> {
+    pub fn set_antenna(&self, direction: Direction, channel: usize, name: &str) -> Result<(), Error> {
         self.dev.set_antenna(direction, channel, name)
     }
 
-    fn gain_elements(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
+    pub fn gain_elements(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
         self.dev.gain_elements(direction, channel)
     }
 
-    fn suports_agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+    pub fn suports_agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
         self.dev.suports_agc(direction, channel)
     }
 
-    fn enable_agc(&self, direction: Direction, channel: usize, agc: bool) -> Result<(), Error> {
+    pub fn enable_agc(&self, direction: Direction, channel: usize, agc: bool) -> Result<(), Error> {
         self.dev.enable_agc(direction, channel, agc)
     }
 
-    fn agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+    pub fn agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
         self.dev.agc(direction, channel)
     }
 
-    fn set_gain(&self, direction: Direction, channel: usize, gain: f64) -> Result<(), Error> {
+    pub fn set_gain(&self, direction: Direction, channel: usize, gain: f64) -> Result<(), Error> {
         self.dev.set_gain(direction, channel, gain)
     }
 
-    fn gain(&self, direction: Direction, channel: usize) -> Result<Option<f64>, Error> {
+    pub fn gain(&self, direction: Direction, channel: usize) -> Result<Option<f64>, Error> {
         self.dev.gain(direction, channel)
     }
 
-    fn gain_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
+    pub fn gain_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
         self.dev.gain_range(direction, channel)
     }
 
-    fn set_gain_element(
+    pub fn set_gain_element(
         &self,
         direction: Direction,
         channel: usize,
@@ -747,7 +793,7 @@ impl<
         self.dev.set_gain_element(direction, channel, name, gain)
     }
 
-    fn gain_element(
+    pub fn gain_element(
         &self,
         direction: Direction,
         channel: usize,
@@ -756,7 +802,7 @@ impl<
         self.dev.gain_element(direction, channel, name)
     }
 
-    fn gain_element_range(
+    pub fn gain_element_range(
         &self,
         direction: Direction,
         channel: usize,
@@ -765,15 +811,15 @@ impl<
         self.dev.gain_element_range(direction, channel, name)
     }
 
-    fn frequency_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
+    pub fn frequency_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
         self.dev.frequency_range(direction, channel)
     }
 
-    fn frequency(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
+    pub fn frequency(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
         self.dev.frequency(direction, channel)
     }
 
-    fn set_frequency(
+    pub fn set_frequency(
         &self,
         direction: Direction,
         channel: usize,
@@ -783,11 +829,15 @@ impl<
         self.dev.set_frequency(direction, channel, frequency, args)
     }
 
-    fn frequency_components(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
+    pub fn frequency_components(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> Result<Vec<String>, Error> {
         self.dev.frequency_components(direction, channel)
     }
 
-    fn component_frequency_range(
+    pub fn component_frequency_range(
         &self,
         direction: Direction,
         channel: usize,
@@ -796,7 +846,7 @@ impl<
         self.dev.component_frequency_range(direction, channel, name)
     }
 
-    fn component_frequency(
+    pub fn component_frequency(
         &self,
         direction: Direction,
         channel: usize,
@@ -805,7 +855,7 @@ impl<
         self.dev.component_frequency(direction, channel, name)
     }
 
-    fn set_component_frequency(
+    pub fn set_component_frequency(
         &self,
         direction: Direction,
         channel: usize,
@@ -817,11 +867,11 @@ impl<
             .set_component_frequency(direction, channel, name, frequency, args)
     }
 
-    fn sample_rate(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
+    pub fn sample_rate(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
         self.dev.sample_rate(direction, channel)
     }
 
-    fn set_sample_rate(
+    pub fn set_sample_rate(
         &self,
         direction: Direction,
         channel: usize,
@@ -830,7 +880,7 @@ impl<
         self.dev.set_sample_rate(direction, channel, rate)
     }
 
-    fn get_sample_rate_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
+    pub fn get_sample_rate_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
         self.dev.get_sample_rate_range(direction, channel)
     }
 }
