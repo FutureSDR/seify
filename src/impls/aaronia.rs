@@ -237,7 +237,7 @@ impl DeviceTrait for Aaronia {
         let mut dev = self.dev.lock().unwrap();
         match (direction, channel, name) {
             (Rx, 0 | 1, "TUNER") | (Tx, 0, "TUNER") => {
-                if 0.0 <= gain && gain <= 30.0 {
+                if (0.0..=30.0).contains(&gain) {
                     dev.set("main/reflevel", format!("{}", -8.0 - gain))
                         .or(Err(Error::DeviceError))
                 } else {
