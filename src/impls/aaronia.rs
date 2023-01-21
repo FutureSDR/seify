@@ -122,7 +122,7 @@ impl DeviceTrait for Aaronia {
         channels: &[usize],
         args: crate::Args,
     ) -> Result<Self::RxStreamer, Error> {
-        if channels == &[0] {
+        if channels == [0] {
             Ok(RxStreamer::new(self.dev.clone()))
         } else {
             Err(Error::ValueError)
@@ -138,7 +138,7 @@ impl DeviceTrait for Aaronia {
         channels: &[usize],
         args: crate::Args,
     ) -> Result<Self::TxStreamer, Error> {
-        if channels == &[0] {
+        if channels == [0] {
             Ok(TxStreamer::new(self.dev.clone()))
         } else {
             Err(Error::ValueError)
