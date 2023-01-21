@@ -14,10 +14,14 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("devs: {devs:?}");
 
     let dev = Device::new()?;
+    println!("agc");
     dev.enable_agc(Rx, 0, true)?;
-    dev.set_frequency(Rx, 0, 101e6, Args::new())?;
-    dev.set_sample_rate(Rx, 0, 3.2e6)?;
+    println!("set freq");
+    dev.set_frequency(Rx, 0, 927e6, Args::new())?;
+    println!("set samp");
+    dev.set_sample_rate(Rx, 0, 92e6/8.0)?;
 
+    println!("stuff");
     println!("driver:      {:?}", dev.driver());
     println!("id:          {:?}", dev.id()?);
     println!("info:        {:?}", dev.info()?);

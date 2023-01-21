@@ -7,6 +7,7 @@ use std::sync::Mutex;
 use aaronia_rtsa::ApiHandle;
 use aaronia_rtsa::ConfigItem;
 use aaronia_rtsa::Device as Sdr;
+use aaronia_rtsa::Packet;
 
 use crate::Args;
 use crate::DeviceTrait;
@@ -24,10 +25,11 @@ pub struct Aaronia {
 }
 pub struct RxStreamer {
     dev: Arc<Mutex<Sdr>>,
+    packet: Option<(Packet, usize)>,
 }
 impl RxStreamer {
     fn new(dev: Arc<Mutex<Sdr>>) -> Self {
-        Self { dev }
+        Self { dev, packet: None }
     }
 }
 
@@ -213,7 +215,7 @@ impl DeviceTrait for Aaronia {
     }
 
     fn gain_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
-           self.gain_element_range(direction, channel, "TUNER") 
+        self.gain_element_range(direction, channel, "TUNER")
     }
 
     fn set_gain_element(
@@ -265,10 +267,7 @@ impl DeviceTrait for Aaronia {
     }
 
     fn frequency_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
-        match (direction, channel) {
-            (Rx, 0 | 1) | (Tx, 0) => Ok(Range::new(vec![RangeItem::Interval(193e6, 6e9)])),
-            _ => Err(Error::ValueError),
-        }
+        self.component_frequency_range(direction, channel, "TUNER")
     }
 
     fn frequency(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
@@ -285,10 +284,14 @@ impl DeviceTrait for Aaronia {
         self.set_component_frequency(direction, channel, "TUNER", frequency, args)
     }
 
-    fn frequency_components(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
-        match(direction, channel) {
+    fn frequency_components(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> Result<Vec<String>, Error> {
+        match (direction, channel) {
             (Rx, 0 | 1) | (Tx, 0) => Ok(vec!["TUNER".to_string()]),
-            _ => Err(Error::ValueError)
+            _ => Err(Error::ValueError),
         }
     }
 
@@ -298,7 +301,12 @@ impl DeviceTrait for Aaronia {
         channel: usize,
         name: &str,
     ) -> Result<Range, Error> {
-        todo!()
+        match (direction, channel, name) {
+            (Rx, 0 | 1, "TUNER") | (Tx, 0, "TUNER") => {
+                Ok(Range::new(vec![RangeItem::Interval(193e6, 6e9)]))
+            }
+            _ => Err(Error::ValueError),
+        }
     }
 
     fn component_frequency(
@@ -378,11 +386,35 @@ impl DeviceTrait for Aaronia {
         channel: usize,
         rate: f64,
     ) -> Result<(), Error> {
-        Ok(())
+        let mut dev = self.dev.lock().unwrap();
+        match (direction, channel) {
+            (Rx, 0 | 1) => {
+                let dec = vec![1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0, 256.0, 512.0];
+                for (i, d) in dec.into_iter().enumerate() {
+                    if (rate - 92e6 / d).abs() < 0.00001 {
+                        dev.set("device/receiverclock", "92MHz")
+                            .or(Err(Error::DeviceError))?;
+                        return dev.set_int("main/decimation", i as i64).or(Err(Error::DeviceError))
+                    }
+                }
+                Err(Error::ValueError)
+            }
+            (Tx, 0) => todo!(),
+            _ => Err(Error::ValueError),
+        }
     }
 
     fn get_sample_rate_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
-        todo!()
+        match (direction, channel) {
+            (Rx, 0 | 1) => Ok(Range::new(
+                vec![1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0, 256.0, 512.0]
+                    .into_iter()
+                    .map(|v| RangeItem::Value(92e6 / v))
+                    .collect(),
+            )),
+            (Tx, 0) => todo!(),
+            _ => Err(Error::ValueError),
+        }
     }
 }
 
@@ -409,7 +441,39 @@ impl crate::RxStreamer for RxStreamer {
         _timeout_us: i64,
     ) -> Result<usize, Error> {
         let mut dev = self.dev.lock().unwrap();
-        Ok(0)
+        debug_assert_eq!(buffers.len(), 1);
+
+        let mut i = 0;
+        let len = buffers[0].len();
+        while i < len {
+            match self.packet.take() {
+                None => {
+                    let p = dev.packet(0).or(Err(Error::DeviceError))?;
+                    let cur = p.samples();
+                    let n = std::cmp::min(len - i, cur.len());
+                    buffers[0][i..i + n].copy_from_slice(&cur[0..n]);
+                    i += n;
+                    if n == cur.len() {
+                        dev.consume(0).or(Err(Error::DeviceError))?;
+                    } else {
+                        self.packet = Some((p, n));
+                    }
+                }
+                Some((p, offset)) => {
+                    let cur = p.samples();
+                    let n = std::cmp::min(len - i, cur.len() - offset);
+                    buffers[0][i..i + n].copy_from_slice(&cur[offset..offset+n]);
+                    i += n;
+                    if offset + n == cur.len() {
+                        dev.consume(0).or(Err(Error::DeviceError))?;
+                    } else {
+                        self.packet = Some((p, offset + n));
+                    }
+                }
+            }
+        }
+        
+        Ok(len)
     }
 }
 
