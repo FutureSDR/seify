@@ -276,7 +276,7 @@ impl DeviceTrait for RtlSdr {
         self.set_component_frequency(direction, channel, "TUNER", frequency, args)
     }
 
-    fn list_frequencies(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
+    fn frequency_components(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
         if matches!(direction, Rx) && channel == 0 {
             Ok(vec!["TUNER".to_string()])
         } else if matches!(direction, Rx) {

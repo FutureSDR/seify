@@ -150,7 +150,7 @@ pub trait DeviceTrait {
     /// List available tunable elements in the chain.
     ///
     /// Elements should be in order RF to baseband.
-    fn list_frequencies(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error>;
+    fn frequency_components(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error>;
 
     /// Get the range of tunable values for the specified element.
     fn component_frequency_range(
@@ -411,8 +411,8 @@ impl<
         self.dev.set_frequency(direction, channel, frequency, args)
     }
 
-    fn list_frequencies(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
-        self.dev.list_frequencies(direction, channel)
+    fn frequency_components(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
+        self.dev.frequency_components(direction, channel)
     }
 
     fn component_frequency_range(
@@ -595,8 +595,8 @@ impl DeviceTrait for GenericDevice {
             .set_frequency(direction, channel, frequency, args)
     }
 
-    fn list_frequencies(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
-        self.as_ref().list_frequencies(direction, channel)
+    fn frequency_components(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
+        self.as_ref().frequency_components(direction, channel)
     }
 
     fn component_frequency_range(
@@ -783,8 +783,8 @@ impl<
         self.dev.set_frequency(direction, channel, frequency, args)
     }
 
-    fn list_frequencies(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
-        self.dev.list_frequencies(direction, channel)
+    fn frequency_components(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
+        self.dev.frequency_components(direction, channel)
     }
 
     fn component_frequency_range(

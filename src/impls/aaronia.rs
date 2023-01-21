@@ -2,8 +2,10 @@
 #![allow(unused_imports)]
 #![allow(dead_code)]
 use std::sync::Arc;
+use std::sync::Mutex;
 
 use aaronia_rtsa::ApiHandle;
+use aaronia_rtsa::ConfigItem;
 use aaronia_rtsa::Device as Sdr;
 
 use crate::Args;
@@ -12,26 +14,28 @@ use crate::Direction;
 use crate::Direction::*;
 use crate::Driver;
 use crate::Error;
+use crate::Range;
+use crate::RangeItem;
 
 #[derive(Debug)]
 pub struct Aaronia {
-    dev: Arc<Sdr>,
+    dev: Arc<Mutex<Sdr>>,
     index: usize,
 }
 pub struct RxStreamer {
-    dev: Arc<Sdr>,
+    dev: Arc<Mutex<Sdr>>,
 }
 impl RxStreamer {
-    fn new(dev: Arc<Sdr>) -> Self {
+    fn new(dev: Arc<Mutex<Sdr>>) -> Self {
         Self { dev }
     }
 }
 
 pub struct TxStreamer {
-    dev: Arc<Sdr>,
+    dev: Arc<Mutex<Sdr>>,
 }
 impl TxStreamer {
-    fn new(dev: Arc<Sdr>) -> Self {
+    fn new(dev: Arc<Mutex<Sdr>>) -> Self {
         Self { dev }
     }
 }
@@ -56,11 +60,12 @@ impl Aaronia {
         let args = args.try_into().or(Err(Error::ValueError))?;
         let index = args.get::<usize>("index").unwrap_or(0);
 
-        let dev = api
+        let mut dev = api
             .get_this_device(&devs[index])
             .or(Err(Error::DeviceError))?;
+        dev.open().or(Err(Error::DeviceError))?;
         Ok(Aaronia {
-            dev: Arc::new(dev),
+            dev: Arc::new(Mutex::new(dev)),
             index,
         })
     }
@@ -74,27 +79,30 @@ impl DeviceTrait for Aaronia {
         Driver::Aaronia
     }
 
-    fn id(&self) -> Result<String, crate::Error> {
+    fn id(&self) -> Result<String, Error> {
         Ok(format!("{}", self.index))
     }
 
-    fn info(&self) -> Result<crate::Args, crate::Error> {
+    fn info(&self) -> Result<crate::Args, Error> {
         format!("driver=aaronia, index={}", self.index).try_into()
     }
 
-    fn num_channels(&self, _direction: Direction) -> Result<usize, crate::Error> {
-        Ok(1)
-    }
-
-    fn full_duplex(&self, direction: Direction, channel: usize) -> Result<bool, crate::Error> {
-        if channel == 0 {
-            Ok(true)
-        } else {
-            Err(Error::ValueError)
+    fn num_channels(&self, direction: Direction) -> Result<usize, Error> {
+        match direction {
+            Rx => Ok(2),
+            Tx => Ok(1),
         }
     }
 
-    fn rx_stream(&self, channels: &[usize]) -> Result<Self::RxStreamer, crate::Error> {
+    fn full_duplex(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+        match (direction, channel) {
+            (Rx, 0 | 1) => Ok(true),
+            (Tx, 0) => Ok(true),
+            _ => Err(Error::ValueError),
+        }
+    }
+
+    fn rx_stream(&self, channels: &[usize]) -> Result<Self::RxStreamer, Error> {
         self.rx_stream_with_args(channels, Args::new())
     }
 
@@ -102,7 +110,7 @@ impl DeviceTrait for Aaronia {
         &self,
         channels: &[usize],
         args: crate::Args,
-    ) -> Result<Self::RxStreamer, crate::Error> {
+    ) -> Result<Self::RxStreamer, Error> {
         if channels == &[0] {
             Ok(RxStreamer::new(self.dev.clone()))
         } else {
@@ -110,7 +118,7 @@ impl DeviceTrait for Aaronia {
         }
     }
 
-    fn tx_stream(&self, channels: &[usize]) -> Result<Self::TxStreamer, crate::Error> {
+    fn tx_stream(&self, channels: &[usize]) -> Result<Self::TxStreamer, Error> {
         self.tx_stream_with_args(channels, Args::new())
     }
 
@@ -118,7 +126,7 @@ impl DeviceTrait for Aaronia {
         &self,
         channels: &[usize],
         args: crate::Args,
-    ) -> Result<Self::TxStreamer, crate::Error> {
+    ) -> Result<Self::TxStreamer, Error> {
         if channels == &[0] {
             Ok(TxStreamer::new(self.dev.clone()))
         } else {
@@ -126,105 +134,86 @@ impl DeviceTrait for Aaronia {
         }
     }
 
-    fn antennas(&self, direction: Direction, channel: usize) -> Result<Vec<String>, crate::Error> {
-        match direction {
-            Rx => match channel {
-                0 => Ok(vec!["RX1".to_string()]),
-                1 => Ok(vec!["RX2".to_string()]),
-                _ => Err(Error::ValueError),
-            },
-            Tx => match channel {
-                0 => Ok(vec!["TX1".to_string()]),
-                _ => Err(Error::ValueError),
-            },
+    fn antennas(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
+        match (direction, channel) {
+            (Rx, 0) => Ok(vec!["RX1".to_string()]),
+            (Rx, 1) => Ok(vec!["RX2".to_string()]),
+            (Tx, 0) => Ok(vec!["TX1".to_string()]),
+            _ => Err(Error::ValueError),
         }
     }
 
-    fn antenna(&self, direction: Direction, channel: usize) -> Result<String, crate::Error> {
-        match direction {
-            Rx => match channel {
-                0 => Ok("RX1".to_string()),
-                1 => Ok("RX2".to_string()),
-                _ => Err(Error::ValueError),
-            },
-            Tx => match channel {
-                0 => Ok("TX1".to_string()),
-                _ => Err(Error::ValueError),
-            },
+    fn antenna(&self, direction: Direction, channel: usize) -> Result<String, Error> {
+        match (direction, channel) {
+            (Rx, 0) => Ok("RX1".to_string()),
+            (Rx, 1) => Ok("RX2".to_string()),
+            (Tx, 0) => Ok("TX1".to_string()),
+            _ => Err(Error::ValueError),
         }
     }
 
-    fn set_antenna(
-        &self,
-        direction: Direction,
-        channel: usize,
-        name: &str,
-    ) -> Result<(), crate::Error> {
-        match direction {
-            Rx => match (channel, name) {
-                (0, "RX1") => Ok(()),
-                (1, "RX2") => Ok(()),
-                _ => Err(Error::ValueError),
-            },
-            Tx => match (channel, name) {
-                (0, "TX1") => Ok(()),
-                _ => Err(Error::ValueError),
-            },
+    fn set_antenna(&self, direction: Direction, channel: usize, name: &str) -> Result<(), Error> {
+        match (direction, channel, name) {
+            (Rx, 0, "RX1") => Ok(()),
+            (Rx, 1, "RX2") => Ok(()),
+            (Tx, 0, "TX1") => Ok(()),
+            _ => Err(Error::ValueError),
         }
     }
 
-    fn gain_elements(
-        &self,
-        direction: Direction,
-        channel: usize,
-    ) -> Result<Vec<String>, crate::Error> {
+    fn gain_elements(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
         match (direction, channel) {
             (Rx, 0 | 1) => Ok(vec!["TUNER".to_string()]),
             (Tx, 0) => Ok(vec!["TUNER".to_string()]),
-            _ => Err(Error::ValueError)
+            _ => Err(Error::ValueError),
         }
     }
 
-    fn suports_agc(&self, direction: Direction, channel: usize) -> Result<bool, crate::Error> {
+    fn suports_agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
         match (direction, channel) {
             (Rx, 0 | 1) => Ok(true),
             (Tx, 0) => Ok(true),
-            _ => Err(Error::ValueError)
+            _ => Err(Error::ValueError),
         }
     }
 
-    fn enable_agc(
-        &self,
-        direction: Direction,
-        channel: usize,
-        agc: bool,
-    ) -> Result<(), crate::Error> {
-        todo!()
+    fn enable_agc(&self, direction: Direction, channel: usize, agc: bool) -> Result<(), Error> {
+        let mut dev = self.dev.lock().unwrap();
+        match (direction, channel) {
+            (Rx, 0 | 1) => {
+                if agc {
+                    dev.set("device/gaincontrol", "power")
+                        .or(Err(Error::DeviceError))
+                } else {
+                    dev.set("device/gaincontrol", "manual")
+                        .or(Err(Error::DeviceError))
+                }
+            }
+            _ => Err(Error::ValueError),
+        }
     }
 
-    fn agc(&self, direction: Direction, channel: usize) -> Result<bool, crate::Error> {
-        todo!()
+    fn agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+        let mut dev = self.dev.lock().unwrap();
+        match (direction, channel) {
+            (Rx, 0 | 1) => match dev.get("device/gaincontrol").or(Err(Error::DeviceError))? {
+                ConfigItem::Enum(0, _) => Ok(false),
+                _ => Ok(true),
+            },
+            _ => Err(Error::ValueError),
+        }
     }
 
-    fn set_gain(
-        &self,
-        direction: Direction,
-        channel: usize,
-        gain: f64,
-    ) -> Result<(), crate::Error> {
-        todo!()
+    fn set_gain(&self, direction: Direction, channel: usize, gain: f64) -> Result<(), Error> {
+        self.set_gain_element(direction, channel, "TUNER", gain)
     }
 
-    fn gain(&self, direction: Direction, channel: usize) -> Result<Option<f64>, crate::Error> {
-        todo!()
+    fn gain(&self, direction: Direction, channel: usize) -> Result<Option<f64>, Error> {
+        self.gain_element(direction, channel, "TUNER")
     }
 
-    fn gain_range(
-        &self,
-        direction: Direction,
-        channel: usize,
-    ) -> Result<crate::Range, crate::Error> {
-        todo!()
+    fn gain_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
+           self.gain_element_range(direction, channel, "TUNER") 
     }
 
     fn set_gain_element(
@@ -233,8 +222,19 @@ impl DeviceTrait for Aaronia {
         channel: usize,
         name: &str,
         gain: f64,
-    ) -> Result<(), crate::Error> {
-        todo!()
+    ) -> Result<(), Error> {
+        let mut dev = self.dev.lock().unwrap();
+        match (direction, channel, name) {
+            (Rx, 0 | 1, "TUNER") | (Tx, 0, "TUNER") => {
+                if 0.0 <= gain && gain <= 30.0 {
+                    dev.set("main/reflevel", format!("{}", -8.0 - gain))
+                        .or(Err(Error::DeviceError))
+                } else {
+                    Err(Error::ValueError)
+                }
+            }
+            _ => Err(Error::DeviceError),
+        }
     }
 
     fn gain_element(
@@ -242,8 +242,13 @@ impl DeviceTrait for Aaronia {
         direction: Direction,
         channel: usize,
         name: &str,
-    ) -> Result<Option<f64>, crate::Error> {
-        todo!()
+    ) -> Result<Option<f64>, Error> {
+        match (direction, channel) {
+            (Rx, 0) => Ok(None),
+            (Rx, 1) => Ok(None),
+            (Tx, 0) => todo!(),
+            _ => Err(Error::ValueError),
+        }
     }
 
     fn gain_element_range(
@@ -251,20 +256,23 @@ impl DeviceTrait for Aaronia {
         direction: Direction,
         channel: usize,
         name: &str,
-    ) -> Result<crate::Range, crate::Error> {
-        todo!()
+    ) -> Result<Range, Error> {
+        match (direction, channel, name) {
+            (Rx, 0 | 1, "TUNER") => Ok(Range::new(vec![RangeItem::Interval(0.0, 30.0)])),
+            (Tx, 0, "TUNER") => Ok(Range::new(vec![RangeItem::Interval(-100.0, 10.0)])),
+            _ => Err(Error::ValueError),
+        }
     }
 
-    fn frequency_range(
-        &self,
-        direction: Direction,
-        channel: usize,
-    ) -> Result<crate::Range, crate::Error> {
-        todo!()
+    fn frequency_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
+        match (direction, channel) {
+            (Rx, 0 | 1) | (Tx, 0) => Ok(Range::new(vec![RangeItem::Interval(193e6, 6e9)])),
+            _ => Err(Error::ValueError),
+        }
     }
 
-    fn frequency(&self, direction: Direction, channel: usize) -> Result<f64, crate::Error> {
-        todo!()
+    fn frequency(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
+        self.component_frequency(direction, channel, "TUNER")
     }
 
     fn set_frequency(
@@ -272,17 +280,16 @@ impl DeviceTrait for Aaronia {
         direction: Direction,
         channel: usize,
         frequency: f64,
-        args: crate::Args,
-    ) -> Result<(), crate::Error> {
-        todo!()
+        args: Args,
+    ) -> Result<(), Error> {
+        self.set_component_frequency(direction, channel, "TUNER", frequency, args)
     }
 
-    fn list_frequencies(
-        &self,
-        direction: Direction,
-        channel: usize,
-    ) -> Result<Vec<String>, crate::Error> {
-        todo!()
+    fn frequency_components(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
+        match(direction, channel) {
+            (Rx, 0 | 1) | (Tx, 0) => Ok(vec!["TUNER".to_string()]),
+            _ => Err(Error::ValueError)
+        }
     }
 
     fn component_frequency_range(
@@ -290,7 +297,7 @@ impl DeviceTrait for Aaronia {
         direction: Direction,
         channel: usize,
         name: &str,
-    ) -> Result<crate::Range, crate::Error> {
+    ) -> Result<Range, Error> {
         todo!()
     }
 
@@ -299,23 +306,70 @@ impl DeviceTrait for Aaronia {
         direction: Direction,
         channel: usize,
         name: &str,
-    ) -> Result<f64, crate::Error> {
-        todo!()
+    ) -> Result<f64, Error> {
+        match (direction, channel, name) {
+            (Rx, 0 | 1, "TUNER") => {
+                let mut dev = self.dev.lock().unwrap();
+                let s = dev.get("main/centerfreq").or(Err(Error::DeviceError))?;
+                match s {
+                    ConfigItem::Number(f) => Ok(f),
+                    _ => Err(Error::ValueError),
+                }
+            }
+            _ => Err(Error::ValueError),
+        }
     }
 
     fn set_component_frequency(
         &self,
-        direction: Direction,
+        _direction: Direction,
         channel: usize,
         name: &str,
         frequency: f64,
-        args: crate::Args,
-    ) -> Result<(), crate::Error> {
-        todo!()
+        args: Args,
+    ) -> Result<(), Error> {
+        let mut dev = self.dev.lock().unwrap();
+        match (channel, name) {
+            (0 | 1, "TUNER") => dev
+                .set("main/centerfreq", format!("{frequency}"))
+                .or(Err(Error::DeviceError)),
+            _ => Err(Error::ValueError),
+        }
     }
 
-    fn sample_rate(&self, direction: Direction, channel: usize) -> Result<f64, crate::Error> {
-        todo!()
+    fn sample_rate(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
+        match (direction, channel) {
+            (Rx, 0 | 1) => {
+                let mut dev = self.dev.lock().unwrap();
+                let s = dev
+                    .get("device/receiverclock")
+                    .or(Err(Error::DeviceError))?;
+                let rate = match s {
+                    ConfigItem::Enum(0, _) => 92e6,
+                    ConfigItem::Enum(1, _) => 122e6,
+                    ConfigItem::Enum(2, _) => 184e6,
+                    ConfigItem::Enum(3, _) => 245e6,
+                    _ => return Err(Error::ValueError),
+                };
+                let s = dev.get("main/decimation").or(Err(Error::DeviceError))?;
+                let s = match s {
+                    ConfigItem::Enum(0, _) => 1.0,
+                    ConfigItem::Enum(1, _) => 2.0,
+                    ConfigItem::Enum(2, _) => 4.0,
+                    ConfigItem::Enum(3, _) => 8.0,
+                    ConfigItem::Enum(4, _) => 16.0,
+                    ConfigItem::Enum(5, _) => 32.0,
+                    ConfigItem::Enum(6, _) => 64.0,
+                    ConfigItem::Enum(7, _) => 128.0,
+                    ConfigItem::Enum(8, _) => 256.0,
+                    ConfigItem::Enum(9, _) => 512.0,
+                    _ => return Err(Error::ValueError),
+                };
+
+                Ok(rate / s)
+            }
+            _ => Err(Error::ValueError),
+        }
     }
 
     fn set_sample_rate(
@@ -323,51 +377,52 @@ impl DeviceTrait for Aaronia {
         direction: Direction,
         channel: usize,
         rate: f64,
-    ) -> Result<(), crate::Error> {
-        todo!()
+    ) -> Result<(), Error> {
+        Ok(())
     }
 
-    fn get_sample_rate_range(
-        &self,
-        direction: Direction,
-        channel: usize,
-    ) -> Result<crate::Range, crate::Error> {
+    fn get_sample_rate_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
         todo!()
     }
 }
 
 impl crate::RxStreamer for RxStreamer {
-    fn mtu(&self) -> Result<usize, crate::Error> {
-        todo!()
+    fn mtu(&self) -> Result<usize, Error> {
+        Ok(1024)
     }
 
-    fn activate(&mut self, time_ns: Option<i64>) -> Result<(), crate::Error> {
-        todo!()
+    fn activate(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
+        let mut dev = self.dev.lock().unwrap();
+        dev.connect().or(Err(Error::DeviceError))?;
+        dev.start().or(Err(Error::DeviceError))
     }
 
-    fn deactivate(&mut self, time_ns: Option<i64>) -> Result<(), crate::Error> {
-        todo!()
+    fn deactivate(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
+        let mut dev = self.dev.lock().unwrap();
+        dev.stop().or(Err(Error::DeviceError))?;
+        dev.disconnect().or(Err(Error::DeviceError))
     }
 
     fn read(
         &mut self,
         buffers: &mut [&mut [num_complex::Complex32]],
-        timeout_us: i64,
-    ) -> Result<usize, crate::Error> {
-        todo!()
+        _timeout_us: i64,
+    ) -> Result<usize, Error> {
+        let mut dev = self.dev.lock().unwrap();
+        Ok(0)
     }
 }
 
 impl crate::TxStreamer for TxStreamer {
-    fn mtu(&self) -> Result<usize, crate::Error> {
+    fn mtu(&self) -> Result<usize, Error> {
+        Ok(1024)
+    }
+
+    fn activate(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
         todo!()
     }
 
-    fn activate(&mut self, time_ns: Option<i64>) -> Result<(), crate::Error> {
-        todo!()
-    }
-
-    fn deactivate(&mut self, time_ns: Option<i64>) -> Result<(), crate::Error> {
+    fn deactivate(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
         todo!()
     }
 
@@ -377,7 +432,7 @@ impl crate::TxStreamer for TxStreamer {
         at_ns: Option<i64>,
         end_burst: bool,
         timeout_us: i64,
-    ) -> Result<usize, crate::Error> {
+    ) -> Result<usize, Error> {
         todo!()
     }
 
@@ -387,7 +442,7 @@ impl crate::TxStreamer for TxStreamer {
         at_ns: Option<i64>,
         end_burst: bool,
         timeout_us: i64,
-    ) -> Result<(), crate::Error> {
+    ) -> Result<(), Error> {
         todo!()
     }
 }
