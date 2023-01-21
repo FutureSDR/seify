@@ -403,7 +403,9 @@ impl DeviceTrait for Aaronia {
                     if (rate - 92e6 / d).abs() < 0.00001 {
                         dev.set("device/receiverclock", "92MHz")
                             .or(Err(Error::DeviceError))?;
-                        return dev.set_int("main/decimation", i as i64).or(Err(Error::DeviceError))
+                        return dev
+                            .set_int("main/decimation", i as i64)
+                            .or(Err(Error::DeviceError));
                     }
                 }
                 Err(Error::ValueError)
@@ -471,7 +473,7 @@ impl crate::RxStreamer for RxStreamer {
                 Some((p, offset)) => {
                     let cur = p.samples();
                     let n = std::cmp::min(len - i, cur.len() - offset);
-                    buffers[0][i..i + n].copy_from_slice(&cur[offset..offset+n]);
+                    buffers[0][i..i + n].copy_from_slice(&cur[offset..offset + n]);
                     i += n;
                     if offset + n == cur.len() {
                         dev.consume(0).or(Err(Error::DeviceError))?;
@@ -481,7 +483,7 @@ impl crate::RxStreamer for RxStreamer {
                 }
             }
         }
-        
+
         Ok(len)
     }
 }

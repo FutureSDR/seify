@@ -290,10 +290,28 @@ impl<T: DeviceTrait + Any> Device<T> {
             .ok_or(Error::ValueError)?;
         Ok(&d.dev)
     }
-    pub fn inner_mut<D: Any>(&mut self) -> Result<&mut D, Error> {
-        (&mut self.dev as &mut dyn Any)
-            .downcast_mut::<D>()
-            .ok_or(Error::ValueError)
+    pub fn inner_mut<D: DeviceTrait + Any>(&mut self) -> Result<&mut D, Error> {
+        // work around borrow checker limitation
+        if let Some(d) = self.dev.as_any().downcast_ref::<D>() {
+            Ok(self.dev.as_any_mut().downcast_mut::<D>().unwrap())
+        } else {
+            let d = self
+                .dev
+                .as_any_mut()
+                .downcast_mut::<Box<
+                    (dyn DeviceTrait<
+                        RxStreamer = Box<(dyn RxStreamer + 'static)>,
+                        TxStreamer = Box<(dyn TxStreamer + 'static)>,
+                    > + 'static),
+                >>()
+                .ok_or(Error::ValueError)?;
+
+            let d = (**d)
+                .as_any_mut()
+                .downcast_mut::<DeviceWrapper<D>>()
+                .ok_or(Error::ValueError)?;
+            Ok(&mut d.dev)
+        }
     }
 }
 
@@ -723,11 +741,7 @@ impl<
         self.dev.rx_stream(channels)
     }
 
-    pub fn rx_stream_with_args(
-        &self,
-        channels: &[usize],
-        args: Args,
-    ) -> Result<R, Error> {
+    pub fn rx_stream_with_args(&self, channels: &[usize], args: Args) -> Result<R, Error> {
         self.dev.rx_stream_with_args(channels, args)
     }
 
@@ -735,11 +749,7 @@ impl<
         self.dev.tx_stream(channels)
     }
 
-    pub fn tx_stream_with_args(
-        &self,
-        channels: &[usize],
-        args: Args,
-    ) -> Result<T, Error> {
+    pub fn tx_stream_with_args(&self, channels: &[usize], args: Args) -> Result<T, Error> {
         self.dev.tx_stream_with_args(channels, args)
     }
 
@@ -751,11 +761,20 @@ impl<
         self.dev.antenna(direction, channel)
     }
 
-    pub fn set_antenna(&self, direction: Direction, channel: usize, name: &str) -> Result<(), Error> {
+    pub fn set_antenna(
+        &self,
+        direction: Direction,
+        channel: usize,
+        name: &str,
+    ) -> Result<(), Error> {
         self.dev.set_antenna(direction, channel, name)
     }
 
-    pub fn gain_elements(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
+    pub fn gain_elements(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> Result<Vec<String>, Error> {
         self.dev.gain_elements(direction, channel)
     }
 
@@ -880,7 +899,11 @@ impl<
         self.dev.set_sample_rate(direction, channel, rate)
     }
 
-    pub fn get_sample_rate_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
+    pub fn get_sample_rate_range(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> Result<Range, Error> {
         self.dev.get_sample_rate_range(direction, channel)
     }
 }
