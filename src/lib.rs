@@ -4,6 +4,7 @@ pub use args::Args;
 mod device;
 pub use device::Device;
 pub use device::DeviceTrait;
+pub use device::GenericDevice;
 
 pub mod impls;
 
