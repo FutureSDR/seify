@@ -11,7 +11,7 @@ use crate::Range;
 use crate::RxStreamer;
 use crate::TxStreamer;
 
-pub trait DeviceTrait: Any {
+pub trait DeviceTrait: Any + Send {
     type RxStreamer: RxStreamer;
     type TxStreamer: TxStreamer;
 

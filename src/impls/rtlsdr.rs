@@ -15,17 +15,23 @@ use crate::Error;
 use crate::Range;
 use crate::RangeItem;
 
+#[derive(Clone)]
 pub struct RtlSdr {
     dev: Arc<Sdr>,
     index: usize,
-    i: Mutex<Inner>,
+    i: Arc<Mutex<Inner>>,
 }
+unsafe impl Send for RtlSdr {}
+
 struct Inner {
     gain: TunerGain,
 }
+
 pub struct RxStreamer {
     dev: Arc<Sdr>,
 }
+
+unsafe impl Send for RxStreamer {}
 
 impl RxStreamer {
     fn new(dev: Arc<Sdr>) -> Self {
@@ -34,6 +40,7 @@ impl RxStreamer {
 }
 
 pub struct TxDummy;
+unsafe impl Send for TxDummy {}
 
 impl RtlSdr {
     pub fn probe(_args: &Args) -> Result<Vec<Args>, Error> {
@@ -50,9 +57,9 @@ impl RtlSdr {
         let dev = RtlSdr {
             dev: Arc::new(Sdr::open(index).or(Err(Error::DeviceError))?),
             index,
-            i: Mutex::new(Inner {
+            i: Arc::new(Mutex::new(Inner {
                 gain: TunerGain::Auto,
-            }),
+            })),
         };
         dev.enable_agc(Rx, 0, true)?;
         Ok(dev)

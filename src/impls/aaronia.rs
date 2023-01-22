@@ -24,10 +24,16 @@ pub struct Aaronia {
     dev: Arc<Mutex<Sdr>>,
     index: usize,
 }
+
+unsafe impl Send for Aaronia {}
+
 pub struct RxStreamer {
     dev: Arc<Mutex<Sdr>>,
     packet: Option<(Packet, usize)>,
 }
+
+unsafe impl Send for RxStreamer {}
+
 impl RxStreamer {
     fn new(dev: Arc<Mutex<Sdr>>) -> Self {
         Self { dev, packet: None }
@@ -37,6 +43,9 @@ impl RxStreamer {
 pub struct TxStreamer {
     dev: Arc<Mutex<Sdr>>,
 }
+
+unsafe impl Send for TxStreamer {}
+
 impl TxStreamer {
     fn new(dev: Arc<Mutex<Sdr>>) -> Self {
         Self { dev }

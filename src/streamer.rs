@@ -2,7 +2,7 @@ use num_complex::Complex32;
 
 use crate::Error;
 
-pub trait RxStreamer {
+pub trait RxStreamer: Send {
     /// Get the stream's maximum transmission unit (MTU) in number of elements.
     ///
     /// The MTU specifies the maximum payload transfer in a stream operation.
@@ -51,7 +51,7 @@ impl RxStreamer for Box<dyn RxStreamer> {
     }
 }
 
-pub trait TxStreamer {
+pub trait TxStreamer: Send {
     /// Get the stream's maximum transmission unit (MTU) in number of elements.
     ///
     /// The MTU specifies the maximum payload transfer in a stream operation.

@@ -87,17 +87,24 @@ pub fn enumerate_with_args<A: TryInto<Args>>(a: A) -> Result<Vec<Args>, Error> {
     let mut devs = Vec::new();
     let driver = args.get::<String>("driver").ok();
 
-    if cfg!(feature = "aaronia") && (driver.is_none() || driver.as_ref().unwrap() == "aaronia") {
-        devs.append(&mut impls::Aaronia::probe(&args)?)
+
+    #[cfg(feature = "aaronia")]
+    {
+        if driver.is_none() || driver.as_ref().unwrap() == "aaronia" {
+            devs.append(&mut impls::Aaronia::probe(&args)?)
+        }
     }
 
-    if cfg!(feature = "rtlsdr") && (driver.is_none() || driver.as_ref().unwrap() == "rtlsdr") {
-        devs.append(&mut impls::RtlSdr::probe(&args)?)
+    #[cfg(feature = "rtlsdr")]
+    {
+        if driver.is_none() || driver.as_ref().unwrap() == "rtlsdr" {
+            devs.append(&mut impls::RtlSdr::probe(&args)?)
+        }
     }
 
     #[cfg(feature = "hackrf")]
     {
-        if cfg!(feature = "hackrf") && (driver.is_none() || driver.as_ref().unwrap() == "hackrf") {
+        if driver.is_none() || driver.as_ref().unwrap() == "hackrf" {
             devs.append(&mut impls::HackRf::probe(&args)?)
         }
     }
