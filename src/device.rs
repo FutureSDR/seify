@@ -838,14 +838,14 @@ impl<
         self.dev.frequency(direction, channel)
     }
 
-    pub fn set_frequency(
+    pub fn set_frequency<A: TryInto<Args>>(
         &self,
         direction: Direction,
         channel: usize,
         frequency: f64,
-        args: Args,
+        args: A,
     ) -> Result<(), Error> {
-        self.dev.set_frequency(direction, channel, frequency, args)
+        self.dev.set_frequency(direction, channel, frequency, args.try_into().or(Err(Error::ValueError))?)
     }
 
     pub fn frequency_components(
