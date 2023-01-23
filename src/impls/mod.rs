@@ -3,6 +3,11 @@ pub mod aaronia;
 #[cfg(feature = "aaronia")]
 pub use aaronia::Aaronia;
 
+#[cfg(feature = "aaronia_http")]
+pub mod aaronia_http;
+#[cfg(feature = "aaronia_http")]
+pub use aaronia_http::AaroniaHttp;
+
 #[cfg(feature = "hackrf")]
 pub mod hackrf;
 #[cfg(feature = "hackrf")]

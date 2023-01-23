@@ -28,6 +28,14 @@ pub enum Error {
     NotSupported,
     #[error("Inactive")]
     Inactive,
+    #[error("Io")]
+    Io,
+}
+
+impl From<std::io::Error> for Error {
+    fn from(_value: std::io::Error) -> Self {
+       Error::Io 
+    }
 }
 
 #[derive(Debug)]
@@ -35,6 +43,8 @@ pub enum Error {
 pub enum Driver {
     #[cfg(feature = "aaronia")]
     Aaronia,
+    #[cfg(feature = "aaronia_http")]
+    AaroniaHttp,
     #[cfg(feature = "hackrf")]
     HackRf,
     #[cfg(feature = "rtlsdr")]
@@ -52,6 +62,12 @@ impl FromStr for Driver {
         {
             if s == "aaronia" {
                 return Ok(Driver::Aaronia);
+            }
+        }
+        #[cfg(feature = "aaronia_http")]
+        {
+            if s == "aaronia_http" || s == "aaronia-http" || s == "aaroniahttp" {
+                return Ok(Driver::AaroniaHttp);
             }
         }
         #[cfg(feature = "rtlsdr")]
@@ -97,6 +113,13 @@ pub fn enumerate_with_args<A: TryInto<Args>>(a: A) -> Result<Vec<Args>, Error> {
     {
         if driver.is_none() || driver.as_ref().unwrap() == "aaronia" {
             devs.append(&mut impls::Aaronia::probe(&args)?)
+        }
+    }
+
+    #[cfg(feature = "aaronia_http")]
+    {
+        if driver.is_none() || driver.as_ref().unwrap() == "aaronia_http" {
+            devs.append(&mut impls::AaroniaHttp::probe(&args)?)
         }
     }
 
