@@ -11,7 +11,8 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let devs = enumerate()?;
     println!("devs: {devs:?}");
 
-    let dev = Device::from_args("driver=soapy")?;
+    // let dev = Device::from_args("driver=rtlsdr")?;
+    let dev = Device::from_args("")?;
     // Get typed reference to device impl
     // let _r : &seify::impls::RtlSdr = dev.inner().unwrap();
 
@@ -29,7 +30,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut samps = [Complex32::new(0.0, 0.0); 8192];
     let mut rx = dev.rx_stream(&[0])?;
     rx.activate(None)?;
-    let n = rx.read(&mut [&mut samps], 20000)?;
+    let n = rx.read(&mut [&mut samps], 200000)?;
 
     plot(&mut samps[..n]);
 

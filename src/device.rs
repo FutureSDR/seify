@@ -233,39 +233,68 @@ impl Device<GenericDevice> {
         #[cfg(feature = "aaronia")]
         {
             if driver.is_none() || matches!(driver, Some(Driver::Aaronia)) {
-                return Ok(Device {
-                    dev: Arc::new(DeviceWrapper {
-                        dev: impls::Aaronia::open(&args)?,
+                match impls::Aaronia::open(&args) {
+                    Ok(d) => return Ok(Device {
+                        dev: Arc::new(DeviceWrapper {
+                            dev: d
+                        }),
                     }),
-                });
+                    Err(Error::NotFound) => if !driver.is_none() {
+                        return Err(Error::NotFound)
+                    },
+                    Err(e) => return Err(e)
+                }
             }
         }
         #[cfg(feature = "rtlsdr")]
         {
             if driver.is_none() || matches!(driver, Some(Driver::RtlSdr)) {
-                return Ok(Device {
-                    dev: Arc::new(DeviceWrapper {
-                        dev: impls::RtlSdr::open(&args)?,
+                match impls::RtlSdr::open(&args) {
+                    Ok(d) => return Ok(Device {
+                        dev: Arc::new(DeviceWrapper {
+                            dev: d
+                        }),
                     }),
-                });
+                    Err(Error::NotFound) => if !driver.is_none() {
+                        return Err(Error::NotFound)
+                    },
+                    Err(e) => return Err(e)
+
+                }
             }
         }
         #[cfg(feature = "hackrf")]
         {
             if driver.is_none() || matches!(driver, Some(Driver::HackRf)) {
-                return Ok(Device {
-                    dev: Arc::new(Box::new(impls::HackRf::open(&args)?)),
-                });
+                match impls::HackRf::open(&args) {
+                    Ok(d) => return Ok(Device {
+                        dev: Arc::new(DeviceWrapper {
+                            dev: d
+                        }),
+                    }),
+                    Err(Error::NotFound) => if !driver.is_none() {
+                        return Err(Error::NotFound)
+                    },
+                    Err(e) => return Err(e)
+
+                }
             }
         }
         #[cfg(feature = "soapy")]
         {
             if driver.is_none() || matches!(driver, Some(Driver::Soapy)) {
-                return Ok(Device {
-                    dev: Arc::new(DeviceWrapper {
-                        dev: impls::Soapy::open(&args)?,
+                match impls::Soapy::open(&args) {
+                    Ok(d) => return Ok(Device {
+                        dev: Arc::new(DeviceWrapper {
+                            dev: d
+                        }),
                     }),
-                });
+                    Err(Error::NotFound) => if !driver.is_none() {
+                        return Err(Error::NotFound)
+                    },
+                    Err(e) => return Err(e)
+
+                }
             }
         }
         Err(Error::NotFound)

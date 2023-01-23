@@ -318,7 +318,7 @@ impl crate::RxStreamer for RxStreamer {
         buffers: &mut [&mut [num_complex::Complex32]],
         timeout_us: i64,
     ) -> Result<usize, Error> {
-        Ok(dbg!(self.streamer.read(buffers, timeout_us))?)
+        Ok(self.streamer.read(buffers, timeout_us)?)
     }
 }
 

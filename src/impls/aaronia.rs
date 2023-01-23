@@ -69,6 +69,9 @@ impl Aaronia {
         let mut api = ApiHandle::new().or(Err(Error::DeviceError))?;
         api.rescan_devices().or(Err(Error::DeviceError))?;
         let devs = api.devices().or(Err(Error::DeviceError))?;
+        if devs.is_empty() {
+            return Err(Error::NotFound)
+        }
 
         let args = args.try_into().or(Err(Error::ValueError))?;
         let index = args.get::<usize>("index").unwrap_or(0);
