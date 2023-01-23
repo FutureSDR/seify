@@ -258,6 +258,16 @@ impl Device<GenericDevice> {
                 });
             }
         }
+        #[cfg(feature = "soapy")]
+        {
+            if driver.is_none() || matches!(driver, Some(Driver::Soapy)) {
+                return Ok(Device {
+                    dev: Arc::new(DeviceWrapper {
+                        dev: impls::Soapy::open(&args)?,
+                    }),
+                });
+            }
+        }
         Err(Error::NotFound)
     }
 }

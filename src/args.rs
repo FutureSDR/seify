@@ -44,6 +44,9 @@ impl Args {
     pub fn set<K: Into<String>, V: Into<String>>(&mut self, key: K, value: V) -> Option<String> {
         self.map.insert(key.into(), value.into())
     }
+    pub fn remove<K: AsRef<str>>(&mut self, key: K) -> Option<String> {
+        self.map.remove(key.as_ref())
+    }
     pub fn iter<'a>(&'a self) -> std::collections::hash_map::Iter<'a, String, String> {
         self.map.iter()
     }

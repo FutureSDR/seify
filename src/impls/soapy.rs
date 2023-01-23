@@ -1,4 +1,3 @@
-#![allow(unused_variables)]
 use num_complex::Complex32;
 
 use crate::Args;
@@ -25,12 +24,38 @@ pub struct TxStreamer {
 
 impl Soapy {
     pub fn probe(args: &Args) -> Result<Vec<Args>, Error> {
-        let v = soapysdr::enumerate(soapysdr::Args::try_from(*args)?)?;
-        let v : Vec<Args> = v.into_iter().map(|a| Ok(Args::try_from(a)?)).collect();
-        Ok(v)
+        let v = soapysdr::enumerate(soapysdr::Args::try_from(args.clone())?)?;
+        let v: Vec<Args> = v
+            .into_iter()
+            .map(|a| Args::try_from(a))
+            .collect::<Result<Vec<Args>, Error>>()?;
+        Ok(v.into_iter()
+            .map(|mut a| {
+                match a.get::<String>("driver") {
+                    Ok(d) => {
+                        a.set("soapy_driver", d);
+                        a.set("driver", "soapy")
+                    }
+                    Err(_) => a.set("driver", "soapy"),
+                };
+                a
+            })
+            .collect())
     }
     pub fn open<A: TryInto<Args>>(args: A) -> Result<Self, Error> {
-        todo!()
+        let mut args: Args = args.try_into().or(Err(Error::ValueError))?;
+        let index = args.get("index").unwrap_or(0);
+
+        if let Ok(d) = args.get::<String>("soapy_driver") {
+            args.set("driver", d);
+        } else {
+            args.remove("driver");
+        }
+
+        Ok(Self {
+            dev: soapysdr::Device::new(soapysdr::Args::try_from(args)?)?,
+            index,
+        })
     }
 }
 
@@ -78,7 +103,9 @@ impl DeviceTrait for Soapy {
         args: Args,
     ) -> Result<Self::RxStreamer, Error> {
         Ok(RxStreamer {
-            streamer: self.dev.rx_stream_args(channels, soapysdr::Args::try_from(args)?)?,
+            streamer: self
+                .dev
+                .rx_stream_args(channels, soapysdr::Args::try_from(args)?)?,
         })
     }
 
@@ -94,7 +121,9 @@ impl DeviceTrait for Soapy {
         args: Args,
     ) -> Result<Self::TxStreamer, Error> {
         Ok(TxStreamer {
-            streamer: self.dev.tx_stream_args(channels, soapysdr::Args::try_from(args)?)?,
+            streamer: self
+                .dev
+                .tx_stream_args(channels, soapysdr::Args::try_from(args)?)?,
         })
     }
 
@@ -243,10 +272,13 @@ impl DeviceTrait for Soapy {
         frequency: f64,
         args: Args,
     ) -> Result<(), Error> {
-        // todo
-        Ok(self
-            .dev
-            .set_component_frequency(direction.into(), channel, name, frequency, "")?)
+        Ok(self.dev.set_component_frequency(
+            direction.into(),
+            channel,
+            name,
+            frequency,
+            soapysdr::Args::try_from(args)?,
+        )?)
     }
 
     fn sample_rate(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
@@ -286,7 +318,7 @@ impl crate::RxStreamer for RxStreamer {
         buffers: &mut [&mut [num_complex::Complex32]],
         timeout_us: i64,
     ) -> Result<usize, Error> {
-        Ok(self.streamer.read(buffers, timeout_us)?)
+        Ok(dbg!(self.streamer.read(buffers, timeout_us))?)
     }
 }
 
@@ -327,7 +359,7 @@ impl crate::TxStreamer for TxStreamer {
 }
 
 impl From<soapysdr::Error> for Error {
-    fn from(value: soapysdr::Error) -> Self {
+    fn from(_value: soapysdr::Error) -> Self {
         Error::DeviceError
     }
 }
@@ -344,13 +376,17 @@ impl From<crate::Direction> for soapysdr::Direction {
 impl From<soapysdr::Range> for Range {
     fn from(range: soapysdr::Range) -> Self {
         let mut r = vec![];
-        let mut v = range.minimum;
-        loop {
-            r.push(RangeItem::Value(v));
-            v += range.step;
+        if range.step == 0.0 {
+            r.push(RangeItem::Interval(range.minimum, range.maximum));
+        } else {
+            let mut v = range.minimum;
+            loop {
+                r.push(RangeItem::Value(v));
+                v += range.step;
 
-            if v > range.maximum {
-                break;
+                if v > range.maximum {
+                    break;
+                }
             }
         }
         Range::new(r)
@@ -372,8 +408,7 @@ impl TryFrom<Args> for soapysdr::Args {
 
     fn try_from(args: Args) -> Result<Self, Self::Error> {
         let s = format!("{args}");
-        s.as_str().try_into()
-            .or(Err(Error::ValueError))
+        s.as_str().try_into().or(Err(Error::ValueError))
     }
 }
 
@@ -384,4 +419,3 @@ impl TryFrom<soapysdr::Args> for Args {
         value.to_string().try_into()
     }
 }
-

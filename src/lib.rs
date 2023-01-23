@@ -116,7 +116,7 @@ pub fn enumerate_with_args<A: TryInto<Args>>(a: A) -> Result<Vec<Args>, Error> {
 
     #[cfg(feature = "soapy")]
     {
-        if driver.is_none() || driver.as_ref().unwrap() == "hackrf" {
+        if driver.is_none() || driver.as_ref().unwrap() == "soapy" {
             devs.append(&mut impls::Soapy::probe(&args)?)
         }
     }
