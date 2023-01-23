@@ -234,15 +234,17 @@ impl Device<GenericDevice> {
         {
             if driver.is_none() || matches!(driver, Some(Driver::Aaronia)) {
                 match impls::Aaronia::open(&args) {
-                    Ok(d) => return Ok(Device {
-                        dev: Arc::new(DeviceWrapper {
-                            dev: d
-                        }),
-                    }),
-                    Err(Error::NotFound) => if !driver.is_none() {
-                        return Err(Error::NotFound)
-                    },
-                    Err(e) => return Err(e)
+                    Ok(d) => {
+                        return Ok(Device {
+                            dev: Arc::new(DeviceWrapper { dev: d }),
+                        })
+                    }
+                    Err(Error::NotFound) => {
+                        if !driver.is_none() {
+                            return Err(Error::NotFound);
+                        }
+                    }
+                    Err(e) => return Err(e),
                 }
             }
         }
@@ -250,16 +252,17 @@ impl Device<GenericDevice> {
         {
             if driver.is_none() || matches!(driver, Some(Driver::RtlSdr)) {
                 match impls::RtlSdr::open(&args) {
-                    Ok(d) => return Ok(Device {
-                        dev: Arc::new(DeviceWrapper {
-                            dev: d
-                        }),
-                    }),
-                    Err(Error::NotFound) => if !driver.is_none() {
-                        return Err(Error::NotFound)
-                    },
-                    Err(e) => return Err(e)
-
+                    Ok(d) => {
+                        return Ok(Device {
+                            dev: Arc::new(DeviceWrapper { dev: d }),
+                        })
+                    }
+                    Err(Error::NotFound) => {
+                        if !driver.is_none() {
+                            return Err(Error::NotFound);
+                        }
+                    }
+                    Err(e) => return Err(e),
                 }
             }
         }
@@ -267,16 +270,17 @@ impl Device<GenericDevice> {
         {
             if driver.is_none() || matches!(driver, Some(Driver::HackRf)) {
                 match impls::HackRf::open(&args) {
-                    Ok(d) => return Ok(Device {
-                        dev: Arc::new(DeviceWrapper {
-                            dev: d
-                        }),
-                    }),
-                    Err(Error::NotFound) => if !driver.is_none() {
-                        return Err(Error::NotFound)
-                    },
-                    Err(e) => return Err(e)
-
+                    Ok(d) => {
+                        return Ok(Device {
+                            dev: Arc::new(DeviceWrapper { dev: d }),
+                        })
+                    }
+                    Err(Error::NotFound) => {
+                        if !driver.is_none() {
+                            return Err(Error::NotFound);
+                        }
+                    }
+                    Err(e) => return Err(e),
                 }
             }
         }
@@ -284,16 +288,17 @@ impl Device<GenericDevice> {
         {
             if driver.is_none() || matches!(driver, Some(Driver::Soapy)) {
                 match impls::Soapy::open(&args) {
-                    Ok(d) => return Ok(Device {
-                        dev: Arc::new(DeviceWrapper {
-                            dev: d
-                        }),
-                    }),
-                    Err(Error::NotFound) => if !driver.is_none() {
-                        return Err(Error::NotFound)
-                    },
-                    Err(e) => return Err(e)
-
+                    Ok(d) => {
+                        return Ok(Device {
+                            dev: Arc::new(DeviceWrapper { dev: d }),
+                        })
+                    }
+                    Err(Error::NotFound) => {
+                        if !driver.is_none() {
+                            return Err(Error::NotFound);
+                        }
+                    }
+                    Err(e) => return Err(e),
                 }
             }
         }

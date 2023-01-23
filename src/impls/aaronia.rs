@@ -70,7 +70,7 @@ impl Aaronia {
         api.rescan_devices().or(Err(Error::DeviceError))?;
         let devs = api.devices().or(Err(Error::DeviceError))?;
         if devs.is_empty() {
-            return Err(Error::NotFound)
+            return Err(Error::NotFound);
         }
 
         let args = args.try_into().or(Err(Error::ValueError))?;

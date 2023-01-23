@@ -276,7 +276,6 @@ impl Range {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -288,7 +287,10 @@ mod tests {
     }
     #[test]
     fn contains() {
-        let r = Range::new(vec![RangeItem::Value(123.0), RangeItem::Interval(23.0, 42.0)]);
+        let r = Range::new(vec![
+            RangeItem::Value(123.0),
+            RangeItem::Interval(23.0, 42.0),
+        ]);
         assert!(r.contains(123.0));
         assert!(r.contains(23.0));
         assert!(r.contains(42.0));
@@ -297,7 +299,10 @@ mod tests {
     }
     #[test]
     fn closest() {
-        let r = Range::new(vec![RangeItem::Value(123.0), RangeItem::Interval(23.0, 42.0)]);
+        let r = Range::new(vec![
+            RangeItem::Value(123.0),
+            RangeItem::Interval(23.0, 42.0),
+        ]);
         assert_eq!(r.closest(100.0), Some(123.0));
         assert_eq!(r.closest(1000.0), Some(123.0));
         assert_eq!(r.closest(30.0), Some(30.0));
@@ -306,7 +311,10 @@ mod tests {
     }
     #[test]
     fn at_least() {
-        let r = Range::new(vec![RangeItem::Value(123.0), RangeItem::Interval(23.0, 42.0)]);
+        let r = Range::new(vec![
+            RangeItem::Value(123.0),
+            RangeItem::Interval(23.0, 42.0),
+        ]);
         assert_eq!(r.at_least(100.0), Some(123.0));
         assert_eq!(r.at_least(1000.0), None);
         assert_eq!(r.at_least(30.0), Some(30.0));
@@ -314,7 +322,10 @@ mod tests {
     }
     #[test]
     fn at_max() {
-        let r = Range::new(vec![RangeItem::Value(123.0), RangeItem::Interval(23.0, 42.0)]);
+        let r = Range::new(vec![
+            RangeItem::Value(123.0),
+            RangeItem::Interval(23.0, 42.0),
+        ]);
         assert_eq!(r.at_max(100.0), Some(42.0));
         assert_eq!(r.at_max(10.0), None);
         assert_eq!(r.at_max(30.0), Some(30.0));

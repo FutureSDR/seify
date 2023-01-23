@@ -266,7 +266,10 @@ impl DeviceTrait for RtlSdr {
         if matches!(direction, Rx) && channel == 0 && name == "TUNER" {
             let gains = self.dev.get_tuner_gains().or(Err(Error::DeviceError))?;
             Ok(Range::new(
-                gains.iter().map(|g| RangeItem::Value(*g as f64 / 10.0)).collect(),
+                gains
+                    .iter()
+                    .map(|g| RangeItem::Value(*g as f64 / 10.0))
+                    .collect(),
             ))
         } else if matches!(direction, Rx) {
             Err(Error::ValueError)
