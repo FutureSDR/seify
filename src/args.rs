@@ -50,6 +50,9 @@ impl Args {
     pub fn iter_mut<'a>(&'a mut self) -> std::collections::hash_map::IterMut<'a, String, String> {
         self.map.iter_mut()
     }
+    pub fn map(&self) -> &HashMap<String, String> {
+        &self.map
+    }
     pub fn deserialize<D: for<'a> Deserialize<'a>>(&self) -> Option<D> {
         let s = serde_json::to_string(&self).ok()?;
         serde_json::from_str(&s).ok()
@@ -59,6 +62,19 @@ impl Args {
 impl std::fmt::Debug for Args {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.map.fmt(f)
+    }
+}
+
+impl std::fmt::Display for Args {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let mut i = self.iter();
+        if let Some((k, v)) = i.next() {
+            write!(fmt, "{}={}", k, v)?;
+            while let Some((k, v)) = i.next() {
+                write!(fmt, ", {}={}", k, v)?;
+            }
+        }
+        Ok(())
     }
 }
 

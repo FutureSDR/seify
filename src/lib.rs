@@ -163,4 +163,7 @@ impl Range {
         }
         false
     }
+    pub fn merge(&mut self, mut r: Range) {
+        self.items.append(&mut r.items)
+    }
 }

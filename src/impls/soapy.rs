@@ -24,8 +24,10 @@ pub struct TxStreamer {
 }
 
 impl Soapy {
-    pub fn probe(_args: &Args) -> Result<Vec<Args>, Error> {
-        todo!()
+    pub fn probe(args: &Args) -> Result<Vec<Args>, Error> {
+        let v = soapysdr::enumerate(soapysdr::Args::try_from(*args)?)?;
+        let v : Vec<Args> = v.into_iter().map(|a| Ok(Args::try_from(a)?)).collect();
+        Ok(v)
     }
     pub fn open<A: TryInto<Args>>(args: A) -> Result<Self, Error> {
         todo!()
@@ -75,7 +77,9 @@ impl DeviceTrait for Soapy {
         channels: &[usize],
         args: Args,
     ) -> Result<Self::RxStreamer, Error> {
-        todo!()
+        Ok(RxStreamer {
+            streamer: self.dev.rx_stream_args(channels, soapysdr::Args::try_from(args)?)?,
+        })
     }
 
     fn tx_stream(&self, channels: &[usize]) -> Result<Self::TxStreamer, Error> {
@@ -89,7 +93,9 @@ impl DeviceTrait for Soapy {
         channels: &[usize],
         args: Args,
     ) -> Result<Self::TxStreamer, Error> {
-        todo!()
+        Ok(TxStreamer {
+            streamer: self.dev.tx_stream_args(channels, soapysdr::Args::try_from(args)?)?,
+        })
     }
 
     fn antennas(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
@@ -179,9 +185,8 @@ impl DeviceTrait for Soapy {
     }
 
     fn frequency_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
-        let mut range = self.dev.frequency_range(direction.into(), channel)?;
-        // todo
-        Ok(range.remove(0).into())
+        let range = self.dev.frequency_range(direction.into(), channel)?;
+        Ok(range.into())
     }
 
     fn frequency(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
@@ -213,11 +218,10 @@ impl DeviceTrait for Soapy {
         channel: usize,
         name: &str,
     ) -> Result<Range, Error> {
-        let mut range = self
+        let range = self
             .dev
             .component_frequency_range(direction.into(), channel, name)?;
-        // todo
-        Ok(range.remove(0).into())
+        Ok(range.into())
     }
 
     fn component_frequency(
@@ -259,9 +263,8 @@ impl DeviceTrait for Soapy {
     }
 
     fn get_sample_rate_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
-        let mut range = self.dev.get_sample_rate_range(direction.into(), channel)?;
-        // todo 
-        Ok(range.remove(0).into())
+        let range = self.dev.get_sample_rate_range(direction.into(), channel)?;
+        Ok(range.into())
     }
 }
 
@@ -354,12 +357,31 @@ impl From<soapysdr::Range> for Range {
     }
 }
 
+impl From<Vec<soapysdr::Range>> for Range {
+    fn from(value: Vec<soapysdr::Range>) -> Self {
+        let mut range = Range::new(vec![]);
+        for v in value.into_iter() {
+            range.merge(v.into());
+        }
+        range
+    }
+}
+
 impl TryFrom<Args> for soapysdr::Args {
     type Error = Error;
 
-    fn try_from(value: Args) -> Result<Self, Self::Error> {
-        let mut s = String::from("");
-        args
+    fn try_from(args: Args) -> Result<Self, Self::Error> {
+        let s = format!("{args}");
+        s.as_str().try_into()
+            .or(Err(Error::ValueError))
+    }
+}
+
+impl TryFrom<soapysdr::Args> for Args {
+    type Error = Error;
+
+    fn try_from(value: soapysdr::Args) -> Result<Self, Self::Error> {
+        value.to_string().try_into()
     }
 }
 
