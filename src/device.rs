@@ -240,7 +240,7 @@ impl Device<GenericDevice> {
                         })
                     }
                     Err(Error::NotFound) => {
-                        if !driver.is_none() {
+                        if driver.is_some() {
                             return Err(Error::NotFound);
                         }
                     }
@@ -258,7 +258,7 @@ impl Device<GenericDevice> {
                         })
                     }
                     Err(Error::NotFound) => {
-                        if !driver.is_none() {
+                        if driver.is_some() {
                             return Err(Error::NotFound);
                         }
                     }
@@ -294,7 +294,7 @@ impl Device<GenericDevice> {
                         })
                     }
                     Err(Error::NotFound) => {
-                        if !driver.is_none() {
+                        if driver.is_some() {
                             return Err(Error::NotFound);
                         }
                     }

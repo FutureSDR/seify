@@ -47,10 +47,10 @@ impl Args {
     pub fn remove<K: AsRef<str>>(&mut self, key: K) -> Option<String> {
         self.map.remove(key.as_ref())
     }
-    pub fn iter<'a>(&'a self) -> std::collections::hash_map::Iter<'a, String, String> {
+    pub fn iter(&self) -> std::collections::hash_map::Iter<'_, String, String> {
         self.map.iter()
     }
-    pub fn iter_mut<'a>(&'a mut self) -> std::collections::hash_map::IterMut<'a, String, String> {
+    pub fn iter_mut(&mut self) -> std::collections::hash_map::IterMut<'_, String, String> {
         self.map.iter_mut()
     }
     pub fn map(&self) -> &HashMap<String, String> {
@@ -72,9 +72,9 @@ impl std::fmt::Display for Args {
     fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
         let mut i = self.iter();
         if let Some((k, v)) = i.next() {
-            write!(fmt, "{}={}", k, v)?;
-            while let Some((k, v)) = i.next() {
-                write!(fmt, ", {}={}", k, v)?;
+            write!(fmt, "{k}={v}")?;
+            for (k, v) in i {
+                write!(fmt, ", {k}={v}")?;
             }
         }
         Ok(())

@@ -27,7 +27,7 @@ impl Soapy {
         let v = soapysdr::enumerate(soapysdr::Args::try_from(args.clone())?)?;
         let v: Vec<Args> = v
             .into_iter()
-            .map(|a| Args::try_from(a))
+            .map(Args::try_from)
             .collect::<Result<Vec<Args>, Error>>()?;
         Ok(v.into_iter()
             .map(|mut a| {
