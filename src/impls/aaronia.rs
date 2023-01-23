@@ -26,6 +26,7 @@ pub struct Aaronia {
 }
 
 unsafe impl Send for Aaronia {}
+unsafe impl Sync for Aaronia {}
 
 pub struct RxStreamer {
     dev: Arc<Mutex<Sdr>>,
@@ -297,9 +298,8 @@ impl DeviceTrait for Aaronia {
         direction: Direction,
         channel: usize,
         frequency: f64,
-        args: Args,
     ) -> Result<(), Error> {
-        self.set_component_frequency(direction, channel, "TUNER", frequency, args)
+        self.set_component_frequency(direction, channel, "TUNER", frequency, Args::new())
     }
 
     fn frequency_components(

@@ -22,6 +22,7 @@ pub struct RtlSdr {
     i: Arc<Mutex<Inner>>,
 }
 unsafe impl Send for RtlSdr {}
+unsafe impl Sync for RtlSdr {}
 
 struct Inner {
     gain: TunerGain,
@@ -287,9 +288,8 @@ impl DeviceTrait for RtlSdr {
         direction: Direction,
         channel: usize,
         frequency: f64,
-        args: Args,
     ) -> Result<(), Error> {
-        self.set_component_frequency(direction, channel, "TUNER", frequency, args)
+        self.set_component_frequency(direction, channel, "TUNER", frequency, Args::new())
     }
 
     fn frequency_components(

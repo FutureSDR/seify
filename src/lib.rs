@@ -87,7 +87,6 @@ pub fn enumerate_with_args<A: TryInto<Args>>(a: A) -> Result<Vec<Args>, Error> {
     let mut devs = Vec::new();
     let driver = args.get::<String>("driver").ok();
 
-
     #[cfg(feature = "aaronia")]
     {
         if driver.is_none() || driver.as_ref().unwrap() == "aaronia" {

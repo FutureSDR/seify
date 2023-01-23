@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 #![allow(unused_variables)]
 use std::any::Any;
+use std::sync::Arc;
 
 use crate::impls;
 use crate::Args;
@@ -149,7 +150,6 @@ pub trait DeviceTrait: Any + Send {
         direction: Direction,
         channel: usize,
         frequency: f64,
-        args: Args,
     ) -> Result<(), Error>;
 
     /// List available tunable elements in the chain.
@@ -210,9 +210,18 @@ pub trait DeviceTrait: Any + Send {
     fn get_sample_rate_range(&self, direction: Direction, channel: usize) -> Result<Range, Error>;
 }
 
-pub struct Device<T: DeviceTrait + Any> {
+pub struct Device<T: DeviceTrait + Clone + Any> {
     dev: T,
 }
+
+// impl<T> Clone for Device<T>
+// where
+//     T: DeviceTrait + Any,
+//     T: Clone, {
+//     fn clone(&self) -> Self {
+//         Self { dev: self.dev.clone() }
+//     }
+// }
 
 impl Device<GenericDevice> {
     pub fn new() -> Result<Self, Error> {
@@ -234,7 +243,7 @@ impl Device<GenericDevice> {
         {
             if driver.is_none() || matches!(driver, Some(Driver::Aaronia)) {
                 return Ok(Device {
-                    dev: Box::new(DeviceWrapper {
+                    dev: Arc::new(DeviceWrapper {
                         dev: impls::Aaronia::open(&args)?,
                     }),
                 });
@@ -244,7 +253,7 @@ impl Device<GenericDevice> {
         {
             if driver.is_none() || matches!(driver, Some(Driver::RtlSdr)) {
                 return Ok(Device {
-                    dev: Box::new(DeviceWrapper {
+                    dev: Arc::new(DeviceWrapper {
                         dev: impls::RtlSdr::open(&args)?,
                     }),
                 });
@@ -263,9 +272,9 @@ impl Device<GenericDevice> {
 }
 
 pub type GenericDevice =
-    Box<dyn DeviceTrait<RxStreamer = Box<dyn RxStreamer>, TxStreamer = Box<dyn TxStreamer>>>;
+    Arc<dyn DeviceTrait<RxStreamer = Box<dyn RxStreamer>, TxStreamer = Box<dyn TxStreamer>> + Sync>;
 
-impl<T: DeviceTrait + Any> Device<T> {
+impl<T: DeviceTrait + Clone + Any> Device<T> {
     pub fn from_device(dev: T) -> Self {
         Self { dev }
     }
@@ -457,9 +466,8 @@ impl<
         direction: Direction,
         channel: usize,
         frequency: f64,
-        args: Args,
     ) -> Result<(), Error> {
-        self.dev.set_frequency(direction, channel, frequency, args)
+        self.dev.set_frequency(direction, channel, frequency)
     }
 
     fn frequency_components(
@@ -652,10 +660,8 @@ impl DeviceTrait for GenericDevice {
         direction: Direction,
         channel: usize,
         frequency: f64,
-        args: Args,
     ) -> Result<(), Error> {
-        self.as_ref()
-            .set_frequency(direction, channel, frequency, args)
+        self.as_ref().set_frequency(direction, channel, frequency)
     }
 
     fn frequency_components(
@@ -718,7 +724,7 @@ impl DeviceTrait for GenericDevice {
 impl<
         R: RxStreamer + 'static,
         T: TxStreamer + 'static,
-        D: DeviceTrait<RxStreamer = R, TxStreamer = T> + 'static,
+        D: DeviceTrait<RxStreamer = R, TxStreamer = T> + Clone + 'static,
     > Device<D>
 {
     pub fn driver(&self) -> Driver {
@@ -838,14 +844,13 @@ impl<
         self.dev.frequency(direction, channel)
     }
 
-    pub fn set_frequency<A: TryInto<Args>>(
+    pub fn set_frequency(
         &self,
         direction: Direction,
         channel: usize,
         frequency: f64,
-        args: A,
     ) -> Result<(), Error> {
-        self.dev.set_frequency(direction, channel, frequency, args.try_into().or(Err(Error::ValueError))?)
+        self.dev.set_frequency(direction, channel, frequency)
     }
 
     pub fn frequency_components(
