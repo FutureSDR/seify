@@ -39,8 +39,8 @@ pub enum Driver {
     HackRf,
     #[cfg(feature = "rtlsdr")]
     RtlSdr,
-    // #[cfg(feature = "soapy")]
-    // Soapy,
+    #[cfg(feature = "soapy")]
+    Soapy,
 }
 
 impl FromStr for Driver {
@@ -64,6 +64,12 @@ impl FromStr for Driver {
         {
             if s == "hackrf" {
                 return Ok(Driver::HackRf);
+            }
+        }
+        #[cfg(feature = "soapy")]
+        {
+            if s == "soapy" || s == "soapysdr" {
+                return Ok(Driver::Soapy);
             }
         }
         Err(Error::ValueError)
@@ -105,6 +111,13 @@ pub fn enumerate_with_args<A: TryInto<Args>>(a: A) -> Result<Vec<Args>, Error> {
     {
         if driver.is_none() || driver.as_ref().unwrap() == "hackrf" {
             devs.append(&mut impls::HackRf::probe(&args)?)
+        }
+    }
+
+    #[cfg(feature = "soapy")]
+    {
+        if driver.is_none() || driver.as_ref().unwrap() == "hackrf" {
+            devs.append(&mut impls::Soapy::probe(&args)?)
         }
     }
 

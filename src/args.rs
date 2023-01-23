@@ -44,6 +44,12 @@ impl Args {
     pub fn set<K: Into<String>, V: Into<String>>(&mut self, key: K, value: V) -> Option<String> {
         self.map.insert(key.into(), value.into())
     }
+    pub fn iter<'a>(&'a self) -> std::collections::hash_map::Iter<'a, String, String> {
+        self.map.iter()
+    }
+    pub fn iter_mut<'a>(&'a mut self) -> std::collections::hash_map::IterMut<'a, String, String> {
+        self.map.iter_mut()
+    }
     pub fn deserialize<D: for<'a> Deserialize<'a>>(&self) -> Option<D> {
         let s = serde_json::to_string(&self).ok()?;
         serde_json::from_str(&s).ok()

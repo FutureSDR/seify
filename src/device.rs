@@ -214,15 +214,6 @@ pub struct Device<T: DeviceTrait + Clone + Any> {
     dev: T,
 }
 
-// impl<T> Clone for Device<T>
-// where
-//     T: DeviceTrait + Any,
-//     T: Clone, {
-//     fn clone(&self) -> Self {
-//         Self { dev: self.dev.clone() }
-//     }
-// }
-
 impl Device<GenericDevice> {
     pub fn new() -> Result<Self, Error> {
         let mut devs = crate::enumerate()?;

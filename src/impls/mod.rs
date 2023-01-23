@@ -13,7 +13,7 @@ pub mod rtlsdr;
 #[cfg(feature = "rtlsdr")]
 pub use rtlsdr::RtlSdr;
 
-// #[cfg(feature = "soapy")]
-// pub mod soapy;
-// #[cfg(feature = "soapy")]
-// pub use soapy::Soapy;
+#[cfg(feature = "soapy")]
+pub mod soapy;
+#[cfg(feature = "soapy")]
+pub use soapy::Soapy;

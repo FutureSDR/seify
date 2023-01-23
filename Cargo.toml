@@ -6,7 +6,7 @@ license = "Apache-2.0"
 description = "Shiny Samples from your SDR"
 
 [features]
-default = ["rtlsdr", "aaronia"]
+default = ["rtlsdr", "aaronia", "soapy"]
 rtlsdr = ["dep:rtlsdr-rs"]
 hackrf = ["dep:hackrfone"]
 aaronia = ["dep:aaronia-rtsa"]
