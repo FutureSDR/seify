@@ -11,6 +11,7 @@ use hyper::{Body, Client, Uri};
 use log::debug;
 use num_complex::Complex32;
 use once_cell::sync::OnceCell;
+use serde_json::Number;
 use serde_json::Value;
 use tokio::runtime::Builder;
 use tokio::runtime::Handle;
@@ -100,6 +101,19 @@ impl AaroniaHttp {
             let bytes = hyper::body::to_bytes(body).await.or(Err(Error::Io))?;
             serde_json::from_slice(&bytes).or(Err(Error::ValueError))
         })
+    }
+
+    fn get(&self, path: Vec<&str>) -> Result<Value, Error> {
+        let config = self.config()?;
+        let mut element = &config["config"];
+        for p in path {
+            for i in element["items"].as_array().unwrap() {
+                if i["name"].as_str().unwrap() == p {
+                    element = i;
+                }
+            }
+        }
+        Ok(element["value"].clone())
     }
 }
 
@@ -229,9 +243,9 @@ impl DeviceTrait for AaroniaHttp {
     }
 
     fn gain(&self, direction: Direction, channel: usize) -> Result<Option<f64>, Error> {
-        let config = self.config()?;
-        let r = config["df"].as_f64().ok_or(Error::ValueError)?;
-        Ok(Some(-r - 8.0))
+        let lvl = self.get(vec!["Block_Spectran_V6B_0", "config", "main", "reflevel"])?;
+        let lvl = lvl.as_f64().unwrap();
+        Ok(Some(-lvl - 8.0))
     }
 
     fn gain_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
@@ -271,7 +285,13 @@ impl DeviceTrait for AaroniaHttp {
     }
 
     fn frequency(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
-        Ok(5.5e9)
+        let freq = self.get(vec![
+            "Block_IQDemodulator_0",
+            "config",
+            "main",
+            "centerfreq",
+        ])?;
+        freq.as_f64().ok_or(Error::ValueError)
     }
 
     fn set_frequency(
@@ -284,18 +304,18 @@ impl DeviceTrait for AaroniaHttp {
           "receiverName":"Block_IQDemodulator_0",
           "simpleconfig": {
             "main": {
-              "centerfreq":5510000000
+              "centerfreq": 10
             }
           }
         }"#;
 
-        let v: Value = dbg!(serde_json::from_str(data)).or(Err(Error::ValueError))?;
-
+        let mut v: Value = serde_json::from_str(data).or(Err(Error::ValueError))?;
+        v["simpleconfig"]["main"]["centerfreq"] = Value::Number(Number::from_f64(frequency).unwrap());
         let req = Request::put(format!("{}/remoteconfig", self.url))
             .body(Body::from(
                 serde_json::to_vec(&v).or(Err(Error::ValueError))?,
             ))
-            .or(Err(Error::ValueError))?;
+            .or(Err(Error::Io))?;
 
         self.runtime
             .block_on(async { self.client.request(req).await.or(Err(Error::Io)) })?;
@@ -308,7 +328,7 @@ impl DeviceTrait for AaroniaHttp {
         direction: Direction,
         channel: usize,
     ) -> Result<Vec<String>, Error> {
-        todo!()
+        Ok(vec!["RF".to_string(), "DEMOD".to_string()])
     }
 
     fn component_frequency_range(
@@ -326,7 +346,13 @@ impl DeviceTrait for AaroniaHttp {
         channel: usize,
         name: &str,
     ) -> Result<f64, Error> {
-        todo!()
+        let freq = self.get(vec![
+            "Block_IQDemodulator_0",
+            "config",
+            "main",
+            "centerfreq",
+        ])?;
+        freq.as_f64().ok_or(Error::ValueError)
     }
 
     fn set_component_frequency(
@@ -341,7 +367,7 @@ impl DeviceTrait for AaroniaHttp {
     }
 
     fn sample_rate(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
-       Ok(20e6)
+        Ok(20e6)
     }
 
     fn set_sample_rate(

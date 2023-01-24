@@ -25,6 +25,10 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Get typed reference to device impl
     // let r: &seify::impls::RtlSdr = dev.inner().unwrap();
 
+    println!("gain:        {:?}", dev.gain(Rx, 0)?);
+    dev.set_frequency(Rx, 0, 5.50e9)?;
+    println!("frequency:   {:?}", dev.frequency(Rx, 0)?);
+    return Ok(());
     dev.enable_agc(Rx, 0, true)?;
     dev.set_frequency(Rx, 0, 927e6)?;
     dev.set_sample_rate(Rx, 0, 3.2e6)?;
