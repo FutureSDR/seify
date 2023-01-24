@@ -34,7 +34,7 @@ pub enum Error {
 
 impl From<std::io::Error> for Error {
     fn from(_value: std::io::Error) -> Self {
-       Error::Io 
+        Error::Io
     }
 }
 
@@ -107,39 +107,42 @@ pub fn enumerate() -> Result<Vec<Args>, Error> {
 pub fn enumerate_with_args<A: TryInto<Args>>(a: A) -> Result<Vec<Args>, Error> {
     let args: Args = a.try_into().or(Err(Error::ValueError))?;
     let mut devs = Vec::new();
-    let driver = args.get::<String>("driver").ok();
+    let driver = match args.get::<String>("driver") {
+        Ok(s) => Some(s.parse::<Driver>()?),
+        Err(_) => None,
+    };
 
     #[cfg(feature = "aaronia")]
     {
-        if driver.is_none() || driver.as_ref().unwrap() == "aaronia" {
+        if driver.is_none() || driver.as_ref().unwrap() == &Driver::Aaronia {
             devs.append(&mut impls::Aaronia::probe(&args)?)
         }
     }
 
     #[cfg(feature = "aaronia_http")]
     {
-        if driver.is_none() || driver.as_ref().unwrap() == "aaronia_http" {
+        if driver.is_none() || driver.as_ref().unwrap() == &Driver::AaroniaHttp {
             devs.append(&mut impls::AaroniaHttp::probe(&args)?)
         }
     }
 
     #[cfg(feature = "rtlsdr")]
     {
-        if driver.is_none() || driver.as_ref().unwrap() == "rtlsdr" {
+        if driver.is_none() || driver.as_ref().unwrap() == &Driver::RtlSdr {
             devs.append(&mut impls::RtlSdr::probe(&args)?)
         }
     }
 
     #[cfg(feature = "hackrf")]
     {
-        if driver.is_none() || driver.as_ref().unwrap() == "hackrf" {
+        if driver.is_none() || driver.as_ref().unwrap() == &Driver::HackRf {
             devs.append(&mut impls::HackRf::probe(&args)?)
         }
     }
 
     #[cfg(feature = "soapy")]
     {
-        if driver.is_none() || driver.as_ref().unwrap() == "soapy" {
+        if driver.is_none() || driver.as_ref().unwrap() == &Driver::Soapy {
             devs.append(&mut impls::Soapy::probe(&args)?)
         }
     }

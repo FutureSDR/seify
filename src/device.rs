@@ -248,7 +248,7 @@ impl Device<GenericDevice> {
                 }
             }
         }
-        #[cfg(feature = "aaronia")]
+        #[cfg(feature = "aaronia_http")]
         {
             if driver.is_none() || matches!(driver, Some(Driver::AaroniaHttp)) {
                 match impls::AaroniaHttp::open(&args) {
@@ -335,16 +335,20 @@ impl<T: DeviceTrait + Clone + Any> Device<T> {
         if let Some(d) = self.dev.as_any().downcast_ref::<D>() {
             return Ok(d);
         }
+        println!("trying first");
         let d = self
             .dev
             .as_any()
-            .downcast_ref::<Box<
+            .downcast_ref::<Arc<
                 (dyn DeviceTrait<
                     RxStreamer = Box<(dyn RxStreamer + 'static)>,
                     TxStreamer = Box<(dyn TxStreamer + 'static)>,
-                > + 'static),
+                > + Sync
+                     + 'static),
             >>()
             .ok_or(Error::ValueError)?;
+
+        println!("first worked");
 
         let d = (**d)
             .as_any()

@@ -5,6 +5,7 @@ use futures::StreamExt;
 use futures::TryStreamExt;
 use hyper::body::Buf;
 use hyper::body::Bytes;
+use hyper::client::connect::HttpConnector;
 use hyper::Request;
 use hyper::{Body, Client, Uri};
 use log::debug;
@@ -29,6 +30,7 @@ static RUNTIME: OnceCell<Runtime> = OnceCell::new();
 pub struct AaroniaHttp {
     url: String,
     runtime: Handle,
+    client: Client<HttpConnector, Body>,
 }
 
 pub struct RxStreamer {
@@ -37,6 +39,7 @@ pub struct RxStreamer {
     stream: Option<futures::stream::IntoStream<Body>>,
     buf: Bytes,
     items_left: usize,
+    client: Client<HttpConnector, Body>,
 }
 
 pub struct TxStreamer {
@@ -45,7 +48,7 @@ pub struct TxStreamer {
 
 impl AaroniaHttp {
     pub fn probe(args: &Args) -> Result<Vec<Args>, Error> {
-        let rt = RUNTIME.get_or_try_init(|| Runtime::new())?;
+        let rt = RUNTIME.get_or_try_init(Runtime::new)?;
 
         rt.block_on(async {
             let url = args
@@ -76,9 +79,10 @@ impl AaroniaHttp {
         if v.is_empty() {
             Err(Error::NotFound)
         } else {
-            let rt = RUNTIME.get_or_try_init(|| Runtime::new())?;
+            let rt = RUNTIME.get_or_try_init(Runtime::new)?;
             let a = v.remove(0);
             Ok(Self {
+                client: Client::new(),
                 runtime: rt.handle().clone(),
                 url: a.get::<String>("url")?,
             })
@@ -107,7 +111,7 @@ impl DeviceTrait for AaroniaHttp {
     }
 
     fn info(&self) -> Result<Args, Error> {
-        Ok(format!("driver=aarnia_http, url={}", self.url).try_into()?)
+        format!("driver=aarnia_http, url={}", self.url).try_into()
     }
 
     fn num_channels(&self, _direction: Direction) -> Result<usize, Error> {
@@ -138,6 +142,7 @@ impl DeviceTrait for AaroniaHttp {
                 stream: None,
                 buf: Bytes::new(),
                 items_left: 0,
+                client: self.client.clone(),
             })
         } else {
             Err(Error::ValueError)
@@ -239,34 +244,24 @@ impl DeviceTrait for AaroniaHttp {
         frequency: f64,
     ) -> Result<(), Error> {
         let data = r#"{
-          "request" : 1,
-          "config" : {
-            "type" : "group",
-            "name" : "Block_IQDemodulator_0",
-            "items" : [{
-              "type" : "group",
-              "name" : "config",
-              "items" : [{
-                "type" : "group",
-                "name" : "main",
-                "items" : [{
-                  "type" : "float",
-                  "name" : "centerfreq",
-                  "value" : 5510000000
-                }]
-              }]
-            }]
+          "receiverName":"Block_IQDemodulator_0",
+          "simpleconfig": {
+            "main": {
+              "centerfreq":5510000000
+            }
           }
         }"#;
 
         let v: Value = dbg!(serde_json::from_str(data)).or(Err(Error::ValueError))?;
 
         let req = Request::put(format!("{}/remoteconfig", self.url))
-            .body(Body::from(serde_json::to_vec(&v).or(Err(Error::ValueError))?))
+            .body(Body::from(
+                serde_json::to_vec(&v).or(Err(Error::ValueError))?,
+            ))
             .or(Err(Error::ValueError))?;
 
         self.runtime
-            .block_on(async { Client::new().request(req).await.or(Err(Error::Io)) })?;
+            .block_on(async { self.client.request(req).await.or(Err(Error::Io)) })?;
 
         Ok(())
     }
@@ -367,7 +362,7 @@ impl crate::RxStreamer for RxStreamer {
     fn activate(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
         let stream = self.runtime.block_on(async {
             Ok::<futures::stream::IntoStream<Body>, Error>(
-                Client::new()
+                self.client
                     .get(
                         format!("{}/stream?format=float32", self.url)
                             .parse()

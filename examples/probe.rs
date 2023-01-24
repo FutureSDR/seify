@@ -1,8 +1,7 @@
 use clap::Parser;
+use seify::enumerate_with_args;
 use seify::Device;
 use seify::Direction::Rx;
-use seify::enumerate_with_args;
-
 
 #[derive(Parser, Debug)]
 #[clap(version)]
