@@ -104,7 +104,7 @@ impl AaroniaHttp {
         })
     }
 
-    fn get(&self, path: Vec<&str>) -> Result<Value, Error> {
+    fn get_element(&self, path: Vec<&str>) -> Result<Value, Error> {
         let config = self.config()?;
         let mut element = &config["config"];
         for p in path {
@@ -114,7 +114,19 @@ impl AaroniaHttp {
                 }
             }
         }
-        Ok(element["value"].clone())
+        Ok(element.clone())
+    }
+
+    fn get_enum(&self, path: Vec<&str>) -> Result<(u64, String), Error> {
+        let element = self.get_element(path)?;
+        let i = dbg!(&element["value"]).as_u64().unwrap();
+        let v : Vec<&str> = element["values"].as_str().unwrap().split(',').collect();
+        Ok((i, v[i as usize].to_string()))
+    }
+
+    fn get_f64(&self, path: Vec<&str>) -> Result<f64, Error> {
+        let element = self.get_element(path)?;
+        Ok(element["value"].as_f64().unwrap())
     }
 }
 
@@ -123,11 +135,11 @@ impl DeviceTrait for AaroniaHttp {
     type TxStreamer = TxStreamer;
 
     fn as_any(&self) -> &dyn std::any::Any {
-        todo!()
+        self
     }
 
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
-        todo!()
+        self
     }
 
     fn driver(&self) -> Driver {
@@ -142,15 +154,18 @@ impl DeviceTrait for AaroniaHttp {
         format!("driver=aarnia_http, url={}", self.url).try_into()
     }
 
-    fn num_channels(&self, _direction: Direction) -> Result<usize, Error> {
-        Ok(1)
+    fn num_channels(&self, direction: Direction) -> Result<usize, Error> {
+        match direction {
+            Rx => Ok(2),
+            Tx => Ok(1),
+        }
     }
 
     fn full_duplex(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        if channel == 0 {
-            Ok(true)
-        } else {
-            Err(Error::ValueError)
+        match (direction, channel) {
+            (Rx, 0 | 1) => Ok(true),
+            (Tx, 0) => Ok(true),
+            _ => Err(Error::ValueError),
         }
     }
 
@@ -236,7 +251,12 @@ impl DeviceTrait for AaroniaHttp {
     }
 
     fn agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        todo!()
+        let (i, s) = dbg!(self.get_enum(vec!["Block_Spectran_V6B_0", "config", "device", "gaincontrol"])?);
+        if s == "manual" {
+            Ok(false)
+        } else {
+            Ok(true)
+        }
     }
 
     fn set_gain(&self, direction: Direction, channel: usize, gain: f64) -> Result<(), Error> {
@@ -244,8 +264,7 @@ impl DeviceTrait for AaroniaHttp {
     }
 
     fn gain(&self, direction: Direction, channel: usize) -> Result<Option<f64>, Error> {
-        let lvl = self.get(vec!["Block_Spectran_V6B_0", "config", "main", "reflevel"])?;
-        let lvl = lvl.as_f64().unwrap();
+        let lvl = self.get_f64(vec!["Block_Spectran_V6B_0", "config", "main", "reflevel"])?;
         Ok(Some(-lvl - 8.0))
     }
 
@@ -286,13 +305,12 @@ impl DeviceTrait for AaroniaHttp {
     }
 
     fn frequency(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
-        let freq = self.get(vec![
+        self.get_f64(vec![
             "Block_IQDemodulator_0",
             "config",
             "main",
             "centerfreq",
-        ])?;
-        freq.as_f64().ok_or(Error::ValueError)
+        ])
     }
 
     fn set_frequency(
@@ -345,13 +363,12 @@ impl DeviceTrait for AaroniaHttp {
         channel: usize,
         name: &str,
     ) -> Result<f64, Error> {
-        let freq = self.get(vec![
+        self.get_f64(vec![
             "Block_IQDemodulator_0",
             "config",
             "main",
             "centerfreq",
-        ])?;
-        freq.as_f64().ok_or(Error::ValueError)
+        ])
     }
 
     fn set_component_frequency(

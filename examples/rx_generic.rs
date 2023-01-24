@@ -28,6 +28,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("gain:        {:?}", dev.gain(Rx, 0)?);
     dev.set_frequency(Rx, 0, 5.51e9)?;
     println!("frequency:   {:?}", dev.frequency(Rx, 0)?);
+    println!("agc:   {:?}", dev.agc(Rx, 0)?);
     return Ok(());
     dev.enable_agc(Rx, 0, true)?;
     dev.set_frequency(Rx, 0, 927e6)?;
