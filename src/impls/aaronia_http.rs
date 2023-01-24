@@ -238,7 +238,37 @@ impl DeviceTrait for AaroniaHttp {
         channel: usize,
         frequency: f64,
     ) -> Result<(), Error> {
-        todo!()
+        let data = r#"{
+          "request" : 1,
+          "config" : {
+            "type" : "group",
+            "name" : "Block_IQDemodulator_0",
+            "items" : [{
+              "type" : "group",
+              "name" : "config",
+              "items" : [{
+                "type" : "group",
+                "name" : "main",
+                "items" : [{
+                  "type" : "float",
+                  "name" : "centerfreq",
+                  "value" : 5510000000
+                }]
+              }]
+            }]
+          }
+        }"#;
+
+        let v: Value = dbg!(serde_json::from_str(data)).or(Err(Error::ValueError))?;
+
+        let req = Request::put(format!("{}/remoteconfig", self.url))
+            .body(Body::from(serde_json::to_vec(&v).or(Err(Error::ValueError))?))
+            .or(Err(Error::ValueError))?;
+
+        self.runtime
+            .block_on(async { Client::new().request(req).await.or(Err(Error::Io)) })?;
+
+        Ok(())
     }
 
     fn frequency_components(
@@ -337,17 +367,16 @@ impl crate::RxStreamer for RxStreamer {
     fn activate(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
         let stream = self.runtime.block_on(async {
             Ok::<futures::stream::IntoStream<Body>, Error>(
-            Client::new()
-                .get(
-                    format!("{}/stream?format=float32", self.url)
-                        .parse()
-                        .or(Err(Error::ValueError))?,
-                )
-                .await
-                .or(Err(Error::Io))?
-                .into_body()
-                .into_stream(),
-            
+                Client::new()
+                    .get(
+                        format!("{}/stream?format=float32", self.url)
+                            .parse()
+                            .or(Err(Error::ValueError))?,
+                    )
+                    .await
+                    .or(Err(Error::Io))?
+                    .into_body()
+                    .into_stream(),
             )
         })?;
 

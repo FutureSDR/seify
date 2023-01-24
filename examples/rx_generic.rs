@@ -12,17 +12,17 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     // println!("devs: {devs:?}");
 
     // let dev = Device::from_args("driver=rtlsdr")?;
-    let dev = Device::from_args("driver=aaronia_http")?;
+    let dev = Device::from_args("driver=aaronia_http, url=http://192.168.178.45:54664")?;
     // Get typed reference to device impl
     // let _r : &seify::impls::RtlSdr = dev.inner().unwrap();
 
     // dev.enable_agc(Rx, 0, true)?;
-    // dev.set_frequency(Rx, 0, 927e6)?;
+    dev.set_frequency(Rx, 0, 927e6)?;
     // dev.set_sample_rate(Rx, 0, 3.2e6)?;
     //
-    // println!("driver:      {:?}", dev.driver());
-    // println!("id:          {:?}", dev.id()?);
-    // println!("info:        {:?}", dev.info()?);
+    println!("driver:      {:?}", dev.driver());
+    println!("id:          {:?}", dev.id()?);
+    println!("info:        {:?}", dev.info()?);
     // println!("sample rate: {:?}", dev.sample_rate(Rx, 0)?);
     // println!("frequency:   {:?}", dev.frequency(Rx, 0)?);
     // println!("gain:        {:?}", dev.gain(Rx, 0)?);
