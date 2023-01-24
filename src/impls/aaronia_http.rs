@@ -235,7 +235,7 @@ impl DeviceTrait for AaroniaHttp {
     }
 
     fn gain_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
-        todo!()
+        Ok(Range::new(vec![RangeItem::Interval(0.0, 30.0)]))
     }
 
     fn set_gain_element(
@@ -271,7 +271,7 @@ impl DeviceTrait for AaroniaHttp {
     }
 
     fn frequency(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
-        todo!()
+        Ok(5.5e9)
     }
 
     fn set_frequency(
@@ -341,7 +341,7 @@ impl DeviceTrait for AaroniaHttp {
     }
 
     fn sample_rate(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
-        todo!()
+       Ok(20e6)
     }
 
     fn set_sample_rate(
@@ -354,7 +354,7 @@ impl DeviceTrait for AaroniaHttp {
     }
 
     fn get_sample_rate_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
-        todo!()
+        Ok(Range::new(vec![RangeItem::Interval(0.0, 92.16e6)]))
     }
 }
 
