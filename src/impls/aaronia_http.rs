@@ -5,9 +5,15 @@ use futures::StreamExt;
 use futures::TryStreamExt;
 use hyper::body::Buf;
 use hyper::body::Bytes;
+use hyper::Request;
 use hyper::{Body, Client, Uri};
+use log::debug;
 use num_complex::Complex32;
+use once_cell::sync::OnceCell;
+use serde_json::Value;
 use tokio::runtime::Builder;
+use tokio::runtime::Handle;
+use tokio::runtime::Runtime;
 
 use crate::Args;
 use crate::DeviceTrait;
@@ -17,33 +23,49 @@ use crate::Error;
 use crate::Range;
 use crate::RangeItem;
 
+static RUNTIME: OnceCell<Runtime> = OnceCell::new();
+
 #[derive(Clone)]
 pub struct AaroniaHttp {
     url: String,
+    runtime: Handle,
 }
 
 pub struct RxStreamer {
+    runtime: Handle,
+    url: String,
     stream: Option<futures::stream::IntoStream<Body>>,
     buf: Bytes,
     items_left: usize,
 }
 
-pub struct TxStreamer {}
+pub struct TxStreamer {
+    runtime: Handle,
+}
 
 impl AaroniaHttp {
     pub fn probe(args: &Args) -> Result<Vec<Args>, Error> {
-        let rt = Builder::new_current_thread().enable_all().build()?;
+        let rt = RUNTIME.get_or_try_init(|| Runtime::new())?;
 
         rt.block_on(async {
             let url = args
                 .get::<String>("url")
                 .unwrap_or_else(|_| String::from("http://localhost:54664"));
-            let url: Uri = url.parse().or(Err(Error::ValueError))?;
+            let test_path = format!("{url}/info").parse().or(Err(Error::ValueError))?;
 
             let client = Client::new();
-            let resp = client.get(url.clone()).await.or(Err(Error::Io))?;
+            let resp = match client.get(test_path).await {
+                Ok(r) => r,
+                Err(e) => {
+                    if e.is_connect() && args.get::<String>("driver").is_ok() {
+                        return Err(Error::Io);
+                    } else {
+                        return Ok(Vec::new());
+                    }
+                }
+            };
             if resp.status().is_success() {
-                Ok(vec![format!("driver=aarnia_http, url={url}").try_into()?])
+                Ok(vec![format!("driver=aaronia_http, url={url}").try_into()?])
             } else {
                 Ok(Vec::new())
             }
@@ -54,8 +76,10 @@ impl AaroniaHttp {
         if v.is_empty() {
             Err(Error::NotFound)
         } else {
+            let rt = RUNTIME.get_or_try_init(|| Runtime::new())?;
             let a = v.remove(0);
             Ok(Self {
+                runtime: rt.handle().clone(),
                 url: a.get::<String>("url")?,
             })
         }
@@ -109,6 +133,8 @@ impl DeviceTrait for AaroniaHttp {
     ) -> Result<Self::RxStreamer, Error> {
         if channels == [0] {
             Ok(RxStreamer {
+                url: self.url.clone(),
+                runtime: self.runtime.clone(),
                 stream: None,
                 buf: Bytes::new(),
                 items_left: 0,
@@ -270,17 +296,68 @@ impl DeviceTrait for AaroniaHttp {
     }
 }
 
+impl RxStreamer {
+    fn parse_header(&mut self) -> Result<(), Error> {
+        if let Some(i) = self.buf.iter().position(|&b| b == 10) {
+            let header: Value = serde_json::from_str(&String::from_utf8_lossy(&self.buf[0..i]))
+                .or(Err(Error::Io))?;
+            if self.buf.len() > i + 2 {
+                self.buf.advance(i + 2);
+            } else {
+                self.buf = Bytes::new();
+            }
+            let i = header
+                .get("samples")
+                .and_then(|x| x.to_string().parse::<usize>().ok())
+                .ok_or(Error::Io)?;
+            self.items_left = i;
+        }
+        Ok(())
+    }
+
+    async fn get_data(&mut self) -> Result<(), Error> {
+        let b = self
+            .stream
+            .as_mut()
+            .unwrap()
+            .next()
+            .await
+            .ok_or(Error::Io)?
+            .or(Err(Error::Io))?;
+        self.buf = [std::mem::take(&mut self.buf), b].concat().into();
+        Ok(())
+    }
+}
+
 impl crate::RxStreamer for RxStreamer {
     fn mtu(&self) -> Result<usize, Error> {
-        todo!()
+        Ok(65536)
     }
 
     fn activate(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
-        todo!()
+        let stream = self.runtime.block_on(async {
+            Ok::<futures::stream::IntoStream<Body>, Error>(
+            Client::new()
+                .get(
+                    format!("{}/stream?format=float32", self.url)
+                        .parse()
+                        .or(Err(Error::ValueError))?,
+                )
+                .await
+                .or(Err(Error::Io))?
+                .into_body()
+                .into_stream(),
+            
+            )
+        })?;
+
+        self.stream = Some(stream);
+        Ok(())
     }
 
     fn deactivate(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
-        todo!()
+        self.stream = None;
+        Ok(())
     }
 
     fn read(
@@ -288,7 +365,36 @@ impl crate::RxStreamer for RxStreamer {
         buffers: &mut [&mut [num_complex::Complex32]],
         timeout_us: i64,
     ) -> Result<usize, Error> {
-        todo!()
+        self.runtime.clone().block_on(async {
+            if self.items_left == 0 {
+                self.parse_header()?;
+                while self.items_left == 0 {
+                    self.get_data().await?;
+                    self.parse_header()?
+                }
+            }
+
+            let is = std::mem::size_of::<Complex32>();
+            let n = std::cmp::min(self.buf.len() / is, buffers[0].len());
+            let n = std::cmp::min(n, self.items_left);
+
+            unsafe {
+                let out =
+                    std::slice::from_raw_parts_mut(buffers[0].as_mut_ptr() as *mut u8, n * is);
+                out[0..n * is].copy_from_slice(&self.buf[0..n * is]);
+            }
+
+            if n == self.buf.len() / is {
+                self.buf.advance(n * is);
+                self.get_data().await?;
+            } else {
+                self.buf.advance(n * is);
+            }
+
+            self.items_left -= n;
+
+            Ok(n)
+        })
     }
 }
 

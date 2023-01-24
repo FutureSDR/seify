@@ -1,11 +1,22 @@
-use seify::enumerate;
+use clap::Parser;
 use seify::Device;
 use seify::Direction::Rx;
+use seify::enumerate_with_args;
+
+
+#[derive(Parser, Debug)]
+#[clap(version)]
+struct Args {
+    /// Device Filters
+    #[clap(short, long, default_value = "")]
+    args: String,
+}
 
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
+    let cli = Args::parse();
 
-    let devs = enumerate()?;
+    let devs = enumerate_with_args(cli.args)?;
     println!("Devices");
     println!("=========================================");
     println!("devs: {devs:?}");

@@ -38,7 +38,7 @@ impl From<std::io::Error> for Error {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 #[non_exhaustive]
 pub enum Driver {
     #[cfg(feature = "aaronia")]
