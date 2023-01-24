@@ -11,6 +11,7 @@ use hyper::{Body, Client, Uri};
 use log::debug;
 use num_complex::Complex32;
 use once_cell::sync::OnceCell;
+use serde_json::json;
 use serde_json::Number;
 use serde_json::Value;
 use tokio::runtime::Builder;
@@ -300,20 +301,18 @@ impl DeviceTrait for AaroniaHttp {
         channel: usize,
         frequency: f64,
     ) -> Result<(), Error> {
-        let data = r#"{
-          "receiverName":"Block_IQDemodulator_0",
+        let json = json!({
+          "receiverName": "Block_IQDemodulator_0",
           "simpleconfig": {
             "main": {
-              "centerfreq": 10
+              "centerfreq": frequency
             }
           }
-        }"#;
+        });
 
-        let mut v: Value = serde_json::from_str(data).or(Err(Error::ValueError))?;
-        v["simpleconfig"]["main"]["centerfreq"] = Value::Number(Number::from_f64(frequency).unwrap());
         let req = Request::put(format!("{}/remoteconfig", self.url))
             .body(Body::from(
-                serde_json::to_vec(&v).or(Err(Error::ValueError))?,
+                serde_json::to_vec(&json).or(Err(Error::ValueError))?,
             ))
             .or(Err(Error::Io))?;
 

@@ -26,7 +26,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     // let r: &seify::impls::RtlSdr = dev.inner().unwrap();
 
     println!("gain:        {:?}", dev.gain(Rx, 0)?);
-    dev.set_frequency(Rx, 0, 5.50e9)?;
+    dev.set_frequency(Rx, 0, 5.51e9)?;
     println!("frequency:   {:?}", dev.frequency(Rx, 0)?);
     return Ok(());
     dev.enable_agc(Rx, 0, true)?;
