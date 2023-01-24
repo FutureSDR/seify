@@ -335,7 +335,7 @@ impl<T: DeviceTrait + Clone + Any> Device<T> {
         if let Some(d) = self.dev.as_any().downcast_ref::<D>() {
             return Ok(d);
         }
-        println!("trying first");
+
         let d = self
             .dev
             .as_any()
@@ -347,8 +347,6 @@ impl<T: DeviceTrait + Clone + Any> Device<T> {
                      + 'static),
             >>()
             .ok_or(Error::ValueError)?;
-
-        println!("first worked");
 
         let d = (**d)
             .as_any()
