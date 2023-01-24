@@ -19,6 +19,7 @@ use tokio::runtime::Runtime;
 use crate::Args;
 use crate::DeviceTrait;
 use crate::Direction;
+use crate::Direction::*;
 use crate::Driver;
 use crate::Error;
 use crate::Range;
@@ -81,12 +82,24 @@ impl AaroniaHttp {
         } else {
             let rt = RUNTIME.get_or_try_init(Runtime::new)?;
             let a = v.remove(0);
+
             Ok(Self {
                 client: Client::new(),
                 runtime: rt.handle().clone(),
                 url: a.get::<String>("url")?,
             })
         }
+    }
+
+    fn config(&self) -> Result<Value, Error> {
+        self.runtime.block_on(async {
+            let url = format!("{}/remoteconfig", self.url)
+                .parse()
+                .or(Err(Error::ValueError))?;
+            let body = self.client.get(url).await.or(Err(Error::Io))?.into_body();
+            let bytes = hyper::body::to_bytes(body).await.or(Err(Error::Io))?;
+            serde_json::from_slice(&bytes).or(Err(Error::ValueError))
+        })
     }
 }
 
@@ -162,23 +175,45 @@ impl DeviceTrait for AaroniaHttp {
     }
 
     fn antennas(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
-        todo!()
+        match (direction, channel) {
+            (Rx, 0) => Ok(vec!["RX1".to_string()]),
+            (Rx, 1) => Ok(vec!["RX2".to_string()]),
+            (Tx, 0) => Ok(vec!["TX1".to_string()]),
+            _ => Err(Error::ValueError),
+        }
     }
 
     fn antenna(&self, direction: Direction, channel: usize) -> Result<String, Error> {
-        todo!()
+        match (direction, channel) {
+            (Rx, 0) => Ok("RX1".to_string()),
+            (Rx, 1) => Ok("RX2".to_string()),
+            (Tx, 0) => Ok("TX1".to_string()),
+            _ => Err(Error::ValueError),
+        }
     }
 
     fn set_antenna(&self, direction: Direction, channel: usize, name: &str) -> Result<(), Error> {
-        todo!()
+        match (direction, channel, name) {
+            (Rx, 0, "RX1") => Ok(()),
+            (Rx, 1, "RX2") => Ok(()),
+            (Tx, 0, "TX1") => Ok(()),
+            _ => Err(Error::ValueError),
+        }
     }
 
     fn gain_elements(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
-        todo!()
+        match (direction, channel) {
+            (Rx, 0 | 1) => Ok(vec!["TUNER".to_string()]),
+            (Tx, 0) => Ok(vec!["TUNER".to_string()]),
+            _ => Err(Error::ValueError),
+        }
     }
 
     fn suports_agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        todo!()
+        match (direction, channel) {
+            (Rx, 0 | 1) => Ok(true),
+            _ => Err(Error::ValueError),
+        }
     }
 
     fn enable_agc(&self, direction: Direction, channel: usize, agc: bool) -> Result<(), Error> {
@@ -194,7 +229,9 @@ impl DeviceTrait for AaroniaHttp {
     }
 
     fn gain(&self, direction: Direction, channel: usize) -> Result<Option<f64>, Error> {
-        todo!()
+        let config = self.config()?;
+        let r = config["df"].as_f64().ok_or(Error::ValueError)?;
+        Ok(Some(-r - 8.0))
     }
 
     fn gain_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {

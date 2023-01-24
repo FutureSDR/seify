@@ -196,7 +196,6 @@ impl DeviceTrait for Aaronia {
     fn suports_agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
         match (direction, channel) {
             (Rx, 0 | 1) => Ok(true),
-            (Tx, 0) => Ok(true),
             _ => Err(Error::ValueError),
         }
     }
