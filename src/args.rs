@@ -17,7 +17,7 @@ use std::str::FromStr;
 
 use crate::Error;
 
-/// Arbitrary arguments and paramters.
+/// Arbitrary arguments and parameters.
 #[derive(Clone, Serialize)]
 #[serde(transparent)]
 #[serde_as]
@@ -27,35 +27,44 @@ pub struct Args {
 }
 
 impl Args {
+    /// Create new, empty [Args].
     pub fn new() -> Self {
         Self {
             map: HashMap::new(),
         }
     }
+    /// Try to get a value of type `V` that is tried to be parsed from the string mapped by the
+    /// `key`.
     pub fn get<V: FromStr<Err = impl std::error::Error>>(
         &self,
-        v: impl AsRef<str>,
+        key: impl AsRef<str>,
     ) -> Result<V, Error> {
         self.map
-            .get(v.as_ref())
+            .get(key.as_ref())
             .ok_or(Error::NotFound)
             .and_then(|v| v.parse().or(Err(Error::ValueError)))
     }
+    /// Map the `key` the stringified `value`.
     pub fn set<K: Into<String>, V: Into<String>>(&mut self, key: K, value: V) -> Option<String> {
         self.map.insert(key.into(), value.into())
     }
+    /// Remove the `key` together with its associated value.
     pub fn remove<K: AsRef<str>>(&mut self, key: K) -> Option<String> {
         self.map.remove(key.as_ref())
     }
+    /// Iterate over key-value pairs of the [`Args`].
     pub fn iter(&self) -> std::collections::hash_map::Iter<'_, String, String> {
         self.map.iter()
     }
+    /// Iterate mutably over key-value pairs of the [`Args`].
     pub fn iter_mut(&mut self) -> std::collections::hash_map::IterMut<'_, String, String> {
         self.map.iter_mut()
     }
+    /// Get a reference to the underlying [HashMap](std::collections::HashMap).
     pub fn map(&self) -> &HashMap<String, String> {
         &self.map
     }
+    /// Try to [`Deserialize`] a value of type `D` from the JSON-serialized [`Args`].
     pub fn deserialize<D: for<'a> Deserialize<'a>>(&self) -> Option<D> {
         let s = serde_json::to_string(&self).ok()?;
         serde_json::from_str(&s).ok()
