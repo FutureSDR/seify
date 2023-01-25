@@ -12,6 +12,7 @@ use crate::Range;
 use crate::RxStreamer;
 use crate::TxStreamer;
 
+/// Central trait, implemented by hardware drivers.
 pub trait DeviceTrait: Any + Send {
     type RxStreamer: RxStreamer;
     type TxStreamer: TxStreamer;
@@ -210,6 +211,7 @@ pub trait DeviceTrait: Any + Send {
     fn get_sample_rate_range(&self, direction: Direction, channel: usize) -> Result<Range, Error>;
 }
 
+/// Wrapps a driver, implementing the [DeviceTrait].
 pub struct Device<T: DeviceTrait + Clone + Any> {
     dev: T,
 }
@@ -324,6 +326,12 @@ impl Device<GenericDevice> {
     }
 }
 
+/// Type for a generic/wrapped hardware driver, implementing the [`DeviceTrait`].
+///
+/// This is usually used to create a hardware-independent `Device<GenericDevice>`, for example,
+/// through [`Device::new`], which doesn't know a priori which implementation will be used.
+/// The type abstracts over the `DeviceTrait` implementation as well as the associated
+/// streamer implementations.
 pub type GenericDevice =
     Arc<dyn DeviceTrait<RxStreamer = Box<dyn RxStreamer>, TxStreamer = Box<dyn TxStreamer>> + Sync>;
 
@@ -581,6 +589,7 @@ impl<
     }
 }
 
+#[doc(hidden)]
 impl DeviceTrait for GenericDevice {
     type RxStreamer = Box<dyn RxStreamer>;
     type TxStreamer = Box<dyn TxStreamer>;

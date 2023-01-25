@@ -38,6 +38,7 @@ impl From<std::io::Error> for Error {
     }
 }
 
+/// Supported hardware drivers.
 #[derive(Debug, PartialEq)]
 #[non_exhaustive]
 pub enum Driver {
@@ -92,6 +93,7 @@ impl FromStr for Driver {
     }
 }
 
+/// Direction (Rx/TX)
 #[derive(Debug, Clone, Copy)]
 pub enum Direction {
     Rx,
@@ -99,11 +101,23 @@ pub enum Direction {
 }
 
 /// Enumerate devices.
+///
+/// ## Returns
+///
+/// A vector or [`Args`] that provide information about the device and can be used to identify it
+/// uniquely, i.e., passing the [`Args`] to [`Device::from_args`](crate::Device::from_args) will
+/// open this particular device.
 pub fn enumerate() -> Result<Vec<Args>, Error> {
     enumerate_with_args(Args::new())
 }
 
-/// Enumerate devices with given [Args].
+/// Enumerate devices with given [`Args`].
+///
+/// ## Returns
+///
+/// A vector or [`Args`] that provide information about the device and can be used to identify it
+/// uniquely, i.e., passing the [`Args`] to [`Device::from_args`](crate::Device::from_args) will
+/// open this particular device.
 pub fn enumerate_with_args<A: TryInto<Args>>(a: A) -> Result<Vec<Args>, Error> {
     let args: Args = a.try_into().or(Err(Error::ValueError))?;
     let mut devs = Vec::new();
@@ -161,17 +175,18 @@ pub enum RangeItem {
     Value(f64),
 }
 
-/// Range of possible values, comprised of [RangeItem]s, which can be individual values or
-/// Intervals.
+/// Range of possible values, comprised of individual values and/or intervals.
 #[derive(Debug, Clone)]
 pub struct Range {
     items: Vec<RangeItem>,
 }
 
 impl Range {
+    /// Create a [`Range`] from [`RangeItems`](RangeItem).
     pub fn new(items: Vec<RangeItem>) -> Self {
         Self { items }
     }
+    /// Check if the [`Range`] contains the `value`.
     pub fn contains(&self, value: f64) -> bool {
         for item in &self.items {
             match *item {
@@ -189,6 +204,8 @@ impl Range {
         }
         false
     }
+    /// Returns the value in [`Range`] that is closest to the given `value` or `None`, if the
+    /// [`Range`] is empty.
     pub fn closest(&self, value: f64) -> Option<f64> {
         fn closer(target: f64, closest: Option<f64>, current: f64) -> f64 {
             match closest {
@@ -221,6 +238,8 @@ impl Range {
             close
         }
     }
+    /// Returns the smallest value in [`Range`] that is as big as the given `value` or bigger.
+    /// Returns `None`, if the [`Range`] is empty or if all values are smaller than the given value.
     pub fn at_least(&self, value: f64) -> Option<f64> {
         fn closer_at_least(target: f64, closest: Option<f64>, current: f64) -> Option<f64> {
             match closest {
@@ -259,6 +278,8 @@ impl Range {
             close
         }
     }
+    /// Returns the largest value in [`Range`] that is as big as the given `value` or smaller.
+    /// Returns `None`, if the [`Range`] is empty or if all values are bigger than the given `value`.
     pub fn at_max(&self, value: f64) -> Option<f64> {
         fn closer_at_max(target: f64, closest: Option<f64>, current: f64) -> Option<f64> {
             match closest {
@@ -297,6 +318,7 @@ impl Range {
             close
         }
     }
+    /// Merges two [`Ranges`](Range).
     pub fn merge(&mut self, mut r: Range) {
         self.items.append(&mut r.items)
     }

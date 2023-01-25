@@ -17,7 +17,7 @@ use std::str::FromStr;
 
 use crate::Error;
 
-/// Arguments.
+/// Arbitrary arguments and paramters.
 #[derive(Clone, Serialize)]
 #[serde(transparent)]
 #[serde_as]

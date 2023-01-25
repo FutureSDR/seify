@@ -1,3 +1,4 @@
+//! Hardware drivers, implementing the [`DeviceTrait`](crate::DeviceTrait).
 #[cfg(feature = "aaronia")]
 pub mod aaronia;
 #[cfg(feature = "aaronia")]

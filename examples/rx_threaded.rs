@@ -1,8 +1,10 @@
 use clap::Parser;
 use num_complex::Complex32;
+use vmcircbuffer::sync;
 
 use seify::Device;
 use seify::Direction::Rx;
+use seify::Error;
 use seify::RxStreamer;
 
 #[derive(Parser, Debug)]
@@ -18,9 +20,6 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Args::parse();
 
     let dev = Device::from_args(cli.args)?;
-    // Get typed reference to device impl
-    // let r: &seify::impls::RtlSdr = dev.inner().unwrap();
-
     dev.enable_agc(Rx, 0, true)?;
     dev.set_frequency(Rx, 0, 927e6)?;
     dev.set_sample_rate(Rx, 0, 3.2e6)?;
@@ -32,29 +31,30 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("frequency:   {:?}", dev.frequency(Rx, 0)?);
     println!("gain:        {:?}", dev.gain(Rx, 0)?);
 
-    let mut samps = [Complex32::new(0.0, 0.0); 8192];
-    let mut rx = dev.rx_stream(&[0])?;
-    rx.activate(None)?;
-    let n = rx.read(&mut [&mut samps], 200000)?;
+    let mut w = sync::Circular::with_capacity::<Complex32>(8192)?;
+    let mut r = w.add_reader();
 
-    plot(&mut samps[..n]);
+    // producer thread
+    std::thread::spawn(move || -> Result<(), Error> {
+        let mut rx = dev.rx_stream(&[0])?;
+        let mtu = rx.mtu()?;
+        rx.activate(None)?;
 
-    Ok(())
+        loop {
+            let w_buff = w.slice();
+            let n = std::cmp::min(w_buff.len(), mtu);
+            let n = rx.read(&mut [&mut w_buff[0..n]], 200000)?;
+            w.produce(n);
+        }
+    });
+
+    // consumer
+    loop {
+        let r_buff = r.slice().unwrap();
+        let l = r_buff.len();
+        println!("received {l} samples");
+        r.consume(l);
+    }
 }
 
-fn plot(s: &mut [num_complex::Complex32]) {
-    use gnuplot::*;
 
-    let mut planner = rustfft::FftPlanner::new();
-    planner.plan_fft_forward(s.len()).process(s);
-
-    let abs = s.iter().map(|s| s.norm_sqr().log10());
-
-    let mut fg = Figure::new();
-    fg.axes2d().set_title("Spectrum", &[]).lines(
-        0..s.len(),
-        abs,
-        &[LineWidth(3.0), Color("blue"), LineStyle(DotDash)],
-    );
-    fg.show().unwrap();
-}

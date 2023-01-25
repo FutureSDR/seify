@@ -2,6 +2,7 @@ use num_complex::Complex32;
 
 use crate::Error;
 
+/// Receive samples from a [Device](crate::Device) through one or multiple channels.
 pub trait RxStreamer: Send {
     /// Get the stream's maximum transmission unit (MTU) in number of elements.
     ///
@@ -15,14 +16,16 @@ pub trait RxStreamer: Send {
     /// Call `activate` to enable a stream before using `read()`
     ///
     /// # Arguments:
-    ///   * `time_ns` -- optional activation time in nanoseconds
+    ///   * `time_ns` -- optional activation time in nanoseconds from the time the function is
+    ///   called.
     fn activate(&mut self, time_ns: Option<i64>) -> Result<(), Error>;
 
     /// Deactivate a stream.
     /// The implementation will control switches or halt data flow.
     ///
     /// # Arguments:
-    ///   * `time_ns` -- optional deactivation time in nanoseconds
+    ///   * `time_ns` -- optional deactivation time in nanoseconds from the time the function is
+    ///   called.
     fn deactivate(&mut self, time_ns: Option<i64>) -> Result<(), Error>;
 
     /// Read samples from the stream into the provided buffers.
@@ -32,10 +35,12 @@ pub trait RxStreamer: Send {
     /// Returns the number of samples read, which may be smaller than the size of the passed arrays.
     ///
     /// # Panics
-    ///  * If `buffers` is not the same length as the `channels` array passed to `Device::rx_stream`.
+    ///  * If `buffers` is not the same length as the `channels` array passed to
+    ///  [`Device::rx_stream`](crate::Device::rx_stream) that created the streamer.
     fn read(&mut self, buffers: &mut [&mut [Complex32]], timeout_us: i64) -> Result<usize, Error>;
 }
 
+#[doc(hidden)]
 impl RxStreamer for Box<dyn RxStreamer> {
     fn mtu(&self) -> Result<usize, Error> {
         self.as_ref().mtu()
@@ -51,6 +56,7 @@ impl RxStreamer for Box<dyn RxStreamer> {
     }
 }
 
+/// Transmit samples with a [Device](crate::Device) through one or multiple channels.
 pub trait TxStreamer: Send {
     /// Get the stream's maximum transmission unit (MTU) in number of elements.
     ///
@@ -64,32 +70,34 @@ pub trait TxStreamer: Send {
     /// Call `activate` to enable a stream before using `write()`
     ///
     /// # Arguments:
-    ///   * `time_ns` -- optional activation time in nanoseconds
+    ///   * `time_ns` -- optional activation time in nanoseconds from the time the function is
+    ///   called.
     fn activate(&mut self, time_ns: Option<i64>) -> Result<(), Error>;
 
     /// Deactivate a stream.
     /// The implementation will control switches or halt data flow.
     ///
     /// # Arguments:
-    ///   * `time_ns` -- optional deactivation time in nanoseconds
+    ///   * `time_ns` -- optional deactivation time in nanoseconds from the time the function is
+    ///   called
     fn deactivate(&mut self, time_ns: Option<i64>) -> Result<(), Error>;
 
     /// Attempt to write samples to the device from the provided buffer.
     ///
-    /// The stream must first be [activated](TxStream::activate).
+    /// The stream must first be [activated](TxStreamer::activate).
     ///
     /// `buffers` contains one source slice for each channel of the stream.
     ///
-    /// `at_ns` is an optional nanosecond precision device timestamp at which
-    /// the device is to begin the transmission (c.f. [get_hardware_time](Device::get_hardware_time)).
+    /// `at_ns` is an optional nanosecond precision device timestamp relative to the time the
+    /// function is called at which the device will begin the transmission.
     ///
-    /// `end_burst` indicates when this packet ends a burst transmission.
+    /// `end_burst` indicates the end of a burst transmission.
     ///
     /// Returns the number of samples written, which may be smaller than the size of the passed arrays.
     ///
     /// # Panics
-    ///  * If `buffers` is not the same length as the `channels` array passed to `Device::tx_stream`.
-    ///  * If all the buffers in `buffers` are not the same length.
+    ///  * If `buffers` are not the same length as the `channels` array passed to [`Device::tx_stream`](crate::Device::tx_stream).
+    ///  * If the buffers in `buffers` are not the same length.
     fn write(
         &mut self,
         buffers: &[&[Complex32]],
@@ -100,21 +108,21 @@ pub trait TxStreamer: Send {
 
     /// Write all samples to the device.
     ///
-    /// This method repeatedly calls [write](TxStream::write) until the entire provided buffer has
+    /// This method repeatedly calls [write](TxStreamer::write) until the entire provided buffer has
     /// been written.
     ///
-    /// The stream must first be [activated](TxStream::activate).
+    /// The stream must first be [activated](TxStreamer::activate).
     ///
     /// `buffers` contains one source slice for each channel of the stream.
     ///
-    /// `at_ns` is an optional nanosecond precision device timestamp at which
-    /// the device is to begin the transmission (c.f. [get_hardware_time](Device::get_hardware_time)).
+    /// `at_ns` is an optional nanosecond precision device timestamp relative to the time the
+    /// function is called at which the device will begin the transmission.
     ///
-    /// `end_burst` indicates when this packet ends a burst transmission.
+    /// `end_burst` indicates the end of a burst transmission.
     ///
     /// # Panics
-    ///  * If `buffers` is not the same length as the `channels` array passed to `Device::rx_stream`.
-    ///  * If all the buffers in `buffers` are not the same length.
+    ///  * If `buffers` are not the same length as the `channels` array passed to [`Device::tx_stream`](crate::Device::tx_stream).
+    ///  * If the buffers in `buffers` are not the same length.
     fn write_all(
         &mut self,
         buffers: &[&[Complex32]],
@@ -124,6 +132,7 @@ pub trait TxStreamer: Send {
     ) -> Result<(), Error>;
 }
 
+#[doc(hidden)]
 impl TxStreamer for Box<dyn TxStreamer> {
     fn mtu(&self) -> Result<usize, Error> {
         self.as_ref().mtu()

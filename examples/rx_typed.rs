@@ -1,3 +1,4 @@
+use clap::Parser;
 use num_complex::Complex32;
 
 use seify::impls::rtlsdr;
@@ -5,17 +6,26 @@ use seify::Device;
 use seify::Direction::Rx;
 use seify::RxStreamer;
 
+#[derive(Parser, Debug)]
+#[clap(version)]
+struct Args {
+    /// Device Filters
+    #[clap(short, long, default_value = "")]
+    args: String,
+}
+
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
+    let cli = Args::parse();
 
-    let rtl = rtlsdr::RtlSdr::open("")?;
+    let rtl = rtlsdr::RtlSdr::open(cli.args)?;
     let dev = Device::from_device(rtl);
+    // Get typed reference to device impl
+    // let _r : &seify::impls::RtlSdr = dev.inner().unwrap();
+
     dev.enable_agc(Rx, 0, true)?;
     dev.set_frequency(Rx, 0, 101e6)?;
     dev.set_sample_rate(Rx, 0, 3.2e6)?;
-
-    // Get typed reference to device impl
-    // let _r : &seify::impls::RtlSdr = dev.inner().unwrap();
 
     println!("driver:      {:?}", dev.driver());
     println!("id:          {:?}", dev.id()?);
