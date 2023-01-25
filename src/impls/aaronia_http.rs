@@ -34,6 +34,7 @@ pub struct AaroniaHttp {
     url: String,
     runtime: Handle,
     client: Client<HttpConnector, Body>,
+    f_offset: f64,
 }
 
 pub struct RxStreamer {
@@ -85,10 +86,13 @@ impl AaroniaHttp {
             let rt = RUNTIME.get_or_try_init(Runtime::new)?;
             let a = v.remove(0);
 
+            let f_offset = a.get::<f64>("f_offset").unwrap_or(20e6);
+
             Ok(Self {
                 client: Client::new(),
                 runtime: rt.handle().clone(),
                 url: a.get::<String>("url")?,
+                f_offset,
             })
         }
     }
@@ -120,13 +124,25 @@ impl AaroniaHttp {
     fn get_enum(&self, path: Vec<&str>) -> Result<(u64, String), Error> {
         let element = self.get_element(path)?;
         let i = dbg!(&element["value"]).as_u64().unwrap();
-        let v : Vec<&str> = element["values"].as_str().unwrap().split(',').collect();
+        let v: Vec<&str> = element["values"].as_str().unwrap().split(',').collect();
         Ok((i, v[i as usize].to_string()))
     }
 
     fn get_f64(&self, path: Vec<&str>) -> Result<f64, Error> {
         let element = self.get_element(path)?;
         Ok(element["value"].as_f64().unwrap())
+    }
+    fn send_json(&self, json: Value) -> Result<(), Error> {
+        let req = Request::put(format!("{}/remoteconfig", self.url))
+            .body(Body::from(
+                serde_json::to_vec(&json).or(Err(Error::ValueError))?,
+            ))
+            .or(Err(Error::Io))?;
+
+        self.runtime
+            .block_on(async { self.client.request(req).await.or(Err(Error::Io)) })?;
+
+        Ok(())
     }
 }
 
@@ -251,7 +267,12 @@ impl DeviceTrait for AaroniaHttp {
     }
 
     fn agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        let (i, s) = dbg!(self.get_enum(vec!["Block_Spectran_V6B_0", "config", "device", "gaincontrol"])?);
+        let (i, s) = dbg!(self.get_enum(vec![
+            "Block_Spectran_V6B_0",
+            "config",
+            "device",
+            "gaincontrol"
+        ])?);
         if s == "manual" {
             Ok(false)
         } else {
@@ -319,25 +340,17 @@ impl DeviceTrait for AaroniaHttp {
         channel: usize,
         frequency: f64,
     ) -> Result<(), Error> {
-        let json = json!({
-          "receiverName": "Block_IQDemodulator_0",
-          "simpleconfig": {
-            "main": {
-              "centerfreq": frequency
+        match (direction, channel) {
+            (Rx, 0 | 1) => {
+                let f = (frequency - self.f_offset).max(0.0);
+                self.set_component_frequency(direction, channel, "RF", f, Args::new())?;
+                self.set_component_frequency(direction, channel, "DEMOD", frequency, Args::new())
             }
-          }
-        });
-
-        let req = Request::put(format!("{}/remoteconfig", self.url))
-            .body(Body::from(
-                serde_json::to_vec(&json).or(Err(Error::ValueError))?,
-            ))
-            .or(Err(Error::Io))?;
-
-        self.runtime
-            .block_on(async { self.client.request(req).await.or(Err(Error::Io)) })?;
-
-        Ok(())
+            (Tx, 0) => {
+                self.set_component_frequency(direction, channel, "RF", frequency, Args::new())
+            }
+            _ => Err(Error::ValueError),
+        }
     }
 
     fn frequency_components(
@@ -379,11 +392,50 @@ impl DeviceTrait for AaroniaHttp {
         frequency: f64,
         args: Args,
     ) -> Result<(), Error> {
-        todo!()
+        let json = match (direction, channel, name) {
+            (Rx, 0 | 1, "RF") => {
+                json!({
+                    "receiverName": "Block_Spectran_V6B_0",
+                    "simpleconfig": {
+                        "main": {
+                            "centerfreq": frequency
+                        }
+                    }
+                })
+            }
+            (Rx, 0 | 1, "DEMOD") => {
+                json!({
+                    "receiverName": "Block_IQDemodulator_0",
+                    "simpleconfig": {
+                        "main": {
+                            "centerfreq": frequency
+                        }
+                    }
+                })
+            }
+            (Tx, 0, "RF") => {
+                json!({
+                    "receiverName": "Block_Spectran_V6B_0",
+                    "simpleconfig": {
+                        "main": {
+                            "centerfreq": frequency
+                        }
+                    }
+                })
+            }
+            _ => return Err(Error::ValueError),
+        };
+
+        self.send_json(json)
     }
 
     fn sample_rate(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
-        Ok(20e6)
+        self.get_f64(vec![
+            "Block_IQDemodulator_0",
+            "config",
+            "main",
+            "samplerate",
+        ])
     }
 
     fn set_sample_rate(
@@ -396,7 +448,11 @@ impl DeviceTrait for AaroniaHttp {
     }
 
     fn get_sample_rate_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
-        Ok(Range::new(vec![RangeItem::Interval(0.0, 92.16e6)]))
+        match (direction, channel) {
+            (Rx, 0 | 1) => Ok(Range::new(vec![RangeItem::Interval(0.0, 92.16e6)])),
+            (Tx, 0) => todo!(),
+            _ => Err(Error::ValueError),
+        }
     }
 }
 
