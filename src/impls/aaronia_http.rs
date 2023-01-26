@@ -1,3 +1,4 @@
+//! Aaronia Spectran HTTP Client
 #![allow(unused_imports)]
 #![allow(unused_variables)]
 #![allow(dead_code)]

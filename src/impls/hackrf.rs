@@ -1,3 +1,4 @@
+//! Great Scott Gadgets HackRF One
 use crate::Args;
 use crate::DeviceTrait;
 use crate::Error;

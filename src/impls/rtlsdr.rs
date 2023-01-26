@@ -1,3 +1,4 @@
+//! RTL SDR
 use num_complex::Complex32;
 use rtlsdr_rs::enumerate;
 use rtlsdr_rs::RtlSdr as Sdr;

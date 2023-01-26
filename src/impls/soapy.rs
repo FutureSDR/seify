@@ -1,3 +1,4 @@
+//! Soapy SDR
 use num_complex::Complex32;
 
 use crate::Args;
