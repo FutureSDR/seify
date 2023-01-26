@@ -2,7 +2,6 @@
 #![allow(unused_variables)]
 #![allow(unused_imports)]
 #![allow(dead_code)]
-use once_cell::sync::Lazy;
 use std::any::Any;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -21,8 +20,6 @@ use crate::Driver;
 use crate::Error;
 use crate::Range;
 use crate::RangeItem;
-
-static DEVICES : Lazy<Mutex<Vec<DeviceInfo>>> = Lazy::new(|| Mutex::new(Vec::new()));
 
 /// Aaronia SpectranV6 driver, using the native SDK
 #[derive(Debug)]
@@ -71,7 +68,6 @@ impl Aaronia {
         let mut api = ApiHandle::new().or(Err(Error::DeviceError))?;
         api.rescan_devices().or(Err(Error::DeviceError))?;
         let devs = api.devices().or(Err(Error::DeviceError))?;
-        *DEVICES.lock().unwrap() = devs.clone();
         Ok(devs
             .iter()
             .enumerate()
@@ -87,11 +83,8 @@ impl Aaronia {
     /// to [`probe`](Self::probe), they are not rescanned to avoid changing the `index` identifier.
     pub fn open<A: TryInto<Args>>(args: A) -> Result<Self, Error> {
         let mut api = ApiHandle::new().or(Err(Error::DeviceError))?;
-        let mut devs = DEVICES.lock().unwrap();
-        if devs.is_empty() {
-            api.rescan_devices().or(Err(Error::DeviceError))?;
-            *devs = api.devices().or(Err(Error::DeviceError))?;
-        }
+        api.rescan_devices().or(Err(Error::DeviceError))?;
+        let devs = api.devices().or(Err(Error::DeviceError))?;
 
         if devs.is_empty() {
             return Err(Error::NotFound);
@@ -103,7 +96,7 @@ impl Aaronia {
         let mut dev = api
             .get_this_device(&devs[index])
             .or(Err(Error::DeviceError))?;
-        dev.open().or(Err(Error::DeviceError))?;
+        dbg!(&mut dev).open().or(Err(Error::DeviceError))?;
         Ok(Aaronia {
             dev: Arc::new(Mutex::new(dev)),
             index,
