@@ -410,38 +410,29 @@ impl<
     type RxStreamer = Box<dyn RxStreamer>;
     type TxStreamer = Box<dyn TxStreamer>;
 
-    /// Cast to Any for downcasting.
     fn as_any(&self) -> &dyn Any {
         self
     }
-    /// Cast to Any for downcasting to a mutable reference.
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
 
-    /// SDR [driver](Driver)
     fn driver(&self) -> Driver {
         self.dev.driver()
     }
-    /// Identifier for the device, e.g., its serial.
     fn id(&self) -> Result<String, Error> {
         self.dev.id()
     }
-    /// Device info that can be displayed to the user.
     fn info(&self) -> Result<Args, Error> {
         self.dev.info()
     }
-    /// Number of supported Channels.
     fn num_channels(&self, direction: Direction) -> Result<usize, Error> {
         self.dev.num_channels(direction)
     }
-    /// Full Duplex support.
     fn full_duplex(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
         self.dev.full_duplex(direction, channel)
     }
 
-    //================================ STREAMER ============================================
-    /// Create an RX streamer, using the `args`.
     fn rx_streamer(
         &self,
         channels: &[usize],
@@ -449,7 +440,6 @@ impl<
     ) -> Result<Self::RxStreamer, Error> {
         Ok(Box::new(self.dev.rx_streamer(channels, args)?))
     }
-    /// Create a TX streamer, using the `args`.
     fn tx_streamer(
         &self,
         channels: &[usize],
@@ -793,46 +783,55 @@ impl<
         D: DeviceTrait<RxStreamer = R, TxStreamer = T> + Clone + 'static,
     > Device<D>
 {
+    /// SDR [driver](Driver)
     pub fn driver(&self) -> Driver {
         self.dev.driver()
     }
+    /// Identifier for the device, e.g., its serial.
     pub fn id(&self) -> Result<String, Error> {
         self.dev.id()
     }
+    /// Device info that can be displayed to the user.
     pub fn info(&self) -> Result<Args, Error> {
         self.dev.info()
     }
+    /// Number of supported Channels.
     pub fn num_channels(&self, direction: Direction) -> Result<usize, Error> {
         self.dev.num_channels(direction)
     }
+    /// Full Duplex support.
     pub fn full_duplex(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
         self.dev.full_duplex(direction, channel)
     }
 
+    //================================ STREAMER ============================================
+    /// Create an RX streamer.
     pub fn rx_streamer(&self, channels: &[usize]) -> Result<R, Error> {
         self.dev.rx_streamer(channels, Args::new())
     }
-
+    /// Create an RX streamer, using `args`.
     pub fn rx_streamer_with_args(&self, channels: &[usize], args: Args) -> Result<R, Error> {
         self.dev.rx_streamer(channels, args)
     }
-
+    /// Create a TX Streamer.
     pub fn tx_streamer(&self, channels: &[usize]) -> Result<T, Error> {
         self.dev.tx_streamer(channels, Args::new())
     }
-
+    /// Create a TX Streamer, using `args`.
     pub fn tx_streamer_with_args(&self, channels: &[usize], args: Args) -> Result<T, Error> {
         self.dev.tx_streamer(channels, args)
     }
 
+    //================================ ANTENNA ============================================
+    /// List of available antenna ports.
     pub fn antennas(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
         self.dev.antennas(direction, channel)
     }
-
+    /// Currently used antenna port.
     pub fn antenna(&self, direction: Direction, channel: usize) -> Result<String, Error> {
         self.dev.antenna(direction, channel)
     }
-
+    /// Set antenna port.
     pub fn set_antenna(
         &self,
         direction: Direction,
@@ -842,6 +841,24 @@ impl<
         self.dev.set_antenna(direction, channel, name)
     }
 
+    //================================ AGC ============================================
+    /// Does the device support automatic gain control?
+    pub fn suports_agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+        self.dev.suports_agc(direction, channel)
+    }
+    /// Enable or disable automatic gain control.
+    pub fn enable_agc(&self, direction: Direction, channel: usize, agc: bool) -> Result<(), Error> {
+        self.dev.enable_agc(direction, channel, agc)
+    }
+    /// Returns true, if automatic gain control is enabled
+    pub fn agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+        self.dev.agc(direction, channel)
+    }
+
+    //================================ GAIN ============================================
+    /// List of available gain elements.
+    ///
+    /// Elements should be in order RF to baseband.
     pub fn gain_elements(
         &self,
         direction: Direction,
@@ -850,30 +867,30 @@ impl<
         self.dev.gain_elements(direction, channel)
     }
 
-    pub fn suports_agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        self.dev.suports_agc(direction, channel)
-    }
-
-    pub fn enable_agc(&self, direction: Direction, channel: usize, agc: bool) -> Result<(), Error> {
-        self.dev.enable_agc(direction, channel, agc)
-    }
-
-    pub fn agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        self.dev.agc(direction, channel)
-    }
-
+    /// Set the overall amplification in a chain.
+    ///
+    /// The gain will be distributed automatically across available elements.
+    ///
+    /// `gain`: the new amplification value in dB
     pub fn set_gain(&self, direction: Direction, channel: usize, gain: f64) -> Result<(), Error> {
         self.dev.set_gain(direction, channel, gain)
     }
 
+    /// Get the overall value of the gain elements in a chain in dB.
     pub fn gain(&self, direction: Direction, channel: usize) -> Result<Option<f64>, Error> {
         self.dev.gain(direction, channel)
     }
 
+    /// Get the overall [`Range`] of possible gain values.
     pub fn gain_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
         self.dev.gain_range(direction, channel)
     }
 
+    /// Set the value of a amplification element in a chain.
+    ///
+    /// ## Arguments
+    /// * `name`: the name of an amplification element from `Device::list_gains`
+    /// * `gain`: the new amplification value in dB
     pub fn set_gain_element(
         &self,
         direction: Direction,
@@ -884,6 +901,7 @@ impl<
         self.dev.set_gain_element(direction, channel, name, gain)
     }
 
+    /// Get the value of an individual amplification element in a chain in dB.
     pub fn gain_element(
         &self,
         direction: Direction,
@@ -893,6 +911,7 @@ impl<
         self.dev.gain_element(direction, channel, name)
     }
 
+    /// Get the range of possible gain values for a specific element.
     pub fn gain_element_range(
         &self,
         direction: Direction,
@@ -902,14 +921,32 @@ impl<
         self.dev.gain_element_range(direction, channel, name)
     }
 
+    //================================ FREQUENCY ============================================
+
+    /// Get the ranges of overall frequency values.
     pub fn frequency_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
         self.dev.frequency_range(direction, channel)
     }
 
+    /// Get the overall center frequency of the chain.
+    ///
+    ///   - For RX, this specifies the down-conversion frequency.
+    ///   - For TX, this specifies the up-conversion frequency.
+    ///
+    /// Returns the center frequency in Hz.
     pub fn frequency(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
         self.dev.frequency(direction, channel)
     }
 
+    /// Set the center frequency of the chain.
+    ///
+    ///   - For RX, this specifies the down-conversion frequency.
+    ///   - For TX, this specifies the up-conversion frequency.
+    ///
+    /// The default implementation of `set_frequency` will tune the "RF"
+    /// component as close as possible to the requested center frequency in Hz.
+    /// Tuning inaccuracies will be compensated for with the "BB" component.
+    ///
     pub fn set_frequency(
         &self,
         direction: Direction,
@@ -919,6 +956,20 @@ impl<
         self.dev.set_frequency(direction, channel, frequency, Args::new())
     }
 
+    /// Like [`set_frequency`](Self::set_frequency) but using `args` to augment the tuning algorithm.
+    ///
+    ///   - Use `"OFFSET"` to specify an "RF" tuning offset,
+    ///     usually with the intention of moving the LO out of the passband.
+    ///     The offset will be compensated for using the "BB" component.
+    ///   - Use the name of a component for the key and a frequency in Hz
+    ///     as the value (any format) to enforce a specific frequency.
+    ///     The other components will be tuned with compensation
+    ///     to achieve the specified overall frequency.
+    ///   - Use the name of a component for the key and the value `"IGNORE"`
+    ///     so that the tuning algorithm will avoid altering the component.
+    ///   - Vendor specific implementations can also use the same args to augment
+    ///     tuning in other ways such as specifying fractional vs integer N tuning.
+    ///
     pub fn set_frequency_with_args(
         &self,
         direction: Direction,
@@ -929,6 +980,9 @@ impl<
         self.dev.set_frequency(direction, channel, frequency, args)
     }
 
+    /// List available tunable elements in the chain.
+    ///
+    /// Elements should be in order RF to baseband.
     pub fn frequency_components(
         &self,
         direction: Direction,
@@ -937,6 +991,7 @@ impl<
         self.dev.frequency_components(direction, channel)
     }
 
+    /// Get the range of tunable values for the specified element.
     pub fn component_frequency_range(
         &self,
         direction: Direction,
@@ -946,6 +1001,7 @@ impl<
         self.dev.component_frequency_range(direction, channel, name)
     }
 
+    /// Get the frequency of a tunable element in the chain.
     pub fn component_frequency(
         &self,
         direction: Direction,
@@ -955,6 +1011,10 @@ impl<
         self.dev.component_frequency(direction, channel, name)
     }
 
+    /// Tune the center frequency of the specified element.
+    ///
+    ///   - For RX, this specifies the down-conversion frequency.
+    ///   - For TX, this specifies the up-conversion frequency.
     pub fn set_component_frequency(
         &self,
         direction: Direction,
@@ -966,10 +1026,14 @@ impl<
             .set_component_frequency(direction, channel, name, frequency)
     }
 
+    //================================ SAMPLE RATE ============================================
+
+    /// Get the baseband sample rate of the chain in samples per second.
     pub fn sample_rate(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
         self.dev.sample_rate(direction, channel)
     }
 
+    /// Set the baseband sample rate of the chain in samples per second.
     pub fn set_sample_rate(
         &self,
         direction: Direction,
@@ -979,6 +1043,7 @@ impl<
         self.dev.set_sample_rate(direction, channel, rate)
     }
 
+    /// Get the range of possible baseband sample rates.
     pub fn get_sample_rate_range(
         &self,
         direction: Direction,

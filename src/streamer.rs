@@ -36,7 +36,7 @@ pub trait RxStreamer: Send {
     ///
     /// # Panics
     ///  * If `buffers` is not the same length as the `channels` array passed to
-    ///  [`Device::rx_stream`](crate::Device::rx_stream) that created the streamer.
+    ///  [`Device::rx_streamer`](crate::Device::rx_streamer) that created the streamer.
     fn read(&mut self, buffers: &mut [&mut [Complex32]], timeout_us: i64) -> Result<usize, Error>;
 }
 
@@ -96,7 +96,7 @@ pub trait TxStreamer: Send {
     /// Returns the number of samples written, which may be smaller than the size of the passed arrays.
     ///
     /// # Panics
-    ///  * If `buffers` are not the same length as the `channels` array passed to [`Device::tx_stream`](crate::Device::tx_stream).
+    ///  * If `buffers` are not the same length as the `channels` array passed to [`Device::tx_streamer`](crate::Device::tx_streamer).
     ///  * If the buffers in `buffers` are not the same length.
     fn write(
         &mut self,
@@ -121,7 +121,7 @@ pub trait TxStreamer: Send {
     /// `end_burst` indicates the end of a burst transmission.
     ///
     /// # Panics
-    ///  * If `buffers` are not the same length as the `channels` array passed to [`Device::tx_stream`](crate::Device::tx_stream).
+    ///  * If `buffers` are not the same length as the `channels` array passed to [`Device::tx_streamer`](crate::Device::tx_streamer).
     ///  * If the buffers in `buffers` are not the same length.
     fn write_all(
         &mut self,
