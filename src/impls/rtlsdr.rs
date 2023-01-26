@@ -16,6 +16,7 @@ use crate::Error;
 use crate::Range;
 use crate::RangeItem;
 
+/// Rusty RTL-SDR driver
 #[derive(Clone)]
 pub struct RtlSdr {
     dev: Arc<Sdr>,
@@ -29,6 +30,7 @@ struct Inner {
     gain: TunerGain,
 }
 
+/// Rusty RTL-SDR RX streamer
 pub struct RxStreamer {
     dev: Arc<Sdr>,
 }
@@ -41,10 +43,16 @@ impl RxStreamer {
     }
 }
 
+/// Rusty RTL-SDR TX dummy streamer
 pub struct TxDummy;
 unsafe impl Send for TxDummy {}
 
 impl RtlSdr {
+    /// Get a list of detected RTL-SDR devices
+    ///
+    /// The returned [`Args`] specify the device, i.e., passing them to [`RtlSdr::open`] will open
+    /// this particular device. At the moment, this just uses the index in the list of devices
+    /// returned by the driver.
     pub fn probe(_args: &Args) -> Result<Vec<Args>, Error> {
         let rtls = enumerate().or(Err(Error::DeviceError))?;
         let mut devs = Vec::new();
@@ -53,6 +61,10 @@ impl RtlSdr {
         }
         Ok(devs)
     }
+    /// Create an Aaronia SpectranV6 Device
+    ///
+    /// At the moment, only an `index` argument is considered, which defines the index of the
+    /// devices in the list returned by the driver.
     pub fn open<A: TryInto<Args>>(args: A) -> Result<Self, Error> {
         let args = args.try_into().or(Err(Error::ValueError))?;
         let index = args.get::<usize>("index").unwrap_or(0);
@@ -103,11 +115,7 @@ impl DeviceTrait for RtlSdr {
         Ok(false)
     }
 
-    fn rx_stream(&self, channels: &[usize]) -> Result<Self::RxStreamer, Error> {
-        self.rx_stream_with_args(channels, Args::new())
-    }
-
-    fn rx_stream_with_args(
+    fn rx_streamer(
         &self,
         channels: &[usize],
         _args: Args,
@@ -119,11 +127,7 @@ impl DeviceTrait for RtlSdr {
         }
     }
 
-    fn tx_stream(&self, _channels: &[usize]) -> Result<Self::TxStreamer, Error> {
-        Err(Error::NotSupported)
-    }
-
-    fn tx_stream_with_args(
+    fn tx_streamer(
         &self,
         _channels: &[usize],
         _args: Args,
@@ -292,8 +296,9 @@ impl DeviceTrait for RtlSdr {
         direction: Direction,
         channel: usize,
         frequency: f64,
+        _args: Args,
     ) -> Result<(), Error> {
-        self.set_component_frequency(direction, channel, "TUNER", frequency, Args::new())
+        self.set_component_frequency(direction, channel, "TUNER", frequency)
     }
 
     fn frequency_components(
@@ -346,7 +351,6 @@ impl DeviceTrait for RtlSdr {
         channel: usize,
         name: &str,
         frequency: f64,
-        _args: Args,
     ) -> Result<(), Error> {
         if matches!(direction, Rx)
             && channel == 0

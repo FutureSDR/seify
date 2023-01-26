@@ -30,6 +30,7 @@ use crate::RangeItem;
 
 static RUNTIME: OnceCell<Runtime> = OnceCell::new();
 
+/// Aaronia SpectranV6 driver, using the HTTP interface
 #[derive(Clone)]
 pub struct AaroniaHttp {
     url: String,
@@ -38,6 +39,7 @@ pub struct AaroniaHttp {
     f_offset: f64,
 }
 
+/// Aaronia SpectranV6 HTTP RX Streamer
 pub struct RxStreamer {
     runtime: Handle,
     url: String,
@@ -47,11 +49,15 @@ pub struct RxStreamer {
     client: Client<HttpConnector, Body>,
 }
 
+/// Aaronia SpectranV6 HTTP TX Streamer
 pub struct TxStreamer {
     runtime: Handle,
 }
 
 impl AaroniaHttp {
+    /// Try to connect to an Aaronia HTTP server interface
+    ///
+    /// Looks for a `url` argument or tries `http://localhost:54664` as the default.
     pub fn probe(args: &Args) -> Result<Vec<Args>, Error> {
         let rt = RUNTIME.get_or_try_init(Runtime::new)?;
 
@@ -79,6 +85,9 @@ impl AaroniaHttp {
             }
         })
     }
+    /// Create an Aaronia SpectranV6 HTTP Device
+    ///
+    /// Looks for a `url` argument or tries `http://localhost:54664` as the default.
     pub fn open<A: TryInto<Args>>(args: A) -> Result<Self, Error> {
         let mut v = Self::probe(&args.try_into().or(Err(Error::ValueError))?)?;
         if v.is_empty() {
@@ -186,11 +195,7 @@ impl DeviceTrait for AaroniaHttp {
         }
     }
 
-    fn rx_stream(&self, channels: &[usize]) -> Result<Self::RxStreamer, Error> {
-        self.rx_stream_with_args(channels, Args::new())
-    }
-
-    fn rx_stream_with_args(
+    fn rx_streamer(
         &self,
         channels: &[usize],
         _args: Args,
@@ -209,11 +214,7 @@ impl DeviceTrait for AaroniaHttp {
         }
     }
 
-    fn tx_stream(&self, channels: &[usize]) -> Result<Self::TxStreamer, Error> {
-        todo!()
-    }
-
-    fn tx_stream_with_args(
+    fn tx_streamer(
         &self,
         channels: &[usize],
         args: Args,
@@ -340,15 +341,16 @@ impl DeviceTrait for AaroniaHttp {
         direction: Direction,
         channel: usize,
         frequency: f64,
+        _args: Args,
     ) -> Result<(), Error> {
         match (direction, channel) {
             (Rx, 0 | 1) => {
                 let f = (frequency - self.f_offset).max(0.0);
-                self.set_component_frequency(direction, channel, "RF", f, Args::new())?;
-                self.set_component_frequency(direction, channel, "DEMOD", frequency, Args::new())
+                self.set_component_frequency(direction, channel, "RF", f)?;
+                self.set_component_frequency(direction, channel, "DEMOD", frequency)
             }
             (Tx, 0) => {
-                self.set_component_frequency(direction, channel, "RF", frequency, Args::new())
+                self.set_component_frequency(direction, channel, "RF", frequency)
             }
             _ => Err(Error::ValueError),
         }
@@ -391,7 +393,6 @@ impl DeviceTrait for AaroniaHttp {
         channel: usize,
         name: &str,
         frequency: f64,
-        args: Args,
     ) -> Result<(), Error> {
         let json = match (direction, channel, name) {
             (Rx, 0 | 1, "RF") => {

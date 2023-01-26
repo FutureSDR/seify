@@ -2,6 +2,7 @@
 #![allow(unused_variables)]
 #![allow(unused_imports)]
 #![allow(dead_code)]
+use once_cell::sync::Lazy;
 use std::any::Any;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -9,6 +10,7 @@ use std::sync::Mutex;
 use aaronia_rtsa::ApiHandle;
 use aaronia_rtsa::ConfigItem;
 use aaronia_rtsa::Device as Sdr;
+use aaronia_rtsa::DeviceInfo;
 use aaronia_rtsa::Packet;
 
 use crate::Args;
@@ -20,6 +22,9 @@ use crate::Error;
 use crate::Range;
 use crate::RangeItem;
 
+static DEVICES : Lazy<Mutex<Vec<DeviceInfo>>> = Lazy::new(|| Mutex::new(Vec::new()));
+
+/// Aaronia SpectranV6 driver, using the native SDK
 #[derive(Debug)]
 pub struct Aaronia {
     dev: Arc<Mutex<Sdr>>,
@@ -29,6 +34,7 @@ pub struct Aaronia {
 unsafe impl Send for Aaronia {}
 unsafe impl Sync for Aaronia {}
 
+/// Aaronia SpectranV6 RX Streamer
 pub struct RxStreamer {
     dev: Arc<Mutex<Sdr>>,
     packet: Option<(Packet, usize)>,
@@ -42,6 +48,7 @@ impl RxStreamer {
     }
 }
 
+/// Aaronia SpectranV6 TX Streamer
 pub struct TxStreamer {
     dev: Arc<Mutex<Sdr>>,
 }
@@ -55,10 +62,16 @@ impl TxStreamer {
 }
 
 impl Aaronia {
+    /// Get a list of detected Aaronia SpectranV6 devices
+    ///
+    /// The returned [`Args`] specify the device, i.e., passing them to [`Aaronia::open`] will open
+    /// this particular device. At the moment, this just uses the index in the list of devices
+    /// returned by the driver.
     pub fn probe(_args: &Args) -> Result<Vec<Args>, Error> {
         let mut api = ApiHandle::new().or(Err(Error::DeviceError))?;
         api.rescan_devices().or(Err(Error::DeviceError))?;
         let devs = api.devices().or(Err(Error::DeviceError))?;
+        *DEVICES.lock().unwrap() = devs.clone();
         Ok(devs
             .iter()
             .enumerate()
@@ -66,10 +79,20 @@ impl Aaronia {
             .collect())
     }
 
+    /// Create an Aaronia SpectranV6 Device
+    ///
+    /// At the moment, only an `index` argument is considered, which defines the index of the
+    /// devices in the list returned by [`ApiHandle::devices`](aaronia_rtsa::ApiHandle::devices).
+    /// If the devices were already [`scanned`](aaronia_rtsa::ApiHandle::rescan_devices) in a call
+    /// to [`probe`](Self::probe), they are not rescanned to avoid changing the `index` identifier.
     pub fn open<A: TryInto<Args>>(args: A) -> Result<Self, Error> {
         let mut api = ApiHandle::new().or(Err(Error::DeviceError))?;
-        api.rescan_devices().or(Err(Error::DeviceError))?;
-        let devs = api.devices().or(Err(Error::DeviceError))?;
+        let mut devs = DEVICES.lock().unwrap();
+        if devs.is_empty() {
+            api.rescan_devices().or(Err(Error::DeviceError))?;
+            *devs = api.devices().or(Err(Error::DeviceError))?;
+        }
+
         if devs.is_empty() {
             return Err(Error::NotFound);
         }
@@ -127,11 +150,7 @@ impl DeviceTrait for Aaronia {
         }
     }
 
-    fn rx_stream(&self, channels: &[usize]) -> Result<Self::RxStreamer, Error> {
-        self.rx_stream_with_args(channels, Args::new())
-    }
-
-    fn rx_stream_with_args(
+    fn rx_streamer(
         &self,
         channels: &[usize],
         args: crate::Args,
@@ -143,11 +162,7 @@ impl DeviceTrait for Aaronia {
         }
     }
 
-    fn tx_stream(&self, channels: &[usize]) -> Result<Self::TxStreamer, Error> {
-        self.tx_stream_with_args(channels, Args::new())
-    }
-
-    fn tx_stream_with_args(
+    fn tx_streamer(
         &self,
         channels: &[usize],
         args: crate::Args,
@@ -301,8 +316,9 @@ impl DeviceTrait for Aaronia {
         direction: Direction,
         channel: usize,
         frequency: f64,
+        _args: Args,
     ) -> Result<(), Error> {
-        self.set_component_frequency(direction, channel, "TUNER", frequency, Args::new())
+        self.set_component_frequency(direction, channel, "TUNER", frequency)
     }
 
     fn frequency_components(
@@ -355,7 +371,6 @@ impl DeviceTrait for Aaronia {
         channel: usize,
         name: &str,
         frequency: f64,
-        args: Args,
     ) -> Result<(), Error> {
         let mut dev = self.dev.lock().unwrap();
         match (channel, name) {

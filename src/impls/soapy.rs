@@ -9,21 +9,29 @@ use crate::Error;
 use crate::Range;
 use crate::RangeItem;
 
+/// Soapy Device
 #[derive(Clone)]
 pub struct Soapy {
     dev: soapysdr::Device,
     index: usize,
 }
 
+/// Soapy RX Streamer
 pub struct RxStreamer {
     streamer: soapysdr::RxStream<Complex32>,
 }
 
+/// Soapy TX Streamer
 pub struct TxStreamer {
     streamer: soapysdr::TxStream<Complex32>,
 }
 
 impl Soapy {
+    /// Get a list of detected devices, supported by Soapy
+    ///
+    /// The returned [`Args`] specify the device, i.e., passing them to [`Soapy::open`] will open
+    /// this particular device. Using the `soapy_driver` argument it is possible to specify the
+    /// `driver` argument for Soapy.
     pub fn probe(args: &Args) -> Result<Vec<Args>, Error> {
         let v = soapysdr::enumerate(soapysdr::Args::try_from(args.clone())?)?;
         let v: Vec<Args> = v
@@ -43,6 +51,10 @@ impl Soapy {
             })
             .collect())
     }
+    /// Create a Soapy Device
+    ///
+    /// It is possible to specify the Soapy `driver` argument by passing the `soapy_driver` argument
+    /// to this function.
     pub fn open<A: TryInto<Args>>(args: A) -> Result<Self, Error> {
         let mut args: Args = args.try_into().or(Err(Error::ValueError))?;
         let index = args.get("index").unwrap_or(0);
@@ -92,13 +104,7 @@ impl DeviceTrait for Soapy {
         Ok(self.dev.full_duplex(direction.into(), channel)?)
     }
 
-    fn rx_stream(&self, channels: &[usize]) -> Result<Self::RxStreamer, Error> {
-        Ok(RxStreamer {
-            streamer: self.dev.rx_stream(channels)?,
-        })
-    }
-
-    fn rx_stream_with_args(
+    fn rx_streamer(
         &self,
         channels: &[usize],
         args: Args,
@@ -110,13 +116,7 @@ impl DeviceTrait for Soapy {
         })
     }
 
-    fn tx_stream(&self, channels: &[usize]) -> Result<Self::TxStreamer, Error> {
-        Ok(TxStreamer {
-            streamer: self.dev.tx_stream(channels)?,
-        })
-    }
-
-    fn tx_stream_with_args(
+    fn tx_streamer(
         &self,
         channels: &[usize],
         args: Args,
@@ -228,10 +228,11 @@ impl DeviceTrait for Soapy {
         direction: Direction,
         channel: usize,
         frequency: f64,
+        args: Args,
     ) -> Result<(), Error> {
         Ok(self
             .dev
-            .set_frequency(direction.into(), channel, frequency, "")?)
+            .set_frequency(direction.into(), channel, frequency, soapysdr::Args::try_from(args)?)?)
     }
 
     fn frequency_components(
@@ -271,14 +272,13 @@ impl DeviceTrait for Soapy {
         channel: usize,
         name: &str,
         frequency: f64,
-        args: Args,
     ) -> Result<(), Error> {
         Ok(self.dev.set_component_frequency(
             direction.into(),
             channel,
             name,
             frequency,
-            soapysdr::Args::try_from(args)?,
+            soapysdr::Args::new(),
         )?)
     }
 

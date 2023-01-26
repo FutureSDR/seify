@@ -14,7 +14,9 @@ use crate::TxStreamer;
 
 /// Central trait, implemented by hardware drivers.
 pub trait DeviceTrait: Any + Send {
+    /// Associated RX streamer
     type RxStreamer: RxStreamer;
+    /// Associated TX streamer
     type TxStreamer: TxStreamer;
 
     /// Cast to Any for downcasting.
@@ -22,7 +24,7 @@ pub trait DeviceTrait: Any + Send {
     /// Cast to Any for downcasting to a mutable reference.
     fn as_any_mut(&mut self) -> &mut dyn Any;
 
-    /// SDR driver
+    /// SDR [driver](Driver)
     fn driver(&self) -> Driver;
     /// Identifier for the device, e.g., its serial.
     fn id(&self) -> Result<String, Error>;
@@ -34,28 +36,26 @@ pub trait DeviceTrait: Any + Send {
     fn full_duplex(&self, direction: Direction, channel: usize) -> Result<bool, Error>;
 
     //================================ STREAMER ============================================
-    fn rx_stream(&self, channels: &[usize]) -> Result<Self::RxStreamer, Error>;
-    fn rx_stream_with_args(
+    /// Create an RX streamer.
+    fn rx_streamer(
         &self,
         channels: &[usize],
         args: Args,
     ) -> Result<Self::RxStreamer, Error>;
-    fn tx_stream(&self, channels: &[usize]) -> Result<Self::TxStreamer, Error>;
-    fn tx_stream_with_args(
+    /// Create a TX streamer.
+    fn tx_streamer(
         &self,
         channels: &[usize],
         args: Args,
     ) -> Result<Self::TxStreamer, Error>;
 
     //================================ ANTENNA ============================================
+    /// List of available antenna ports.
     fn antennas(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error>;
+    /// Currently used antenna port.
     fn antenna(&self, direction: Direction, channel: usize) -> Result<String, Error>;
+    /// Set antenna port.
     fn set_antenna(&self, direction: Direction, channel: usize, name: &str) -> Result<(), Error>;
-
-    /// List available amplification elements.
-    ///
-    /// Elements should be in order RF to baseband.
-    fn gain_elements(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error>;
 
     //================================ AGC ============================================
     /// Does the device support automatic gain control?
@@ -64,10 +64,14 @@ pub trait DeviceTrait: Any + Send {
     /// Enable or disable automatic gain control.
     fn enable_agc(&self, direction: Direction, channel: usize, agc: bool) -> Result<(), Error>;
 
-    /// Returns true if automatic gain control is enabled
+    /// Returns true, if automatic gain control is enabled
     fn agc(&self, direction: Direction, channel: usize) -> Result<bool, Error>;
 
     //================================ GAIN ============================================
+    /// List of available gain elements.
+    ///
+    /// Elements should be in order RF to baseband.
+    fn gain_elements(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error>;
     /// Set the overall amplification in a chain.
     ///
     /// The gain will be distributed automatically across available elements.
@@ -78,12 +82,12 @@ pub trait DeviceTrait: Any + Send {
     /// Get the overall value of the gain elements in a chain in dB.
     fn gain(&self, direction: Direction, channel: usize) -> Result<Option<f64>, Error>;
 
-    /// Get the overall range of possible gain values.
+    /// Get the overall [`Range`] of possible gain values.
     fn gain_range(&self, direction: Direction, channel: usize) -> Result<Range, Error>;
 
     /// Set the value of a amplification element in a chain.
     ///
-    /// # Arguments
+    /// ## Arguments
     /// * `name`: the name of an amplification element from `Device::list_gains`
     /// * `gain`: the new amplification value in dB
     fn set_gain_element(
@@ -151,6 +155,7 @@ pub trait DeviceTrait: Any + Send {
         direction: Direction,
         channel: usize,
         frequency: f64,
+        args: Args,
     ) -> Result<(), Error>;
 
     /// List available tunable elements in the chain.
@@ -182,20 +187,12 @@ pub trait DeviceTrait: Any + Send {
     ///
     ///   - For RX, this specifies the down-conversion frequency.
     ///   - For TX, this specifies the up-conversion frequency.
-    ///
-    /// Recommended names used to represent tunable components:
-    ///
-    ///   - "CORR" - freq error correction in PPM
-    ///   - "RF" - frequency of the RF frontend
-    ///   - "BB" - frequency of the baseband DSP
-    ///
     fn set_component_frequency(
         &self,
         direction: Direction,
         channel: usize,
         name: &str,
         frequency: f64,
-        args: Args,
     ) -> Result<(), Error>;
 
     //================================ SAMPLE RATE ============================================
@@ -212,11 +209,16 @@ pub trait DeviceTrait: Any + Send {
 }
 
 /// Wrapps a driver, implementing the [DeviceTrait].
+///
+/// Implements a more ergonomic version of the [`DeviceTrait`], e.g., using `Into<Args>`, which
+/// would not be possible in traits.
 pub struct Device<T: DeviceTrait + Clone + Any> {
     dev: T,
 }
 
 impl Device<GenericDevice> {
+    /// Creates a [`GenericDevice`] opening the first device discovered through
+    /// [`enumerate`](crate::enumerate).
     pub fn new() -> Result<Self, Error> {
         let mut devs = crate::enumerate()?;
         if devs.is_empty() {
@@ -225,6 +227,9 @@ impl Device<GenericDevice> {
         Self::from_args(devs.remove(0))
     }
 
+    /// Creates a [`GenericDevice`] opening the first device with a given `driver`, specified in
+    /// the `args` or the first device discovered through [`enumerate`](crate::enumerate) that
+    /// matches the args.
     pub fn from_args<A: TryInto<Args>>(args: A) -> Result<Self, Error> {
         let args = args.try_into().or(Err(Error::ValueError))?;
         let driver = match args.get::<Driver>("driver") {
@@ -336,9 +341,12 @@ pub type GenericDevice =
     Arc<dyn DeviceTrait<RxStreamer = Box<dyn RxStreamer>, TxStreamer = Box<dyn TxStreamer>> + Sync>;
 
 impl<T: DeviceTrait + Clone + Any> Device<T> {
+    /// Create a device from the device implementation.
     pub fn from_device(dev: T) -> Self {
         Self { dev }
     }
+    /// Try to downcast to a given device implementation `D`, either directly (from `Device<D>`)
+    /// or indirectly (from a `Device<GenericDevice>` that wraps a `D`).
     pub fn inner<D: DeviceTrait + Any>(&self) -> Result<&D, Error> {
         if let Some(d) = self.dev.as_any().downcast_ref::<D>() {
             return Ok(d);
@@ -362,6 +370,8 @@ impl<T: DeviceTrait + Clone + Any> Device<T> {
             .ok_or(Error::ValueError)?;
         Ok(&d.dev)
     }
+    /// Try to downcast mutably to a given device implementation `D`, either directly
+    /// (from `Device<D>`) or indirectly (from a `Device<GenericDevice>` that wraps a `D`).
     pub fn inner_mut<D: DeviceTrait + Any>(&mut self) -> Result<&mut D, Error> {
         // work around borrow checker limitation
         if let Some(d) = self.dev.as_any().downcast_ref::<D>() {
@@ -400,52 +410,52 @@ impl<
     type RxStreamer = Box<dyn RxStreamer>;
     type TxStreamer = Box<dyn TxStreamer>;
 
+    /// Cast to Any for downcasting.
     fn as_any(&self) -> &dyn Any {
         self
     }
-
+    /// Cast to Any for downcasting to a mutable reference.
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
 
+    /// SDR [driver](Driver)
     fn driver(&self) -> Driver {
         self.dev.driver()
     }
+    /// Identifier for the device, e.g., its serial.
     fn id(&self) -> Result<String, Error> {
         self.dev.id()
     }
+    /// Device info that can be displayed to the user.
     fn info(&self) -> Result<Args, Error> {
         self.dev.info()
     }
+    /// Number of supported Channels.
     fn num_channels(&self, direction: Direction) -> Result<usize, Error> {
         self.dev.num_channels(direction)
     }
+    /// Full Duplex support.
     fn full_duplex(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
         self.dev.full_duplex(direction, channel)
     }
 
-    fn rx_stream(&self, channels: &[usize]) -> Result<Self::RxStreamer, Error> {
-        Ok(Box::new(self.dev.rx_stream(channels)?))
-    }
-
-    fn rx_stream_with_args(
+    //================================ STREAMER ============================================
+    /// Create an RX streamer, using the `args`.
+    fn rx_streamer(
         &self,
         channels: &[usize],
         args: Args,
     ) -> Result<Self::RxStreamer, Error> {
-        Ok(Box::new(self.dev.rx_stream_with_args(channels, args)?))
+        Ok(Box::new(self.dev.rx_streamer(channels, args)?))
     }
-
-    fn tx_stream(&self, channels: &[usize]) -> Result<Self::TxStreamer, Error> {
-        Ok(Box::new(self.dev.tx_stream(channels)?))
-    }
-
-    fn tx_stream_with_args(
+    /// Create a TX streamer, using the `args`.
+    fn tx_streamer(
         &self,
         channels: &[usize],
         args: Args,
     ) -> Result<Self::TxStreamer, Error> {
-        Ok(Box::new(self.dev.tx_stream_with_args(channels, args)?))
+        Ok(Box::new(self.dev.tx_streamer(channels, args)?))
     }
 
     fn antennas(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
@@ -529,8 +539,9 @@ impl<
         direction: Direction,
         channel: usize,
         frequency: f64,
+        args: Args,
     ) -> Result<(), Error> {
-        self.dev.set_frequency(direction, channel, frequency)
+        self.dev.set_frequency(direction, channel, frequency, args)
     }
 
     fn frequency_components(
@@ -565,10 +576,9 @@ impl<
         channel: usize,
         name: &str,
         frequency: f64,
-        args: Args,
     ) -> Result<(), Error> {
         self.dev
-            .set_component_frequency(direction, channel, name, frequency, args)
+            .set_component_frequency(direction, channel, name, frequency)
     }
 
     fn sample_rate(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
@@ -618,28 +628,20 @@ impl DeviceTrait for GenericDevice {
         self.as_ref().full_duplex(direction, channel)
     }
 
-    fn rx_stream(&self, channels: &[usize]) -> Result<Self::RxStreamer, Error> {
-        Ok(Box::new(self.as_ref().rx_stream(channels)?))
-    }
-
-    fn rx_stream_with_args(
+    fn rx_streamer(
         &self,
         channels: &[usize],
         args: Args,
     ) -> Result<Self::RxStreamer, Error> {
-        Ok(Box::new(self.as_ref().rx_stream_with_args(channels, args)?))
+        Ok(Box::new(self.as_ref().rx_streamer(channels, args)?))
     }
 
-    fn tx_stream(&self, channels: &[usize]) -> Result<Self::TxStreamer, Error> {
-        Ok(Box::new(self.as_ref().tx_stream(channels)?))
-    }
-
-    fn tx_stream_with_args(
+    fn tx_streamer(
         &self,
         channels: &[usize],
         args: Args,
     ) -> Result<Self::TxStreamer, Error> {
-        Ok(Box::new(self.as_ref().tx_stream_with_args(channels, args)?))
+        Ok(Box::new(self.as_ref().tx_streamer(channels, args)?))
     }
 
     fn antennas(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
@@ -724,8 +726,9 @@ impl DeviceTrait for GenericDevice {
         direction: Direction,
         channel: usize,
         frequency: f64,
+        args: Args
     ) -> Result<(), Error> {
-        self.as_ref().set_frequency(direction, channel, frequency)
+        self.as_ref().set_frequency(direction, channel, frequency, args)
     }
 
     fn frequency_components(
@@ -761,10 +764,9 @@ impl DeviceTrait for GenericDevice {
         channel: usize,
         name: &str,
         frequency: f64,
-        args: Args,
     ) -> Result<(), Error> {
         self.as_ref()
-            .set_component_frequency(direction, channel, name, frequency, args)
+            .set_component_frequency(direction, channel, name, frequency)
     }
 
     fn sample_rate(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
@@ -807,20 +809,20 @@ impl<
         self.dev.full_duplex(direction, channel)
     }
 
-    pub fn rx_stream(&self, channels: &[usize]) -> Result<R, Error> {
-        self.dev.rx_stream(channels)
+    pub fn rx_streamer(&self, channels: &[usize]) -> Result<R, Error> {
+        self.dev.rx_streamer(channels, Args::new())
     }
 
-    pub fn rx_stream_with_args(&self, channels: &[usize], args: Args) -> Result<R, Error> {
-        self.dev.rx_stream_with_args(channels, args)
+    pub fn rx_streamer_with_args(&self, channels: &[usize], args: Args) -> Result<R, Error> {
+        self.dev.rx_streamer(channels, args)
     }
 
-    pub fn tx_stream(&self, channels: &[usize]) -> Result<T, Error> {
-        self.dev.tx_stream(channels)
+    pub fn tx_streamer(&self, channels: &[usize]) -> Result<T, Error> {
+        self.dev.tx_streamer(channels, Args::new())
     }
 
-    pub fn tx_stream_with_args(&self, channels: &[usize], args: Args) -> Result<T, Error> {
-        self.dev.tx_stream_with_args(channels, args)
+    pub fn tx_streamer_with_args(&self, channels: &[usize], args: Args) -> Result<T, Error> {
+        self.dev.tx_streamer(channels, args)
     }
 
     pub fn antennas(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
@@ -914,7 +916,17 @@ impl<
         channel: usize,
         frequency: f64,
     ) -> Result<(), Error> {
-        self.dev.set_frequency(direction, channel, frequency)
+        self.dev.set_frequency(direction, channel, frequency, Args::new())
+    }
+
+    pub fn set_frequency_with_args(
+        &self,
+        direction: Direction,
+        channel: usize,
+        frequency: f64,
+        args: Args,
+    ) -> Result<(), Error> {
+        self.dev.set_frequency(direction, channel, frequency, args)
     }
 
     pub fn frequency_components(
@@ -949,10 +961,9 @@ impl<
         channel: usize,
         name: &str,
         frequency: f64,
-        args: Args,
     ) -> Result<(), Error> {
         self.dev
-            .set_component_frequency(direction, channel, name, frequency, args)
+            .set_component_frequency(direction, channel, name, frequency)
     }
 
     pub fn sample_rate(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
