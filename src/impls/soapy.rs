@@ -377,7 +377,9 @@ impl From<crate::Direction> for soapysdr::Direction {
 impl From<soapysdr::Range> for Range {
     fn from(range: soapysdr::Range) -> Self {
         let mut r = vec![];
-        if range.step == 0.0 {
+        if range.step == 0.0 && range.minimum == range.maximum {
+            r.push(RangeItem::Value(range.minimum));
+        } else if range.step == 0.0 {
             r.push(RangeItem::Interval(range.minimum, range.maximum));
         } else {
             let mut v = range.minimum;

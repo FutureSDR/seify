@@ -33,7 +33,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("gain:        {:?}", dev.gain(Rx, 0)?);
 
     let mut samps = [Complex32::new(0.0, 0.0); 8192];
-    let mut rx = dev.rx_stream(&[0])?;
+    let mut rx = dev.rx_streamer(&[0])?;
     rx.activate(None)?;
     let n = rx.read(&mut [&mut samps], 200000)?;
 

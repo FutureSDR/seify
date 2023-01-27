@@ -36,7 +36,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // producer thread
     std::thread::spawn(move || -> Result<(), Error> {
-        let mut rx = dev.rx_stream(&[0])?;
+        let mut rx = dev.rx_streamer(&[0])?;
         let mtu = rx.mtu()?;
         rx.activate(None)?;
 
