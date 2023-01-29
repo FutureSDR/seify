@@ -12,6 +12,12 @@ mod streamer;
 pub use streamer::RxStreamer;
 pub use streamer::TxStreamer;
 
+// Reexports
+#[cfg(feature = "aaronia_http")]
+pub use hyper;
+#[cfg(feature = "aaronia_http")]
+pub use tokio;
+
 use std::str::FromStr;
 use thiserror::Error;
 

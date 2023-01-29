@@ -255,24 +255,24 @@ impl Device<GenericDevice> {
                 }
             }
         }
-        #[cfg(feature = "aaronia_http")]
-        {
-            if driver.is_none() || matches!(driver, Some(Driver::AaroniaHttp)) {
-                match impls::AaroniaHttp::open(&args) {
-                    Ok(d) => {
-                        return Ok(Device {
-                            dev: Arc::new(DeviceWrapper { dev: d }),
-                        })
-                    }
-                    Err(Error::NotFound) => {
-                        if driver.is_some() {
-                            return Err(Error::NotFound);
-                        }
-                    }
-                    Err(e) => return Err(e),
-                }
-            }
-        }
+        // #[cfg(feature = "aaronia_http")]
+        // {
+        //     if driver.is_none() || matches!(driver, Some(Driver::AaroniaHttp)) {
+        //         match impls::AaroniaHttp::open(&args) {
+        //             Ok(d) => {
+        //                 return Ok(Device {
+        //                     dev: Arc::new(DeviceWrapper { dev: d }),
+        //                 })
+        //             }
+        //             Err(Error::NotFound) => {
+        //                 if driver.is_some() {
+        //                     return Err(Error::NotFound);
+        //                 }
+        //             }
+        //             Err(e) => return Err(e),
+        //         }
+        //     }
+        // }
         #[cfg(feature = "rtlsdr")]
         {
             if driver.is_none() || matches!(driver, Some(Driver::RtlSdr)) {

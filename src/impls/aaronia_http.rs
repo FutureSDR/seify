@@ -2,10 +2,13 @@
 #![allow(unused_imports)]
 #![allow(unused_variables)]
 #![allow(dead_code)]
+use async_task::Task;
+use futures::Future;
 use futures::StreamExt;
 use futures::TryStreamExt;
 use hyper::body::Buf;
 use hyper::body::Bytes;
+// use hyper::client::connect::Connect;
 use hyper::client::connect::HttpConnector;
 use hyper::Request;
 use hyper::{Body, Client, Uri};
@@ -30,31 +33,72 @@ use crate::RangeItem;
 
 static RUNTIME: OnceCell<Runtime> = OnceCell::new();
 
+// Wraps a provided scheduler.
+#[derive(Clone)]
+struct MyExecutor<E: Executor>(E);
+
+/// HTTP Connect implementation for the async runtime, used by the scheduler.
+pub trait Connect: hyper::client::connect::Connect + Clone + Send + Sync + 'static {}
+
+impl<E: Executor> MyExecutor<E> {
+    pub fn block_on<T>(&self, future: impl Future<Output = T>) -> T {
+        self.0.block_on(future)
+    }
+}
+
+/// Async Executor for Hyper to spawn Tasks
+pub trait Executor: Clone + Send + Sync + 'static {
+    fn spawn<T: Send + 'static>(&self, future: impl Future<Output = T> + Send + 'static)
+        -> Task<T>;
+    fn block_on<T>(&self, future: impl Future<Output = T>) -> T;
+}
+
+impl<F, E> hyper::rt::Executor<F> for MyExecutor<E>
+where
+    E: Executor,
+    F: Future + Send + 'static,
+{
+    fn execute(&self, fut: F) {
+        self.0.spawn(async { drop(fut.await) }).detach();
+    }
+}
+
+impl Executor for tokio::runtime::Handle {
+    fn spawn<T: Send + 'static>(&self, future: impl Future<Output = T> + Send + 'static)
+        -> Task<T> {
+        self.spawn(future)
+    }
+
+    fn block_on<T>(&self, future: impl Future<Output = T>) -> T {
+        self.block_on(future)
+    }
+}
+
 /// Aaronia SpectranV6 driver, using the HTTP interface
 #[derive(Clone)]
-pub struct AaroniaHttp {
+pub struct AaroniaHttp<E: Executor, C: Connect> {
     url: String,
-    runtime: Handle,
-    client: Client<HttpConnector, Body>,
+    executor: MyExecutor<E>,
+    client: Client<C, Body>,
     f_offset: f64,
 }
 
 /// Aaronia SpectranV6 HTTP RX Streamer
-pub struct RxStreamer {
-    runtime: Handle,
+pub struct RxStreamer<E: Executor, C: Connect> {
+    executor: MyExecutor<E>,
     url: String,
     stream: Option<futures::stream::IntoStream<Body>>,
     buf: Bytes,
     items_left: usize,
-    client: Client<HttpConnector, Body>,
+    client: Client<C, Body>,
 }
 
 /// Aaronia SpectranV6 HTTP TX Streamer
-pub struct TxStreamer {
-    runtime: Handle,
+pub struct TxStreamer<E: Executor> {
+    executor: MyExecutor<E>,
 }
 
-impl AaroniaHttp {
+impl<E: Executor, C: Connect + Clone> AaroniaHttp<E, C> {
     /// Try to connect to an Aaronia HTTP server interface
     ///
     /// Looks for a `url` argument or tries `http://localhost:54664` as the default.
@@ -88,19 +132,47 @@ impl AaroniaHttp {
     /// Create an Aaronia SpectranV6 HTTP Device
     ///
     /// Looks for a `url` argument or tries `http://localhost:54664` as the default.
-    pub fn open<A: TryInto<Args>>(args: A) -> Result<Self, Error> {
+    // pub fn open<A: TryInto<Args>>(args: A) -> Result<Self, Error> {
+    //     let mut v = Self::probe(&args.try_into().or(Err(Error::ValueError))?)?;
+    //     if v.is_empty() {
+    //         Err(Error::NotFound)
+    //     } else {
+    //         let rt = RUNTIME.get_or_try_init(Runtime::new)?;
+    //         let a = v.remove(0);
+    //
+    //         let f_offset = a.get::<f64>("f_offset").unwrap_or(20e6);
+    //
+    //         Ok(Self {
+    //             client: Client::new(),
+    //             runtime: rt.handle().clone(),
+    //             url: a.get::<String>("url")?,
+    //             f_offset,
+    //         })
+    //     }
+    // }
+    /// Create an Aaronia SpectranV6 HTTP Device
+    ///
+    /// Looks for a `url` argument or tries `http://localhost:54664` as the default.
+    pub fn open_with_runtime<A: TryInto<Args>>(
+        args: A,
+        executor: E,
+        connector: C,
+    ) -> Result<Self, Error> {
+        let executor = MyExecutor(executor);
         let mut v = Self::probe(&args.try_into().or(Err(Error::ValueError))?)?;
         if v.is_empty() {
             Err(Error::NotFound)
         } else {
-            let rt = RUNTIME.get_or_try_init(Runtime::new)?;
+            // let rt = RUNTIME.get_or_try_init(Runtime::new)?;
             let a = v.remove(0);
 
             let f_offset = a.get::<f64>("f_offset").unwrap_or(20e6);
 
             Ok(Self {
-                client: Client::new(),
-                runtime: rt.handle().clone(),
+                client: Client::builder()
+                    .executor(executor.clone())
+                    .build(connector),
+                executor,
                 url: a.get::<String>("url")?,
                 f_offset,
             })
@@ -108,7 +180,7 @@ impl AaroniaHttp {
     }
 
     fn config(&self) -> Result<Value, Error> {
-        self.runtime.block_on(async {
+        self.executor.block_on(async {
             let url = format!("{}/remoteconfig", self.url)
                 .parse()
                 .or(Err(Error::ValueError))?;
@@ -149,16 +221,16 @@ impl AaroniaHttp {
             ))
             .or(Err(Error::Io))?;
 
-        self.runtime
+        self.executor
             .block_on(async { self.client.request(req).await.or(Err(Error::Io)) })?;
 
         Ok(())
     }
 }
 
-impl DeviceTrait for AaroniaHttp {
-    type RxStreamer = RxStreamer;
-    type TxStreamer = TxStreamer;
+impl<E: Executor + Send + 'static, C: Connect + Send + 'static> DeviceTrait for AaroniaHttp<E, C> {
+    type RxStreamer = RxStreamer<E, C>;
+    type TxStreamer = TxStreamer<E>;
 
     fn as_any(&self) -> &dyn std::any::Any {
         self
@@ -195,15 +267,11 @@ impl DeviceTrait for AaroniaHttp {
         }
     }
 
-    fn rx_streamer(
-        &self,
-        channels: &[usize],
-        _args: Args,
-    ) -> Result<Self::RxStreamer, Error> {
+    fn rx_streamer(&self, channels: &[usize], _args: Args) -> Result<Self::RxStreamer, Error> {
         if channels == [0] {
             Ok(RxStreamer {
                 url: self.url.clone(),
-                runtime: self.runtime.clone(),
+                executor: self.executor.clone(),
                 stream: None,
                 buf: Bytes::new(),
                 items_left: 0,
@@ -214,11 +282,7 @@ impl DeviceTrait for AaroniaHttp {
         }
     }
 
-    fn tx_streamer(
-        &self,
-        channels: &[usize],
-        args: Args,
-    ) -> Result<Self::TxStreamer, Error> {
+    fn tx_streamer(&self, channels: &[usize], args: Args) -> Result<Self::TxStreamer, Error> {
         todo!()
     }
 
@@ -283,7 +347,17 @@ impl DeviceTrait for AaroniaHttp {
     }
 
     fn set_gain(&self, direction: Direction, channel: usize, gain: f64) -> Result<(), Error> {
-        todo!()
+        let lvl = -gain - 8.0;
+        let json = json!({
+            "receiverName": "Block_Spectran_V6B_0",
+            "simpleconfig": {
+                "main": {
+                    "reflevel": lvl
+                }
+            }
+        });
+
+        self.send_json(json)
     }
 
     fn gain(&self, direction: Direction, channel: usize) -> Result<Option<f64>, Error> {
@@ -349,9 +423,7 @@ impl DeviceTrait for AaroniaHttp {
                 self.set_component_frequency(direction, channel, "RF", f)?;
                 self.set_component_frequency(direction, channel, "DEMOD", frequency)
             }
-            (Tx, 0) => {
-                self.set_component_frequency(direction, channel, "RF", frequency)
-            }
+            (Tx, 0) => self.set_component_frequency(direction, channel, "RF", frequency),
             _ => Err(Error::ValueError),
         }
     }
@@ -446,7 +518,16 @@ impl DeviceTrait for AaroniaHttp {
         channel: usize,
         rate: f64,
     ) -> Result<(), Error> {
-        todo!()
+        let json = json!({
+            "receiverName": "Block_IQDemodulator_0",
+            "simpleconfig": {
+                "main": {
+                    "samplerate": rate,
+                    "spanfreq": rate
+                }
+            }
+        });
+        self.send_json(json)
     }
 
     fn get_sample_rate_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
@@ -458,7 +539,7 @@ impl DeviceTrait for AaroniaHttp {
     }
 }
 
-impl RxStreamer {
+impl<E: Executor, C: Connect> RxStreamer<E, C> {
     fn parse_header(&mut self) -> Result<(), Error> {
         if let Some(i) = self.buf.iter().position(|&b| b == 10) {
             let header: Value = serde_json::from_str(&String::from_utf8_lossy(&self.buf[0..i]))
@@ -491,13 +572,13 @@ impl RxStreamer {
     }
 }
 
-impl crate::RxStreamer for RxStreamer {
+impl<E: Executor + Send, C: Connect + Send> crate::RxStreamer for RxStreamer<E, C> {
     fn mtu(&self) -> Result<usize, Error> {
         Ok(65536)
     }
 
     fn activate(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
-        let stream = self.runtime.block_on(async {
+        let stream = self.executor.block_on(async {
             Ok::<futures::stream::IntoStream<Body>, Error>(
                 self.client
                     .get(
@@ -526,7 +607,7 @@ impl crate::RxStreamer for RxStreamer {
         buffers: &mut [&mut [num_complex::Complex32]],
         timeout_us: i64,
     ) -> Result<usize, Error> {
-        self.runtime.clone().block_on(async {
+        self.executor.clone().block_on(async {
             if self.items_left == 0 {
                 self.parse_header()?;
                 while self.items_left == 0 {
@@ -559,7 +640,7 @@ impl crate::RxStreamer for RxStreamer {
     }
 }
 
-impl crate::TxStreamer for TxStreamer {
+impl<E: Executor + Send> crate::TxStreamer for TxStreamer<E> {
     fn mtu(&self) -> Result<usize, Error> {
         todo!()
     }
