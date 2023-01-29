@@ -46,7 +46,7 @@ pub struct RxStreamer<E: Executor, C: Connect> {
 
 /// Aaronia SpectranV6 HTTP TX Streamer
 pub struct TxStreamer<E: Executor> {
-    executor: MyExecutor<E>,
+    _executor: MyExecutor<E>,
 }
 
 impl AaroniaHttp<tokio::runtime::Handle, hyper::client::HttpConnector> {
@@ -81,27 +81,6 @@ impl AaroniaHttp<tokio::runtime::Handle, hyper::client::HttpConnector> {
         })
     }
 
-    /// Create an Aaronia SpectranV6 HTTP Device
-    ///
-    /// Looks for a `url` argument or tries `http://localhost:54664` as the default.
-    // pub fn open<A: TryInto<Args>>(args: A) -> Result<Self, Error> {
-    //     let mut v = Self::probe(&args.try_into().or(Err(Error::ValueError))?)?;
-    //     if v.is_empty() {
-    //         Err(Error::NotFound)
-    //     } else {
-    //         let rt = RUNTIME.get_or_try_init(Runtime::new)?;
-    //         let a = v.remove(0);
-    //
-    //         let f_offset = a.get::<f64>("f_offset").unwrap_or(20e6);
-    //
-    //         Ok(Self {
-    //             client: Client::new(),
-    //             runtime: rt.handle().clone(),
-    //             url: a.get::<String>("url")?,
-    //             f_offset,
-    //         })
-    //     }
-    // }
     /// Create an Aaronia SpectranV6 HTTP Device
     ///
     /// Looks for a `url` argument or tries `http://localhost:54664` as the default.
@@ -314,7 +293,7 @@ impl<E: Executor + Send + 'static, C: Connect + Send + 'static> DeviceTrait for 
         }
     }
 
-    fn tx_streamer(&self, channels: &[usize], args: Args) -> Result<Self::TxStreamer, Error> {
+    fn tx_streamer(&self, _channels: &[usize], _args: Args) -> Result<Self::TxStreamer, Error> {
         todo!()
     }
 
@@ -360,17 +339,17 @@ impl<E: Executor + Send + 'static, C: Connect + Send + 'static> DeviceTrait for 
         }
     }
 
-    fn enable_agc(&self, direction: Direction, channel: usize, agc: bool) -> Result<(), Error> {
+    fn enable_agc(&self, _direction: Direction, _channel: usize, _agc: bool) -> Result<(), Error> {
         todo!()
     }
 
-    fn agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        let (i, s) = dbg!(self.get_enum(vec![
+    fn agc(&self, _direction: Direction, _channel: usize) -> Result<bool, Error> {
+        let (_, s) = self.get_enum(vec![
             "Block_Spectran_V6B_0",
             "config",
             "device",
-            "gaincontrol"
-        ])?);
+            "gaincontrol",
+        ])?;
         if s == "manual" {
             Ok(false)
         } else {
@@ -392,59 +371,73 @@ impl<E: Executor + Send + 'static, C: Connect + Send + 'static> DeviceTrait for 
                 });
                 self.send_json(json)
             }
-            (Rx, _) => return Err(Error::ValueError),
+            (Rx, _) => Err(Error::ValueError),
             (Tx, _) => todo!(),
         }
     }
 
     fn gain(&self, direction: Direction, channel: usize) -> Result<Option<f64>, Error> {
-        let lvl = self.get_f64(vec!["Block_Spectran_V6B_0", "config", "main", "reflevel"])?;
-        Ok(Some(-lvl - 8.0))
+        match (direction, channel) {
+            (Rx, 0 | 1) => {
+                let lvl =
+                    self.get_f64(vec!["Block_Spectran_V6B_0", "config", "main", "reflevel"])?;
+                Ok(Some(-lvl - 8.0))
+            }
+            _ => {
+                todo!()
+            }
+        }
     }
 
     fn gain_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
-        Ok(Range::new(vec![RangeItem::Interval(0.0, 30.0)]))
+        match (direction, channel) {
+            (Rx, 0 | 1) => Ok(Range::new(vec![RangeItem::Interval(0.0, 30.0)])),
+            _ => todo!(),
+        }
     }
 
     fn set_gain_element(
         &self,
-        direction: Direction,
-        channel: usize,
-        name: &str,
-        gain: f64,
+        _direction: Direction,
+        _channel: usize,
+        _name: &str,
+        _gain: f64,
     ) -> Result<(), Error> {
         todo!()
     }
 
     fn gain_element(
         &self,
-        direction: Direction,
-        channel: usize,
-        name: &str,
+        _direction: Direction,
+        _channel: usize,
+        _name: &str,
     ) -> Result<Option<f64>, Error> {
         todo!()
     }
 
     fn gain_element_range(
         &self,
-        direction: Direction,
-        channel: usize,
-        name: &str,
+        _direction: Direction,
+        _channel: usize,
+        _name: &str,
     ) -> Result<Range, Error> {
         todo!()
     }
 
-    fn frequency_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
+    fn frequency_range(&self, _direction: Direction, _channel: usize) -> Result<Range, Error> {
         todo!()
     }
 
     fn frequency(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
-        self.get_f64(vec![
-            "Block_IQDemodulator_0",
-            "config",
-            "main",
-            "centerfreq",
-        ])
+        match (direction, channel) {
+            (Rx, 0 | 1) => self.get_f64(vec![
+                "Block_IQDemodulator_0",
+                "config",
+                "main",
+                "centerfreq",
+            ]),
+            _ => todo!(),
+        }
     }
 
     fn set_frequency(
@@ -458,7 +451,7 @@ impl<E: Executor + Send + 'static, C: Connect + Send + 'static> DeviceTrait for 
             (Rx, 0 | 1) => {
                 let f = (frequency - self.f_offset).max(0.0);
                 self.set_component_frequency(direction, channel, "RF", f)?;
-                self.set_component_frequency(direction, channel, "DEMOD", frequency)
+                self.set_component_frequency(direction, channel, "DEMOD", self.f_offset)
             }
             (Tx, 0) => self.set_component_frequency(direction, channel, "RF", frequency),
             _ => Err(Error::ValueError),
@@ -470,14 +463,17 @@ impl<E: Executor + Send + 'static, C: Connect + Send + 'static> DeviceTrait for 
         direction: Direction,
         channel: usize,
     ) -> Result<Vec<String>, Error> {
-        Ok(vec!["RF".to_string(), "DEMOD".to_string()])
+        match (direction, channel) {
+            (Rx, 0 | 1) => Ok(vec!["RF".to_string(), "DEMOD".to_string()]),
+            _ => todo!()
+        }
     }
 
     fn component_frequency_range(
         &self,
-        direction: Direction,
-        channel: usize,
-        name: &str,
+        _direction: Direction,
+        _channel: usize,
+        _name: &str,
     ) -> Result<Range, Error> {
         todo!()
     }
@@ -488,12 +484,23 @@ impl<E: Executor + Send + 'static, C: Connect + Send + 'static> DeviceTrait for 
         channel: usize,
         name: &str,
     ) -> Result<f64, Error> {
-        self.get_f64(vec![
-            "Block_IQDemodulator_0",
-            "config",
-            "main",
-            "centerfreq",
-        ])
+        match (direction, channel, name) {
+            (Rx, 0 | 1, "DEMOD") => {
+                let rf =
+                    self.get_f64(vec!["Block_Spectran_V6B_0", "config", "main", "centerfreq"])?;
+                let demod = self.get_f64(vec![
+                    "Block_IQDemodulator_0",
+                    "config",
+                    "main",
+                    "centerfreq",
+                ])?;
+                Ok(demod - rf)
+            }
+            (Rx, 0 | 1, "RF") => {
+                self.get_f64(vec!["Block_Spectran_V6B_0", "config", "main", "centerfreq"])
+            }
+            _ => todo!(),
+        }
     }
 
     fn set_component_frequency(
@@ -515,11 +522,13 @@ impl<E: Executor + Send + 'static, C: Connect + Send + 'static> DeviceTrait for 
                 })
             }
             (Rx, 0 | 1, "DEMOD") => {
+                let rf =
+                    self.get_f64(vec!["Block_Spectran_V6B_0", "config", "main", "centerfreq"])?;
                 json!({
                     "receiverName": "Block_IQDemodulator_0",
                     "simpleconfig": {
                         "main": {
-                            "centerfreq": frequency
+                            "centerfreq": frequency + rf
                         }
                     }
                 })
@@ -540,7 +549,7 @@ impl<E: Executor + Send + 'static, C: Connect + Send + 'static> DeviceTrait for 
         self.send_json(json)
     }
 
-    fn sample_rate(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
+    fn sample_rate(&self, _direction: Direction, _channel: usize) -> Result<f64, Error> {
         self.get_f64(vec![
             "Block_IQDemodulator_0",
             "config",
@@ -551,8 +560,8 @@ impl<E: Executor + Send + 'static, C: Connect + Send + 'static> DeviceTrait for 
 
     fn set_sample_rate(
         &self,
-        direction: Direction,
-        channel: usize,
+        _direction: Direction,
+        _channel: usize,
         rate: f64,
     ) -> Result<(), Error> {
         let json = json!({
@@ -614,7 +623,7 @@ impl<E: Executor + Send, C: Connect + Send> crate::RxStreamer for RxStreamer<E, 
         Ok(65536)
     }
 
-    fn activate(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
+    fn activate(&mut self, _time_ns: Option<i64>) -> Result<(), Error> {
         let stream = self.executor.block_on(async {
             Ok::<futures::stream::IntoStream<Body>, Error>(
                 self.client
@@ -634,7 +643,7 @@ impl<E: Executor + Send, C: Connect + Send> crate::RxStreamer for RxStreamer<E, 
         Ok(())
     }
 
-    fn deactivate(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
+    fn deactivate(&mut self, _time_ns: Option<i64>) -> Result<(), Error> {
         self.stream = None;
         Ok(())
     }
@@ -642,7 +651,7 @@ impl<E: Executor + Send, C: Connect + Send> crate::RxStreamer for RxStreamer<E, 
     fn read(
         &mut self,
         buffers: &mut [&mut [num_complex::Complex32]],
-        timeout_us: i64,
+        _timeout_us: i64,
     ) -> Result<usize, Error> {
         self.executor.clone().block_on(async {
             if self.items_left == 0 {
@@ -682,31 +691,31 @@ impl<E: Executor + Send> crate::TxStreamer for TxStreamer<E> {
         todo!()
     }
 
-    fn activate(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
+    fn activate(&mut self, _time_ns: Option<i64>) -> Result<(), Error> {
         todo!()
     }
 
-    fn deactivate(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
+    fn deactivate(&mut self, _time_ns: Option<i64>) -> Result<(), Error> {
         todo!()
     }
 
     fn write(
         &mut self,
-        buffers: &[&[num_complex::Complex32]],
-        at_ns: Option<i64>,
-        end_burst: bool,
-        timeout_us: i64,
+        _buffers: &[&[num_complex::Complex32]],
+        _at_ns: Option<i64>,
+        _end_burst: bool,
+        _timeout_us: i64,
     ) -> Result<usize, Error> {
         todo!()
     }
 
     fn write_all(
         &mut self,
-        buffers: &[&[num_complex::Complex32]],
-        at_ns: Option<i64>,
-        end_burst: bool,
-        timeout_us: i64,
+        _buffers: &[&[num_complex::Complex32]],
+        _at_ns: Option<i64>,
+        _end_burst: bool,
+        _timeout_us: i64,
     ) -> Result<(), Error> {
-       unimplemented!()
+        unimplemented!()
     }
 }
