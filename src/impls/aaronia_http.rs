@@ -12,11 +12,11 @@ use serde_json::Value;
 use crate::myhyper::MyExecutor;
 use crate::Args;
 use crate::Connect;
+use crate::DefaultConnector;
+use crate::DefaultExecutor;
 use crate::DeviceTrait;
 use crate::Direction;
 use crate::Direction::*;
-use crate::DefaultExecutor;
-use crate::DefaultConnector;
 use crate::Driver;
 use crate::Error;
 use crate::Executor;
@@ -52,14 +52,22 @@ impl AaroniaHttp<DefaultExecutor, DefaultConnector> {
     ///
     /// Looks for a `url` argument or tries `http://localhost:54664` as the default.
     pub fn probe(args: &Args) -> Result<Vec<Args>, Error> {
-        Self::probe_with_runtime(args, DefaultExecutor::default(), DefaultConnector::default())
+        Self::probe_with_runtime(
+            args,
+            DefaultExecutor::default(),
+            DefaultConnector::default(),
+        )
     }
 
     /// Create an Aaronia SpectranV6 HTTP Device
     ///
     /// Looks for a `url` argument or tries `http://localhost:54664` as the default.
     pub fn open<A: TryInto<Args>>(args: A) -> Result<Self, Error> {
-        Self::open_with_runtime(args, DefaultExecutor::default(), DefaultConnector::default())
+        Self::open_with_runtime(
+            args,
+            DefaultExecutor::default(),
+            DefaultConnector::default(),
+        )
     }
 }
 
@@ -189,7 +197,8 @@ impl<E: Executor, C: Connect> AaroniaHttp<E, C> {
             ))
             .or(Err(Error::Io))?;
 
-        self.executor.0
+        self.executor
+            .0
             .block_on(async { self.client.request(req).await.or(Err(Error::Io)) })?;
 
         Ok(())
@@ -422,7 +431,7 @@ impl<E: Executor + Send + 'static, C: Connect + Send + 'static> DeviceTrait for 
     ) -> Result<Vec<String>, Error> {
         match (direction, channel) {
             (Rx, 0 | 1) => Ok(vec!["RF".to_string(), "DEMOD".to_string()]),
-            _ => todo!()
+            _ => todo!(),
         }
     }
 

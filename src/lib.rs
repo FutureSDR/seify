@@ -6,7 +6,12 @@ pub use device::Device;
 pub use device::DeviceTrait;
 pub use device::GenericDevice;
 
-#[cfg(any(feature = "aaronia", feature = "aaronia_http", feature = "rtlsdr", feature = "soapy"))]
+#[cfg(any(
+    feature = "aaronia",
+    feature = "aaronia_http",
+    feature = "rtlsdr",
+    feature = "soapy"
+))]
 pub mod impls;
 
 mod streamer;
@@ -15,7 +20,7 @@ pub use streamer::TxStreamer;
 
 #[path = "hyper.rs"]
 pub(crate) mod myhyper;
-pub use myhyper::{Executor, Connect, DefaultExecutor, DefaultConnector};
+pub use myhyper::{Connect, DefaultConnector, DefaultExecutor, Executor};
 
 // Reexports
 pub use ::hyper;

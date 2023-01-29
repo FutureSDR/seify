@@ -4,13 +4,13 @@ use std::any::Any;
 use std::sync::Arc;
 
 use crate::Args;
+use crate::Connect;
 use crate::DefaultConnector;
 use crate::DefaultExecutor;
 use crate::Direction;
 use crate::Driver;
 use crate::Error;
 use crate::Executor;
-use crate::Connect;
 use crate::Range;
 use crate::RxStreamer;
 use crate::TxStreamer;
@@ -226,13 +226,21 @@ impl Device<GenericDevice> {
     /// the `args` or the first device discovered through [`enumerate`](crate::enumerate) that
     /// matches the args.
     pub fn from_args<A: TryInto<Args>>(args: A) -> Result<Self, Error> {
-        Self::from_args_with_runtime(args, DefaultExecutor::default(), DefaultConnector::default())
+        Self::from_args_with_runtime(
+            args,
+            DefaultExecutor::default(),
+            DefaultConnector::default(),
+        )
     }
 
     /// Creates a [`GenericDevice`] opening the first device with a given `driver`, specified in
     /// the `args` or the first device discovered through [`enumerate`](crate::enumerate) that
     /// matches the args.
-    pub fn from_args_with_runtime<A: TryInto<Args>, E: Executor, C: Connect>(args: A, executor: E, connector: C) -> Result<Self, Error> {
+    pub fn from_args_with_runtime<A: TryInto<Args>, E: Executor, C: Connect>(
+        args: A,
+        executor: E,
+        connector: C,
+    ) -> Result<Self, Error> {
         let args = args.try_into().or(Err(Error::ValueError))?;
         let driver = match args.get::<Driver>("driver") {
             Ok(d) => Some(d),
