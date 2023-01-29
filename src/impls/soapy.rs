@@ -104,11 +104,7 @@ impl DeviceTrait for Soapy {
         Ok(self.dev.full_duplex(direction.into(), channel)?)
     }
 
-    fn rx_streamer(
-        &self,
-        channels: &[usize],
-        args: Args,
-    ) -> Result<Self::RxStreamer, Error> {
+    fn rx_streamer(&self, channels: &[usize], args: Args) -> Result<Self::RxStreamer, Error> {
         Ok(RxStreamer {
             streamer: self
                 .dev
@@ -116,11 +112,7 @@ impl DeviceTrait for Soapy {
         })
     }
 
-    fn tx_streamer(
-        &self,
-        channels: &[usize],
-        args: Args,
-    ) -> Result<Self::TxStreamer, Error> {
+    fn tx_streamer(&self, channels: &[usize], args: Args) -> Result<Self::TxStreamer, Error> {
         Ok(TxStreamer {
             streamer: self
                 .dev
@@ -230,9 +222,12 @@ impl DeviceTrait for Soapy {
         frequency: f64,
         args: Args,
     ) -> Result<(), Error> {
-        Ok(self
-            .dev
-            .set_frequency(direction.into(), channel, frequency, soapysdr::Args::try_from(args)?)?)
+        Ok(self.dev.set_frequency(
+            direction.into(),
+            channel,
+            frequency,
+            soapysdr::Args::try_from(args)?,
+        )?)
     }
 
     fn frequency_components(

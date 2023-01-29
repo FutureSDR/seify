@@ -37,17 +37,9 @@ pub trait DeviceTrait: Any + Send {
 
     //================================ STREAMER ============================================
     /// Create an RX streamer.
-    fn rx_streamer(
-        &self,
-        channels: &[usize],
-        args: Args,
-    ) -> Result<Self::RxStreamer, Error>;
+    fn rx_streamer(&self, channels: &[usize], args: Args) -> Result<Self::RxStreamer, Error>;
     /// Create a TX streamer.
-    fn tx_streamer(
-        &self,
-        channels: &[usize],
-        args: Args,
-    ) -> Result<Self::TxStreamer, Error>;
+    fn tx_streamer(&self, channels: &[usize], args: Args) -> Result<Self::TxStreamer, Error>;
 
     //================================ ANTENNA ============================================
     /// List of available antenna ports.
@@ -291,24 +283,6 @@ impl Device<GenericDevice> {
                 }
             }
         }
-        #[cfg(feature = "hackrf")]
-        {
-            if driver.is_none() || matches!(driver, Some(Driver::HackRf)) {
-                match impls::HackRf::open(&args) {
-                    Ok(d) => {
-                        return Ok(Device {
-                            dev: Arc::new(DeviceWrapper { dev: d }),
-                        })
-                    }
-                    Err(Error::NotFound) => {
-                        if !driver.is_none() {
-                            return Err(Error::NotFound);
-                        }
-                    }
-                    Err(e) => return Err(e),
-                }
-            }
-        }
         #[cfg(feature = "soapy")]
         {
             if driver.is_none() || matches!(driver, Some(Driver::Soapy)) {
@@ -433,18 +407,10 @@ impl<
         self.dev.full_duplex(direction, channel)
     }
 
-    fn rx_streamer(
-        &self,
-        channels: &[usize],
-        args: Args,
-    ) -> Result<Self::RxStreamer, Error> {
+    fn rx_streamer(&self, channels: &[usize], args: Args) -> Result<Self::RxStreamer, Error> {
         Ok(Box::new(self.dev.rx_streamer(channels, args)?))
     }
-    fn tx_streamer(
-        &self,
-        channels: &[usize],
-        args: Args,
-    ) -> Result<Self::TxStreamer, Error> {
+    fn tx_streamer(&self, channels: &[usize], args: Args) -> Result<Self::TxStreamer, Error> {
         Ok(Box::new(self.dev.tx_streamer(channels, args)?))
     }
 
@@ -618,19 +584,11 @@ impl DeviceTrait for GenericDevice {
         self.as_ref().full_duplex(direction, channel)
     }
 
-    fn rx_streamer(
-        &self,
-        channels: &[usize],
-        args: Args,
-    ) -> Result<Self::RxStreamer, Error> {
+    fn rx_streamer(&self, channels: &[usize], args: Args) -> Result<Self::RxStreamer, Error> {
         Ok(Box::new(self.as_ref().rx_streamer(channels, args)?))
     }
 
-    fn tx_streamer(
-        &self,
-        channels: &[usize],
-        args: Args,
-    ) -> Result<Self::TxStreamer, Error> {
+    fn tx_streamer(&self, channels: &[usize], args: Args) -> Result<Self::TxStreamer, Error> {
         Ok(Box::new(self.as_ref().tx_streamer(channels, args)?))
     }
 
@@ -716,9 +674,10 @@ impl DeviceTrait for GenericDevice {
         direction: Direction,
         channel: usize,
         frequency: f64,
-        args: Args
+        args: Args,
     ) -> Result<(), Error> {
-        self.as_ref().set_frequency(direction, channel, frequency, args)
+        self.as_ref()
+            .set_frequency(direction, channel, frequency, args)
     }
 
     fn frequency_components(
@@ -953,7 +912,8 @@ impl<
         channel: usize,
         frequency: f64,
     ) -> Result<(), Error> {
-        self.dev.set_frequency(direction, channel, frequency, Args::new())
+        self.dev
+            .set_frequency(direction, channel, frequency, Args::new())
     }
 
     /// Like [`set_frequency`](Self::set_frequency) but using `args` to augment the tuning algorithm.

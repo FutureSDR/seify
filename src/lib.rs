@@ -12,10 +12,16 @@ mod streamer;
 pub use streamer::RxStreamer;
 pub use streamer::TxStreamer;
 
+#[cfg(feature = "hyper")]
+#[path = "hyper.rs"]
+pub(crate) mod myhyper;
+#[cfg(feature = "hyper")]
+pub use myhyper::{Executor, Connect};
+
 // Reexports
-#[cfg(feature = "aaronia_http")]
-pub use hyper;
-#[cfg(feature = "aaronia_http")]
+#[cfg(feature = "hyper")]
+pub use ::hyper;
+#[cfg(feature = "hyper")]
 pub use tokio;
 
 use std::str::FromStr;
@@ -52,8 +58,6 @@ pub enum Driver {
     Aaronia,
     #[cfg(feature = "aaronia_http")]
     AaroniaHttp,
-    #[cfg(feature = "hackrf")]
-    HackRf,
     #[cfg(feature = "rtlsdr")]
     RtlSdr,
     #[cfg(feature = "soapy")]
@@ -81,12 +85,6 @@ impl FromStr for Driver {
         {
             if s == "rtlsdr" || s == "rtl-sdr" || s == "rtl" {
                 return Ok(Driver::RtlSdr);
-            }
-        }
-        #[cfg(feature = "hackrf")]
-        {
-            if s == "hackrf" {
-                return Ok(Driver::HackRf);
             }
         }
         #[cfg(feature = "soapy")]
@@ -150,13 +148,6 @@ pub fn enumerate_with_args<A: TryInto<Args>>(a: A) -> Result<Vec<Args>, Error> {
     {
         if driver.is_none() || driver.as_ref().unwrap() == &Driver::RtlSdr {
             devs.append(&mut impls::RtlSdr::probe(&args)?)
-        }
-    }
-
-    #[cfg(feature = "hackrf")]
-    {
-        if driver.is_none() || driver.as_ref().unwrap() == &Driver::HackRf {
-            devs.append(&mut impls::HackRf::probe(&args)?)
         }
     }
 

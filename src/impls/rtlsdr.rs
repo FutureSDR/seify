@@ -119,11 +119,7 @@ impl DeviceTrait for RtlSdr {
         Ok(false)
     }
 
-    fn rx_streamer(
-        &self,
-        channels: &[usize],
-        _args: Args,
-    ) -> Result<Self::RxStreamer, Error> {
+    fn rx_streamer(&self, channels: &[usize], _args: Args) -> Result<Self::RxStreamer, Error> {
         if channels != [0] {
             Err(Error::ValueError)
         } else {
@@ -131,11 +127,7 @@ impl DeviceTrait for RtlSdr {
         }
     }
 
-    fn tx_streamer(
-        &self,
-        _channels: &[usize],
-        _args: Args,
-    ) -> Result<Self::TxStreamer, Error> {
+    fn tx_streamer(&self, _channels: &[usize], _args: Args) -> Result<Self::TxStreamer, Error> {
         Err(Error::NotSupported)
     }
 

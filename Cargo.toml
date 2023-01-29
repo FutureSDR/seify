@@ -8,16 +8,14 @@ description = "Shiny Samples from your SDR"
 [features]
 default = ["rtlsdr", "aaronia", "soapy", "aaronia_http"]
 rtlsdr = ["dep:rtlsdr-rs"]
-hackrf = ["dep:hackrfone"]
 aaronia = ["dep:aaronia-rtsa"]
-aaronia_http = ["dep:http", "dep:hyper", "dep:tokio", "dep:futures", "dep:once_cell", "dep:async-task"]
+aaronia_http = ["dep:once_cell", "hyper"]
 soapy = ["dep:soapysdr"]
+hyper = ["dep:http", "dep:hyper", "dep:tokio", "dep:futures"]
 
 [dependencies]
 aaronia-rtsa = { path = "/home/basti/src/aaronia-rtsa/", optional = true }
-async-task = { version = "4.3.0", optional = true }
 futures = { version = "0.3.18", optional = true }
-hackrfone = { git = "https://github.com/newAM/hackrfone", version = "0.2.3", optional = true }
 http = { version = "0.2", optional = true }
 hyper = { version = "0.14", default-features = false, features = ["client", "http1", "stream", "tcp"], optional = true}
 log = "0.4.17"

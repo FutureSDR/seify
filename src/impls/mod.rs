@@ -9,11 +9,6 @@ pub mod aaronia_http;
 #[cfg(feature = "aaronia_http")]
 pub use aaronia_http::AaroniaHttp;
 
-#[cfg(feature = "hackrf")]
-pub mod hackrf;
-#[cfg(feature = "hackrf")]
-pub use hackrf::HackRf;
-
 #[cfg(feature = "rtlsdr")]
 pub mod rtlsdr;
 #[cfg(feature = "rtlsdr")]

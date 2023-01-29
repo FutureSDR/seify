@@ -1,78 +1,29 @@
 //! Aaronia Spectran HTTP Client
-#![allow(unused_imports)]
-#![allow(unused_variables)]
-#![allow(dead_code)]
-use async_task::Task;
-use futures::Future;
 use futures::StreamExt;
 use futures::TryStreamExt;
 use hyper::body::Buf;
 use hyper::body::Bytes;
-// use hyper::client::connect::Connect;
-use hyper::client::connect::HttpConnector;
 use hyper::Request;
-use hyper::{Body, Client, Uri};
-use log::debug;
+use hyper::{Body, Client};
 use num_complex::Complex32;
 use once_cell::sync::OnceCell;
 use serde_json::json;
-use serde_json::Number;
 use serde_json::Value;
-use tokio::runtime::Builder;
-use tokio::runtime::Handle;
 use tokio::runtime::Runtime;
 
+use crate::myhyper::MyExecutor;
 use crate::Args;
+use crate::Connect;
 use crate::DeviceTrait;
 use crate::Direction;
 use crate::Direction::*;
 use crate::Driver;
 use crate::Error;
+use crate::Executor;
 use crate::Range;
 use crate::RangeItem;
 
 static RUNTIME: OnceCell<Runtime> = OnceCell::new();
-
-// Wraps a provided scheduler.
-#[derive(Clone)]
-struct MyExecutor<E: Executor>(E);
-
-/// HTTP Connect implementation for the async runtime, used by the scheduler.
-pub trait Connect: hyper::client::connect::Connect + Clone + Send + Sync + 'static {}
-
-impl<E: Executor> MyExecutor<E> {
-    pub fn block_on<T>(&self, future: impl Future<Output = T>) -> T {
-        self.0.block_on(future)
-    }
-}
-
-/// Async Executor for Hyper to spawn Tasks
-pub trait Executor: Clone + Send + Sync + 'static {
-    fn spawn<T: Send + 'static>(&self, future: impl Future<Output = T> + Send + 'static)
-        -> Task<T>;
-    fn block_on<T>(&self, future: impl Future<Output = T>) -> T;
-}
-
-impl<F, E> hyper::rt::Executor<F> for MyExecutor<E>
-where
-    E: Executor,
-    F: Future + Send + 'static,
-{
-    fn execute(&self, fut: F) {
-        self.0.spawn(async { drop(fut.await) }).detach();
-    }
-}
-
-impl Executor for tokio::runtime::Handle {
-    fn spawn<T: Send + 'static>(&self, future: impl Future<Output = T> + Send + 'static)
-        -> Task<T> {
-        self.spawn(future)
-    }
-
-    fn block_on<T>(&self, future: impl Future<Output = T>) -> T {
-        self.block_on(future)
-    }
-}
 
 /// Aaronia SpectranV6 driver, using the HTTP interface
 #[derive(Clone)]
@@ -98,7 +49,7 @@ pub struct TxStreamer<E: Executor> {
     executor: MyExecutor<E>,
 }
 
-impl<E: Executor, C: Connect + Clone> AaroniaHttp<E, C> {
+impl AaroniaHttp<tokio::runtime::Handle, hyper::client::HttpConnector> {
     /// Try to connect to an Aaronia HTTP server interface
     ///
     /// Looks for a `url` argument or tries `http://localhost:54664` as the default.
@@ -112,6 +63,84 @@ impl<E: Executor, C: Connect + Clone> AaroniaHttp<E, C> {
             let test_path = format!("{url}/info").parse().or(Err(Error::ValueError))?;
 
             let client = Client::new();
+            let resp = match client.get(test_path).await {
+                Ok(r) => r,
+                Err(e) => {
+                    if e.is_connect() && args.get::<String>("driver").is_ok() {
+                        return Err(Error::Io);
+                    } else {
+                        return Ok(Vec::new());
+                    }
+                }
+            };
+            if resp.status().is_success() {
+                Ok(vec![format!("driver=aaronia_http, url={url}").try_into()?])
+            } else {
+                Ok(Vec::new())
+            }
+        })
+    }
+
+    /// Create an Aaronia SpectranV6 HTTP Device
+    ///
+    /// Looks for a `url` argument or tries `http://localhost:54664` as the default.
+    // pub fn open<A: TryInto<Args>>(args: A) -> Result<Self, Error> {
+    //     let mut v = Self::probe(&args.try_into().or(Err(Error::ValueError))?)?;
+    //     if v.is_empty() {
+    //         Err(Error::NotFound)
+    //     } else {
+    //         let rt = RUNTIME.get_or_try_init(Runtime::new)?;
+    //         let a = v.remove(0);
+    //
+    //         let f_offset = a.get::<f64>("f_offset").unwrap_or(20e6);
+    //
+    //         Ok(Self {
+    //             client: Client::new(),
+    //             runtime: rt.handle().clone(),
+    //             url: a.get::<String>("url")?,
+    //             f_offset,
+    //         })
+    //     }
+    // }
+    /// Create an Aaronia SpectranV6 HTTP Device
+    ///
+    /// Looks for a `url` argument or tries `http://localhost:54664` as the default.
+    pub fn open<A: TryInto<Args>>(args: A) -> Result<Self, Error> {
+        let rt = RUNTIME.get_or_try_init(Runtime::new)?.handle();
+        let executor = MyExecutor(rt.clone());
+        let mut v = Self::probe(&args.try_into().or(Err(Error::ValueError))?)?;
+        if v.is_empty() {
+            Err(Error::NotFound)
+        } else {
+            // let rt = RUNTIME.get_or_try_init(Runtime::new)?;
+            let a = v.remove(0);
+
+            let f_offset = a.get::<f64>("f_offset").unwrap_or(20e6);
+
+            Ok(Self {
+                client: Client::new(),
+                executor,
+                url: a.get::<String>("url")?,
+                f_offset,
+            })
+        }
+    }
+}
+
+impl<E: Executor, C: Connect + Clone> AaroniaHttp<E, C> {
+    /// Try to connect to an Aaronia HTTP server interface
+    ///
+    /// Looks for a `url` argument or tries `http://localhost:54664` as the default.
+    pub fn probe_with_runtime(args: &Args, executor: E, connector: C) -> Result<Vec<Args>, Error> {
+        executor.block_on(async {
+            let url = args
+                .get::<String>("url")
+                .unwrap_or_else(|_| String::from("http://localhost:54664"));
+            let test_path = format!("{url}/info").parse().or(Err(Error::ValueError))?;
+
+            let client: hyper::Client<C, Body> = Client::builder()
+                .executor(MyExecutor(executor.clone()))
+                .build(connector);
             let resp = match client.get(test_path).await {
                 Ok(r) => r,
                 Err(e) => {
@@ -158,21 +187,24 @@ impl<E: Executor, C: Connect + Clone> AaroniaHttp<E, C> {
         executor: E,
         connector: C,
     ) -> Result<Self, Error> {
-        let executor = MyExecutor(executor);
-        let mut v = Self::probe(&args.try_into().or(Err(Error::ValueError))?)?;
+        // let executor = MyExecutor(executor.clone());
+        let mut v = Self::probe_with_runtime(
+            &args.try_into().or(Err(Error::ValueError))?,
+            executor.clone(),
+            connector.clone(),
+        )?;
         if v.is_empty() {
             Err(Error::NotFound)
         } else {
-            // let rt = RUNTIME.get_or_try_init(Runtime::new)?;
             let a = v.remove(0);
 
             let f_offset = a.get::<f64>("f_offset").unwrap_or(20e6);
 
             Ok(Self {
                 client: Client::builder()
-                    .executor(executor.clone())
+                    .executor(MyExecutor(executor.clone()))
                     .build(connector),
-                executor,
+                executor: MyExecutor(executor),
                 url: a.get::<String>("url")?,
                 f_offset,
             })
@@ -347,17 +379,22 @@ impl<E: Executor + Send + 'static, C: Connect + Send + 'static> DeviceTrait for 
     }
 
     fn set_gain(&self, direction: Direction, channel: usize, gain: f64) -> Result<(), Error> {
-        let lvl = -gain - 8.0;
-        let json = json!({
-            "receiverName": "Block_Spectran_V6B_0",
-            "simpleconfig": {
-                "main": {
-                    "reflevel": lvl
+        match (direction, channel) {
+            (Rx, 0 | 1) => {
+                let lvl = -gain - 8.0;
+                let json = json!({
+                        "receiverName": "Block_Spectran_V6B_0",
+                        "simpleconfig": {
+                        "main": {
+                        "reflevel": lvl
+                    }
                 }
+                });
+                self.send_json(json)
             }
-        });
-
-        self.send_json(json)
+            (Rx, _) => return Err(Error::ValueError),
+            (Tx, _) => todo!(),
+        }
     }
 
     fn gain(&self, direction: Direction, channel: usize) -> Result<Option<f64>, Error> {
@@ -670,6 +707,6 @@ impl<E: Executor + Send> crate::TxStreamer for TxStreamer<E> {
         end_burst: bool,
         timeout_us: i64,
     ) -> Result<(), Error> {
-        todo!()
+       unimplemented!()
     }
 }
