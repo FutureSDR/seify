@@ -6,10 +6,8 @@ use hyper::body::Bytes;
 use hyper::Request;
 use hyper::{Body, Client};
 use num_complex::Complex32;
-use once_cell::sync::OnceCell;
 use serde_json::json;
 use serde_json::Value;
-use tokio::runtime::Runtime;
 
 use crate::myhyper::MyExecutor;
 use crate::Args;
@@ -17,13 +15,13 @@ use crate::Connect;
 use crate::DeviceTrait;
 use crate::Direction;
 use crate::Direction::*;
+use crate::DefaultExecutor;
+use crate::DefaultConnector;
 use crate::Driver;
 use crate::Error;
 use crate::Executor;
 use crate::Range;
 use crate::RangeItem;
-
-static RUNTIME: OnceCell<Runtime> = OnceCell::new();
 
 /// Aaronia SpectranV6 driver, using the HTTP interface
 #[derive(Clone)]
@@ -49,64 +47,23 @@ pub struct TxStreamer<E: Executor> {
     _executor: MyExecutor<E>,
 }
 
-impl AaroniaHttp<tokio::runtime::Handle, hyper::client::HttpConnector> {
+impl AaroniaHttp<DefaultExecutor, DefaultConnector> {
     /// Try to connect to an Aaronia HTTP server interface
     ///
     /// Looks for a `url` argument or tries `http://localhost:54664` as the default.
     pub fn probe(args: &Args) -> Result<Vec<Args>, Error> {
-        let rt = RUNTIME.get_or_try_init(Runtime::new)?;
-
-        rt.block_on(async {
-            let url = args
-                .get::<String>("url")
-                .unwrap_or_else(|_| String::from("http://localhost:54664"));
-            let test_path = format!("{url}/info").parse().or(Err(Error::ValueError))?;
-
-            let client = Client::new();
-            let resp = match client.get(test_path).await {
-                Ok(r) => r,
-                Err(e) => {
-                    if e.is_connect() && args.get::<String>("driver").is_ok() {
-                        return Err(Error::Io);
-                    } else {
-                        return Ok(Vec::new());
-                    }
-                }
-            };
-            if resp.status().is_success() {
-                Ok(vec![format!("driver=aaronia_http, url={url}").try_into()?])
-            } else {
-                Ok(Vec::new())
-            }
-        })
+        Self::probe_with_runtime(args, DefaultExecutor::default(), DefaultConnector::default())
     }
 
     /// Create an Aaronia SpectranV6 HTTP Device
     ///
     /// Looks for a `url` argument or tries `http://localhost:54664` as the default.
     pub fn open<A: TryInto<Args>>(args: A) -> Result<Self, Error> {
-        let rt = RUNTIME.get_or_try_init(Runtime::new)?.handle();
-        let executor = MyExecutor(rt.clone());
-        let mut v = Self::probe(&args.try_into().or(Err(Error::ValueError))?)?;
-        if v.is_empty() {
-            Err(Error::NotFound)
-        } else {
-            // let rt = RUNTIME.get_or_try_init(Runtime::new)?;
-            let a = v.remove(0);
-
-            let f_offset = a.get::<f64>("f_offset").unwrap_or(20e6);
-
-            Ok(Self {
-                client: Client::new(),
-                executor,
-                url: a.get::<String>("url")?,
-                f_offset,
-            })
-        }
+        Self::open_with_runtime(args, DefaultExecutor::default(), DefaultConnector::default())
     }
 }
 
-impl<E: Executor, C: Connect + Clone> AaroniaHttp<E, C> {
+impl<E: Executor, C: Connect> AaroniaHttp<E, C> {
     /// Try to connect to an Aaronia HTTP server interface
     ///
     /// Looks for a `url` argument or tries `http://localhost:54664` as the default.
@@ -191,7 +148,7 @@ impl<E: Executor, C: Connect + Clone> AaroniaHttp<E, C> {
     }
 
     fn config(&self) -> Result<Value, Error> {
-        self.executor.block_on(async {
+        self.executor.0.block_on(async {
             let url = format!("{}/remoteconfig", self.url)
                 .parse()
                 .or(Err(Error::ValueError))?;
@@ -232,7 +189,7 @@ impl<E: Executor, C: Connect + Clone> AaroniaHttp<E, C> {
             ))
             .or(Err(Error::Io))?;
 
-        self.executor
+        self.executor.0
             .block_on(async { self.client.request(req).await.or(Err(Error::Io)) })?;
 
         Ok(())
@@ -624,7 +581,7 @@ impl<E: Executor + Send, C: Connect + Send> crate::RxStreamer for RxStreamer<E, 
     }
 
     fn activate(&mut self, _time_ns: Option<i64>) -> Result<(), Error> {
-        let stream = self.executor.block_on(async {
+        let stream = self.executor.0.block_on(async {
             Ok::<futures::stream::IntoStream<Body>, Error>(
                 self.client
                     .get(
@@ -653,7 +610,7 @@ impl<E: Executor + Send, C: Connect + Send> crate::RxStreamer for RxStreamer<E, 
         buffers: &mut [&mut [num_complex::Complex32]],
         _timeout_us: i64,
     ) -> Result<usize, Error> {
-        self.executor.clone().block_on(async {
+        self.executor.0.clone().block_on(async {
             if self.items_left == 0 {
                 self.parse_header()?;
                 while self.items_left == 0 {

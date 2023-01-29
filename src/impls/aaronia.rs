@@ -96,7 +96,7 @@ impl Aaronia {
         let mut dev = api
             .get_this_device(&devs[index])
             .or(Err(Error::DeviceError))?;
-        dbg!(&mut dev).open().or(Err(Error::DeviceError))?;
+        dev.open().or(Err(Error::DeviceError))?;
         Ok(Aaronia {
             dev: Arc::new(Mutex::new(dev)),
             index,

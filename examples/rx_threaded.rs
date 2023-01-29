@@ -20,9 +20,6 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Args::parse();
 
     let dev = Device::from_args(cli.args)?;
-    dev.enable_agc(Rx, 0, true)?;
-    dev.set_frequency(Rx, 0, 927e6)?;
-    dev.set_sample_rate(Rx, 0, 3.2e6)?;
 
     println!("driver:      {:?}", dev.driver());
     println!("id:          {:?}", dev.id()?);

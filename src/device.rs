@@ -3,11 +3,14 @@
 use std::any::Any;
 use std::sync::Arc;
 
-use crate::impls;
 use crate::Args;
+use crate::DefaultConnector;
+use crate::DefaultExecutor;
 use crate::Direction;
 use crate::Driver;
 use crate::Error;
+use crate::Executor;
+use crate::Connect;
 use crate::Range;
 use crate::RxStreamer;
 use crate::TxStreamer;
@@ -223,6 +226,13 @@ impl Device<GenericDevice> {
     /// the `args` or the first device discovered through [`enumerate`](crate::enumerate) that
     /// matches the args.
     pub fn from_args<A: TryInto<Args>>(args: A) -> Result<Self, Error> {
+        Self::from_args_with_runtime(args, DefaultExecutor::default(), DefaultConnector::default())
+    }
+
+    /// Creates a [`GenericDevice`] opening the first device with a given `driver`, specified in
+    /// the `args` or the first device discovered through [`enumerate`](crate::enumerate) that
+    /// matches the args.
+    pub fn from_args_with_runtime<A: TryInto<Args>, E: Executor, C: Connect>(args: A, executor: E, connector: C) -> Result<Self, Error> {
         let args = args.try_into().or(Err(Error::ValueError))?;
         let driver = match args.get::<Driver>("driver") {
             Ok(d) => Some(d),
@@ -232,7 +242,7 @@ impl Device<GenericDevice> {
         #[cfg(feature = "aaronia")]
         {
             if driver.is_none() || matches!(driver, Some(Driver::Aaronia)) {
-                match impls::Aaronia::open(&args) {
+                match crate::impls::Aaronia::open(&args) {
                     Ok(d) => {
                         return Ok(Device {
                             dev: Arc::new(DeviceWrapper { dev: d }),
@@ -247,28 +257,28 @@ impl Device<GenericDevice> {
                 }
             }
         }
-        // #[cfg(feature = "aaronia_http")]
-        // {
-        //     if driver.is_none() || matches!(driver, Some(Driver::AaroniaHttp)) {
-        //         match impls::AaroniaHttp::open(&args) {
-        //             Ok(d) => {
-        //                 return Ok(Device {
-        //                     dev: Arc::new(DeviceWrapper { dev: d }),
-        //                 })
-        //             }
-        //             Err(Error::NotFound) => {
-        //                 if driver.is_some() {
-        //                     return Err(Error::NotFound);
-        //                 }
-        //             }
-        //             Err(e) => return Err(e),
-        //         }
-        //     }
-        // }
+        #[cfg(feature = "aaronia_http")]
+        {
+            if driver.is_none() || matches!(driver, Some(Driver::AaroniaHttp)) {
+                match crate::impls::AaroniaHttp::open_with_runtime(&args, executor, connector) {
+                    Ok(d) => {
+                        return Ok(Device {
+                            dev: Arc::new(DeviceWrapper { dev: d }),
+                        })
+                    }
+                    Err(Error::NotFound) => {
+                        if driver.is_some() {
+                            return Err(Error::NotFound);
+                        }
+                    }
+                    Err(e) => return Err(e),
+                }
+            }
+        }
         #[cfg(feature = "rtlsdr")]
         {
             if driver.is_none() || matches!(driver, Some(Driver::RtlSdr)) {
-                match impls::RtlSdr::open(&args) {
+                match crate::impls::RtlSdr::open(&args) {
                     Ok(d) => {
                         return Ok(Device {
                             dev: Arc::new(DeviceWrapper { dev: d }),
@@ -286,7 +296,7 @@ impl Device<GenericDevice> {
         #[cfg(feature = "soapy")]
         {
             if driver.is_none() || matches!(driver, Some(Driver::Soapy)) {
-                match impls::Soapy::open(&args) {
+                match crate::impls::Soapy::open(&args) {
                     Ok(d) => {
                         return Ok(Device {
                             dev: Arc::new(DeviceWrapper { dev: d }),

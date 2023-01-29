@@ -6,22 +6,19 @@ pub use device::Device;
 pub use device::DeviceTrait;
 pub use device::GenericDevice;
 
+#[cfg(any(feature = "aaronia", feature = "aaronia_http", feature = "rtlsdr", feature = "soapy"))]
 pub mod impls;
 
 mod streamer;
 pub use streamer::RxStreamer;
 pub use streamer::TxStreamer;
 
-#[cfg(feature = "hyper")]
 #[path = "hyper.rs"]
 pub(crate) mod myhyper;
-#[cfg(feature = "hyper")]
-pub use myhyper::{Executor, Connect};
+pub use myhyper::{Executor, Connect, DefaultExecutor, DefaultConnector};
 
 // Reexports
-#[cfg(feature = "hyper")]
 pub use ::hyper;
-#[cfg(feature = "hyper")]
 pub use tokio;
 
 use std::str::FromStr;
@@ -93,6 +90,7 @@ impl FromStr for Driver {
                 return Ok(Driver::Soapy);
             }
         }
+        let _ = s;
         Err(Error::ValueError)
     }
 }
@@ -157,7 +155,8 @@ pub fn enumerate_with_args<A: TryInto<Args>>(a: A) -> Result<Vec<Args>, Error> {
             devs.append(&mut impls::Soapy::probe(&args)?)
         }
     }
-
+    let _ = &mut devs;
+    let _ = driver;
     Ok(devs)
 }
 
