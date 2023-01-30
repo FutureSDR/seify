@@ -1,8 +1,8 @@
 //! RTL SDR
 use num_complex::Complex32;
-use rtlsdr_rs::enumerate;
-use rtlsdr_rs::RtlSdr as Sdr;
-use rtlsdr_rs::TunerGain;
+use seify_rtlsdr::enumerate;
+use seify_rtlsdr::RtlSdr as Sdr;
+use seify_rtlsdr::TunerGain;
 use std::any::Any;
 use std::sync::Arc;
 use std::sync::Mutex;
