@@ -64,6 +64,12 @@ impl Args {
     pub fn map(&self) -> &HashMap<String, String> {
         &self.map
     }
+    /// Merge with another Args struct, consuming it.
+    pub fn merge(&mut self, mut other: Self) {
+        for (k, v) in other.map.drain() {
+            self.set(k, v);
+        }
+    }
     /// Try to [`Deserialize`] a value of type `D` from the JSON-serialized [`Args`].
     pub fn deserialize<D: for<'a> Deserialize<'a>>(&self) -> Option<D> {
         let s = serde_json::to_string(&self).ok()?;

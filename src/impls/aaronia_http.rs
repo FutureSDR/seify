@@ -96,7 +96,9 @@ impl<E: Executor, C: Connect> AaroniaHttp<E, C> {
                 }
             };
             if resp.status().is_success() {
-                Ok(vec![format!("driver=aaronia_http, url={url}").try_into()?])
+                let mut args = args.clone();
+                args.merge(format!("driver=aaronia_http, url={url}").try_into()?);
+                Ok(vec![args])
             } else {
                 Ok(Vec::new())
             }
@@ -131,7 +133,6 @@ impl<E: Executor, C: Connect> AaroniaHttp<E, C> {
         executor: E,
         connector: C,
     ) -> Result<Self, Error> {
-        // let executor = MyExecutor(executor.clone());
         let mut v = Self::probe_with_runtime(
             &args.try_into().or(Err(Error::ValueError))?,
             executor.clone(),
