@@ -674,62 +674,62 @@ impl<E: Executor + Send> crate::TxStreamer for TxStreamer<E> {
         _timeout_us: i64,
     ) -> Result<usize, Error> {
         todo!()
-       // let t = sio.input(0).tags().iter().find_map(|x| match x {
-       //      ItemTag {
-       //          index,
-       //          tag: Tag::NamedUsize(n, len),
-       //      } => {
-       //          if *index == 0 && n == "burst_start" {
-       //              Some(*len)
-       //          } else {
-       //              None
-       //          }
-       //      }
-       //      _ => None,
-       //  });
-       //  if let Some(len) = t {
-       //      if input.len() >= len * 2 {
-       //          let start = SystemTime::now()
-       //              .duration_since(SystemTime::UNIX_EPOCH)
-       //              .unwrap()
-       //              .as_secs_f64()
-       //              + 0.8;
-       //          let stop = start + len as f64 / self.sample_rate;
-       //
-       //          let j = json!({
-       //              "startTime": start,
-       //              "endTime": stop,
-       //              "startFrequency": self.frequency - self.sample_rate / 2.0,
-       //              "endFrequency": self.frequency + self.sample_rate / 2.0,
-       //              "payload": "iq",
-       //              "flush": true,
-       //              "push": true,
-       //              "format": "json",
-       //              "samples": input[0..2 * len],
-       //          });
-       //
-       //          // println!("{}", j.to_string());
-       //
-       //          let req = Request::builder()
-       //              .method(Method::POST)
-       //              .uri(format!("{}/sample", self.url))
-       //              .header("content-type", "application/json")
-       //              .body(Body::from(j.to_string()))?;
-       //
-       //          let _ = self.client.request(req).await?;
-       //
-       //          sio.input(0).consume(len);
-       //          if input.len() > len * 2 {
-       //              io.call_again = true;
-       //          }
-       //      }
-       //  }
-       //
-       //  if sio.input(0).finished() {
-       //      io.finished = true;
-       //  }
-       //
-       //  Ok(())
+        // let t = sio.input(0).tags().iter().find_map(|x| match x {
+        //      ItemTag {
+        //          index,
+        //          tag: Tag::NamedUsize(n, len),
+        //      } => {
+        //          if *index == 0 && n == "burst_start" {
+        //              Some(*len)
+        //          } else {
+        //              None
+        //          }
+        //      }
+        //      _ => None,
+        //  });
+        //  if let Some(len) = t {
+        //      if input.len() >= len * 2 {
+        //          let start = SystemTime::now()
+        //              .duration_since(SystemTime::UNIX_EPOCH)
+        //              .unwrap()
+        //              .as_secs_f64()
+        //              + 0.8;
+        //          let stop = start + len as f64 / self.sample_rate;
+        //
+        //          let j = json!({
+        //              "startTime": start,
+        //              "endTime": stop,
+        //              "startFrequency": self.frequency - self.sample_rate / 2.0,
+        //              "endFrequency": self.frequency + self.sample_rate / 2.0,
+        //              "payload": "iq",
+        //              "flush": true,
+        //              "push": true,
+        //              "format": "json",
+        //              "samples": input[0..2 * len],
+        //          });
+        //
+        //          // println!("{}", j.to_string());
+        //
+        //          let req = Request::builder()
+        //              .method(Method::POST)
+        //              .uri(format!("{}/sample", self.url))
+        //              .header("content-type", "application/json")
+        //              .body(Body::from(j.to_string()))?;
+        //
+        //          let _ = self.client.request(req).await?;
+        //
+        //          sio.input(0).consume(len);
+        //          if input.len() > len * 2 {
+        //              io.call_again = true;
+        //          }
+        //      }
+        //  }
+        //
+        //  if sio.input(0).finished() {
+        //      io.finished = true;
+        //  }
+        //
+        //  Ok(())
     }
 
     fn write_all(

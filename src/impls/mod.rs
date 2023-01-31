@@ -1,7 +1,7 @@
 //! Hardware drivers, implementing the [`DeviceTrait`](crate::DeviceTrait).
-#[cfg(all(feature = "aaronia", any(target_os = "linux", target_os= "windows")))]
+#[cfg(all(feature = "aaronia", any(target_os = "linux", target_os = "windows")))]
 pub mod aaronia;
-#[cfg(all(feature = "aaronia", any(target_os = "linux", target_os= "windows")))]
+#[cfg(all(feature = "aaronia", any(target_os = "linux", target_os = "windows")))]
 pub use aaronia::Aaronia;
 
 #[cfg(all(feature = "aaronia_http", not(target_arch = "wasm32")))]
