@@ -31,6 +31,7 @@ use crate::RangeItem;
 #[derive(Clone)]
 pub struct AaroniaHttp<E: Executor, C: Connect> {
     url: String,
+    tx_url: String,
     executor: MyExecutor<E>,
     client: Client<C, Body>,
     f_offset: f64,
@@ -154,13 +155,18 @@ impl<E: Executor, C: Connect> AaroniaHttp<E, C> {
             let a = v.remove(0);
 
             let f_offset = a.get::<f64>("f_offset").unwrap_or(20e6);
+            let url = a.get::<String>("url")?;
+            let tx_url = a
+                .get::<String>("tx_url")
+                .unwrap_or_else(|_| url.clone());
 
             Ok(Self {
                 client: Client::builder()
                     .executor(MyExecutor(executor.clone()))
                     .build(connector),
                 executor: MyExecutor(executor),
-                url: a.get::<String>("url")?,
+                url,
+                tx_url,
                 f_offset,
                 tx_frequency: Arc::new(AtomicU64::new(2_450_000_000)),
                 tx_sample_rate: Arc::new(AtomicU64::new(1_000_000)),
@@ -275,7 +281,7 @@ impl<E: Executor + Send + 'static, C: Connect + Send + 'static> DeviceTrait for 
     fn tx_streamer(&self, channels: &[usize], _args: Args) -> Result<Self::TxStreamer, Error> {
         if channels == [0] {
             Ok(TxStreamer {
-                url: self.url.clone(),
+                url: self.tx_url.clone(),
                 executor: self.executor.clone(),
                 client: self.client.clone(),
                 frequency: self.tx_frequency.clone(),
