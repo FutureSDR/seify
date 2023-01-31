@@ -655,81 +655,63 @@ impl<E: Executor + Send, C: Connect + Send> crate::RxStreamer for RxStreamer<E, 
 
 impl<E: Executor + Send> crate::TxStreamer for TxStreamer<E> {
     fn mtu(&self) -> Result<usize, Error> {
-        todo!()
+        Ok(65536 * 8)
     }
 
     fn activate(&mut self, _time_ns: Option<i64>) -> Result<(), Error> {
-        todo!()
+        Ok(())
     }
 
     fn deactivate(&mut self, _time_ns: Option<i64>) -> Result<(), Error> {
-        todo!()
+        Ok(())
     }
 
     fn write(
         &mut self,
-        _buffers: &[&[num_complex::Complex32]],
-        _at_ns: Option<i64>,
-        _end_burst: bool,
-        _timeout_us: i64,
+        buffers: &[&[num_complex::Complex32]],
+        at_ns: Option<i64>,
+        end_burst: bool,
+        timeout_us: i64,
     ) -> Result<usize, Error> {
-        todo!()
-        // let t = sio.input(0).tags().iter().find_map(|x| match x {
-        //      ItemTag {
-        //          index,
-        //          tag: Tag::NamedUsize(n, len),
-        //      } => {
-        //          if *index == 0 && n == "burst_start" {
-        //              Some(*len)
-        //          } else {
-        //              None
-        //          }
-        //      }
-        //      _ => None,
-        //  });
-        //  if let Some(len) = t {
-        //      if input.len() >= len * 2 {
-        //          let start = SystemTime::now()
-        //              .duration_since(SystemTime::UNIX_EPOCH)
-        //              .unwrap()
-        //              .as_secs_f64()
-        //              + 0.8;
-        //          let stop = start + len as f64 / self.sample_rate;
-        //
-        //          let j = json!({
-        //              "startTime": start,
-        //              "endTime": stop,
-        //              "startFrequency": self.frequency - self.sample_rate / 2.0,
-        //              "endFrequency": self.frequency + self.sample_rate / 2.0,
-        //              "payload": "iq",
-        //              "flush": true,
-        //              "push": true,
-        //              "format": "json",
-        //              "samples": input[0..2 * len],
-        //          });
-        //
-        //          // println!("{}", j.to_string());
-        //
-        //          let req = Request::builder()
-        //              .method(Method::POST)
-        //              .uri(format!("{}/sample", self.url))
-        //              .header("content-type", "application/json")
-        //              .body(Body::from(j.to_string()))?;
-        //
-        //          let _ = self.client.request(req).await?;
-        //
-        //          sio.input(0).consume(len);
-        //          if input.len() > len * 2 {
-        //              io.call_again = true;
-        //          }
-        //      }
-        //  }
-        //
-        //  if sio.input(0).finished() {
-        //      io.finished = true;
-        //  }
-        //
-        //  Ok(())
+        debug_assert_eq!(buffers.len(), 1);
+        debug_assert_eq!(at_nw, None);
+
+        if !end_burst {
+            return Ok(0);
+        }
+
+        let start = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs_f64() + 0.8;
+        let len = buffers[0].len();
+        let stop = start + len as f64 / self.sample_rate;
+
+        let samples = unsafe {
+            std::slice::from_raw_parts_mut(buffers[0].as_ptr() as *const f32, len * 2)
+        };
+
+        let j = json!({
+            "startTime": start,
+            "endTime": stop,
+            "startFrequency": self.frequency - self.sample_rate / 2.0,
+            "endFrequency": self.frequency + self.sample_rate / 2.0,
+            "payload": "iq",
+            "flush": true,
+            "push": true,
+            "format": "json",
+            "samples": samples,
+        });
+
+        let req = Request::builder()
+            .method(Method::POST)
+            .uri(format!("{}/sample", self.url))
+            .header("content-type", "application/json")
+            .body(Body::from(j.to_string()))?;
+
+        let _ = self.client.request(req).await?;
+
+         Ok(len)
     }
 
     fn write_all(
