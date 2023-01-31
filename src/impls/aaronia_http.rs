@@ -8,6 +8,10 @@ use hyper::{Body, Client};
 use num_complex::Complex32;
 use serde_json::json;
 use serde_json::Value;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
+use std::time::SystemTime;
 
 use crate::web::MyExecutor;
 use crate::Args;
@@ -30,6 +34,8 @@ pub struct AaroniaHttp<E: Executor, C: Connect> {
     executor: MyExecutor<E>,
     client: Client<C, Body>,
     f_offset: f64,
+    tx_frequency: Arc<AtomicU64>,
+    tx_sample_rate: Arc<AtomicU64>,
 }
 
 /// Aaronia SpectranV6 HTTP RX Streamer
@@ -43,8 +49,12 @@ pub struct RxStreamer<E: Executor, C: Connect> {
 }
 
 /// Aaronia SpectranV6 HTTP TX Streamer
-pub struct TxStreamer<E: Executor> {
-    _executor: MyExecutor<E>,
+pub struct TxStreamer<E: Executor, C: Connect> {
+    client: Client<C, Body>,
+    url: String,
+    executor: MyExecutor<E>,
+    frequency: Arc<AtomicU64>,
+    sample_rate: Arc<AtomicU64>,
 }
 
 impl AaroniaHttp<DefaultExecutor, DefaultConnector> {
@@ -152,6 +162,8 @@ impl<E: Executor, C: Connect> AaroniaHttp<E, C> {
                 executor: MyExecutor(executor),
                 url: a.get::<String>("url")?,
                 f_offset,
+                tx_frequency: Arc::new(AtomicU64::new(2_450_000_000)),
+                tx_sample_rate: Arc::new(AtomicU64::new(1_000_000)),
             })
         }
     }
@@ -208,7 +220,7 @@ impl<E: Executor, C: Connect> AaroniaHttp<E, C> {
 
 impl<E: Executor + Send + 'static, C: Connect + Send + 'static> DeviceTrait for AaroniaHttp<E, C> {
     type RxStreamer = RxStreamer<E, C>;
-    type TxStreamer = TxStreamer<E>;
+    type TxStreamer = TxStreamer<E, C>;
 
     fn as_any(&self) -> &dyn std::any::Any {
         self
@@ -260,8 +272,18 @@ impl<E: Executor + Send + 'static, C: Connect + Send + 'static> DeviceTrait for 
         }
     }
 
-    fn tx_streamer(&self, _channels: &[usize], _args: Args) -> Result<Self::TxStreamer, Error> {
-        todo!()
+    fn tx_streamer(&self, channels: &[usize], _args: Args) -> Result<Self::TxStreamer, Error> {
+        if channels == [0] {
+            Ok(TxStreamer {
+                url: self.url.clone(),
+                executor: self.executor.clone(),
+                client: self.client.clone(),
+                frequency: self.tx_frequency.clone(),
+                sample_rate: self.tx_sample_rate.clone(),
+            })
+        } else {
+            Err(Error::ValueError)
+        }
     }
 
     fn antennas(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
@@ -338,8 +360,21 @@ impl<E: Executor + Send + 'static, C: Connect + Send + 'static> DeviceTrait for 
                 });
                 self.send_json(json)
             }
-            (Rx, _) => Err(Error::ValueError),
-            (Tx, _) => todo!(),
+            (Tx, 0) => {
+                if gain < -100.0 || gain > 10.0 {
+                    return Err(Error::OutOfRange);
+                }
+                let json = json!({
+                        "receiverName": "Block_Spectran_V6B_0",
+                        "simpleconfig": {
+                        "main": {
+                        "transattn": gain
+                    }
+                }
+                });
+                self.send_json(json)
+            }
+            _ => Err(Error::ValueError),
         }
     }
 
@@ -403,7 +438,8 @@ impl<E: Executor + Send + 'static, C: Connect + Send + 'static> DeviceTrait for 
                 "main",
                 "centerfreq",
             ]),
-            _ => todo!(),
+            (Tx, 0) => Ok(self.tx_frequency.load(Ordering::SeqCst) as f64),
+            _ => Err(Error::ValueError),
         }
     }
 
@@ -477,70 +513,77 @@ impl<E: Executor + Send + 'static, C: Connect + Send + 'static> DeviceTrait for 
         name: &str,
         frequency: f64,
     ) -> Result<(), Error> {
-        let json = match (direction, channel, name) {
+        match (direction, channel, name) {
             (Rx, 0 | 1, "RF") => {
-                json!({
+                let json = json!({
                     "receiverName": "Block_Spectran_V6B_0",
                     "simpleconfig": {
                         "main": {
                             "centerfreq": frequency
                         }
                     }
-                })
+                });
+                self.send_json(json)
             }
             (Rx, 0 | 1, "DEMOD") => {
                 let rf =
                     self.get_f64(vec!["Block_Spectran_V6B_0", "config", "main", "centerfreq"])?;
-                json!({
+                let json = json!({
                     "receiverName": "Block_IQDemodulator_0",
                     "simpleconfig": {
                         "main": {
                             "centerfreq": frequency + rf
                         }
                     }
-                })
+                });
+                self.send_json(json)
             }
             (Tx, 0, "RF") => {
-                json!({
-                    "receiverName": "Block_Spectran_V6B_0",
-                    "simpleconfig": {
-                        "main": {
-                            "centerfreq": frequency
-                        }
-                    }
-                })
+                self.tx_frequency.store(frequency as u64, Ordering::SeqCst);
+                Ok(())
             }
             _ => return Err(Error::ValueError),
-        };
-
-        self.send_json(json)
+        }
     }
 
-    fn sample_rate(&self, _direction: Direction, _channel: usize) -> Result<f64, Error> {
-        self.get_f64(vec![
-            "Block_IQDemodulator_0",
-            "config",
-            "main",
-            "samplerate",
-        ])
+    fn sample_rate(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
+        match (direction, channel) {
+            (Rx, 0 | 1) => self.get_f64(vec![
+                "Block_IQDemodulator_0",
+                "config",
+                "main",
+                "samplerate",
+            ]),
+            (Tx, 0) => Ok(self.tx_sample_rate.load(Ordering::SeqCst) as f64),
+            _ => Err(Error::ValueError),
+        }
     }
 
     fn set_sample_rate(
         &self,
-        _direction: Direction,
-        _channel: usize,
+        direction: Direction,
+        channel: usize,
         rate: f64,
     ) -> Result<(), Error> {
-        let json = json!({
-            "receiverName": "Block_IQDemodulator_0",
-            "simpleconfig": {
-                "main": {
-                    "samplerate": rate,
-                    "spanfreq": rate
+        match (direction, channel) {
+            (Rx, 0 | 1) => {
+                let json = json!({
+                        "receiverName": "Block_IQDemodulator_0",
+                        "simpleconfig": {
+                        "main": {
+                        "samplerate": rate,
+                        "spanfreq": rate
+                    }
                 }
-            }
-        });
-        self.send_json(json)
+                });
+                self.send_json(json)
+            },
+            (Tx, 0) => {
+                self.tx_sample_rate.store(rate as u64, Ordering::SeqCst);
+                Ok(())
+            },
+            _ => Err(Error::ValueError),
+        }
     }
 
     fn get_sample_rate_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
@@ -653,7 +696,7 @@ impl<E: Executor + Send, C: Connect + Send> crate::RxStreamer for RxStreamer<E, 
     }
 }
 
-impl<E: Executor + Send> crate::TxStreamer for TxStreamer<E> {
+impl<E: Executor + Send, C: Connect> crate::TxStreamer for TxStreamer<E, C> {
     fn mtu(&self) -> Result<usize, Error> {
         Ok(65536 * 8)
     }
@@ -671,31 +714,36 @@ impl<E: Executor + Send> crate::TxStreamer for TxStreamer<E> {
         buffers: &[&[num_complex::Complex32]],
         at_ns: Option<i64>,
         end_burst: bool,
-        timeout_us: i64,
+        _timeout_us: i64,
     ) -> Result<usize, Error> {
         debug_assert_eq!(buffers.len(), 1);
-        debug_assert_eq!(at_nw, None);
+        debug_assert_eq!(at_ns, None);
 
         if !end_burst {
             return Ok(0);
         }
 
+        let frequency = self.frequency.load(Ordering::SeqCst) as f64;
+        let sample_rate = self.sample_rate.load(Ordering::SeqCst) as f64;
+
         let start = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
-            .as_secs_f64() + 0.8;
+            .as_secs_f64()
+            + 0.8;
         let len = buffers[0].len();
-        let stop = start + len as f64 / self.sample_rate;
+        let stop = start + len as f64 / sample_rate;
 
-        let samples = unsafe {
-            std::slice::from_raw_parts_mut(buffers[0].as_ptr() as *const f32, len * 2)
-        };
+        let samples =
+            unsafe { std::slice::from_raw_parts(buffers[0].as_ptr() as *const f32, len * 2) };
+
+        println!("sending json -- size {}   frequency {}   sample_rate {}", samples.len() / 2, frequency, sample_rate);
 
         let j = json!({
             "startTime": start,
             "endTime": stop,
-            "startFrequency": self.frequency - self.sample_rate / 2.0,
-            "endFrequency": self.frequency + self.sample_rate / 2.0,
+            "startFrequency": frequency - sample_rate / 2.0,
+            "endFrequency": frequency + sample_rate / 2.0,
             "payload": "iq",
             "flush": true,
             "push": true,
@@ -703,15 +751,16 @@ impl<E: Executor + Send> crate::TxStreamer for TxStreamer<E> {
             "samples": samples,
         });
 
-        let req = Request::builder()
-            .method(Method::POST)
-            .uri(format!("{}/sample", self.url))
-            .header("content-type", "application/json")
-            .body(Body::from(j.to_string()))?;
+        let req = Request::post(format!("{}/sample", self.url))
+            .body(Body::from(j.to_string()))
+            .or(Err(Error::Io))?;
 
-        let _ = self.client.request(req).await?;
+        self.executor
+            .0
+            .block_on(self.client.request(req))
+            .or(Err(Error::Io))?;
 
-         Ok(len)
+        Ok(len)
     }
 
     fn write_all(

@@ -9,7 +9,7 @@ license = "Apache-2.0"
 repository = "https://github.com/FutureSDR/seify"
 
 [features]
-default = ["rtlsdr", "soapy", "web"]
+default = ["rtlsdr", "soapy", "aaronia_http"]
 rtlsdr = ["dep:seify-rtlsdr"]
 aaronia = ["dep:aaronia-rtsa"]
 aaronia_http = ["web"]

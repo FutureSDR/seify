@@ -35,6 +35,8 @@ use thiserror::Error;
 pub enum Error {
     #[error("DeviceError")]
     DeviceError,
+    #[error("value out of range")]
+    OutOfRange,
     #[error("Value Error")]
     ValueError,
     #[error("Not Found")]
