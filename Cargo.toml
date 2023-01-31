@@ -9,27 +9,32 @@ license = "Apache-2.0"
 repository = "https://github.com/FutureSDR/seify"
 
 [features]
-default = ["rtlsdr", "soapy"]
+default = ["rtlsdr", "soapy", "web"]
 rtlsdr = ["dep:seify-rtlsdr"]
 aaronia = ["dep:aaronia-rtsa"]
-aaronia_http = []
+aaronia_http = ["web"]
 soapy = ["dep:soapysdr"]
+web = ["dep:hyper", "dep:tokio"]
 
 [dependencies]
-aaronia-rtsa = { version = "0.0.6", optional = true }
 futures = "0.3.18"
-hyper = { version = "0.14", default-features = false, features = ["client", "http1", "stream", "tcp"]}
 log = "0.4.17"
 nom = "7.1.2"
 num-complex = "0.4.2"
-once_cell = "1.17.0"
-seify-rtlsdr = { path = "crates/rtl-sdr-rs", version = "0.0.1", optional = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0.91"
 serde_with = "2.2.0"
-soapysdr = { version = "0.3.2", optional = true }
 thiserror = "1.0.38"
-tokio = { version = "1", features = ["rt-multi-thread", "net"]}
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+hyper = { version = "0.14", default-features = false, features = ["client", "http1", "stream", "tcp"], optional = true}
+once_cell = "1.17.0"
+seify-rtlsdr = { path = "crates/rtl-sdr-rs", version = "0.0.1", optional = true }
+soapysdr = { version = "0.3.2", optional = true }
+tokio = { version = "1", features = ["rt-multi-thread", "net"], optional = true}
+
+[target.'cfg(any(target_os = "linux", target_os= "windows"))'.dependencies]
+aaronia-rtsa = { version = "0.0.6", optional = true }
 
 [dev-dependencies]
 clap = { version = "4.1.3", features = ["derive"] }
