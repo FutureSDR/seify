@@ -207,6 +207,7 @@ pub trait DeviceTrait: Any + Send {
 ///
 /// Implements a more ergonomic version of the [`DeviceTrait`], e.g., using `Into<Args>`, which
 /// would not be possible in traits.
+#[derive(Clone)]
 pub struct Device<T: DeviceTrait + Clone + Any> {
     dev: T,
 }
