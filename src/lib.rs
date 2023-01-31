@@ -17,10 +17,9 @@ pub use streamer::RxStreamer;
 pub use streamer::TxStreamer;
 
 #[cfg(all(feature = "web", not(target_arch = "wasm32")))]
-#[path = "hyper.rs"]
-pub(crate) mod myhyper;
+pub(crate) mod web;
 #[cfg(all(feature = "web", not(target_arch = "wasm32")))]
-pub use myhyper::{Connect, DefaultConnector, DefaultExecutor, Executor};
+pub use web::{Connect, DefaultConnector, DefaultExecutor, Executor};
 
 // Reexports
 #[cfg(all(feature = "web", not(target_arch = "wasm32")))]
@@ -122,52 +121,52 @@ pub fn enumerate_with_args<A: TryInto<Args>>(a: A) -> Result<Vec<Args>, Error> {
 
     #[cfg(all(feature = "aaronia", any(target_os = "linux", target_os = "windows")))]
     {
-        if driver.is_none() || driver.is_some_and(|d| d == &Driver::Aaronia) {
+        if driver.is_none() || matches!(driver, Some(Driver::Aaronia)) {
             devs.append(&mut impls::Aaronia::probe(&args)?)
         }
     }
     #[cfg(not(all(feature = "aaronia", any(target_os = "linux", target_os = "windows"))))]
     {
-        if driver.is_some_and(|d| d == &Driver::Aaronia) {
+        if matches!(driver, Some(Driver::Aaronia)) {
             return Err(Error::FeatureNotEnabled);
         }
     }
 
     #[cfg(all(feature = "aaronia_http", not(target_arch = "wasm32")))]
     {
-        if driver.is_none() || driver.is_some_and(|d| d == &Driver::AaroniaHttp) {
+        if driver.is_none() || matches!(driver, Some(Driver::AaroniaHttp)) {
             devs.append(&mut impls::AaroniaHttp::probe(&args)?)
         }
     }
     #[cfg(not(all(feature = "aaronia_http", not(target_arch = "wasm32"))))]
     {
-        if driver.is_some_and(|d| d == &Driver::AaroniaHttp) {
+        if matches!(driver, Some(Driver::AaroniaHttp)) {
             return Err(Error::FeatureNotEnabled);
         }
     }
 
     #[cfg(all(feature = "rtlsdr", not(target_arch = "wasm32")))]
     {
-        if driver.is_none() || driver.is_some_and(|d| d == &Driver::RtlSdr) {
+        if driver.is_none() || matches!(driver, Some(Driver::RtlSdr)) {
             devs.append(&mut impls::RtlSdr::probe(&args)?)
         }
     }
     #[cfg(not(all(feature = "rtlsdr", not(target_arch = "wasm32"))))]
     {
-        if driver.is_some_and(|d| d == &Driver::RtlSdr) {
+        if matches!(driver, Some(Driver::RtlSdr)) {
             return Err(Error::FeatureNotEnabled);
         }
     }
 
     #[cfg(all(feature = "soapy", not(target_arch = "wasm32")))]
     {
-        if driver.is_none() || driver.is_some_and(|d| d == &Driver::Soapy) {
+        if driver.is_none() || matches!(driver, Some(Driver::Soapy)) {
             devs.append(&mut impls::Soapy::probe(&args)?)
         }
     }
     #[cfg(not(all(feature = "soapy", not(target_arch = "wasm32"))))]
     {
-        if driver.is_some_and(|d| d == &Driver::Soapy) {
+        if matches!(driver, Some(Driver::Soapy)) {
             return Err(Error::FeatureNotEnabled);
         }
     }

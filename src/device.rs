@@ -4,13 +4,9 @@ use std::any::Any;
 use std::sync::Arc;
 
 use crate::Args;
-use crate::Connect;
-use crate::DefaultConnector;
-use crate::DefaultExecutor;
 use crate::Direction;
 use crate::Driver;
 use crate::Error;
-use crate::Executor;
 use crate::Range;
 use crate::RxStreamer;
 use crate::TxStreamer;
@@ -227,28 +223,13 @@ impl Device<GenericDevice> {
     /// the `args` or the first device discovered through [`enumerate`](crate::enumerate) that
     /// matches the args.
     pub fn from_args<A: TryInto<Args>>(args: A) -> Result<Self, Error> {
-        Self::from_args_with_runtime(
-            args,
-            DefaultExecutor::default(),
-            DefaultConnector::default(),
-        )
-    }
-
-    /// Creates a [`GenericDevice`] opening the first device with a given `driver`, specified in
-    /// the `args` or the first device discovered through [`enumerate`](crate::enumerate) that
-    /// matches the args.
-    pub fn from_args_with_runtime<A: TryInto<Args>, E: Executor, C: Connect>(
-        args: A,
-        executor: E,
-        connector: C,
-    ) -> Result<Self, Error> {
-        let args = args.try_into().or(Err(Error::ValueError))?;
+        let args = args.try_into().map_err(|_| Error::ValueError)?;
         let driver = match args.get::<Driver>("driver") {
             Ok(d) => Some(d),
             Err(Error::NotFound) => None,
             Err(e) => return Err(e),
         };
-        #[cfg(feature = "aaronia")]
+        #[cfg(all(feature = "aaronia", any(target_os = "linux", target_os = "windows")))]
         {
             if driver.is_none() || matches!(driver, Some(Driver::Aaronia)) {
                 match crate::impls::Aaronia::open(&args) {
@@ -266,10 +247,14 @@ impl Device<GenericDevice> {
                 }
             }
         }
-        #[cfg(feature = "aaronia_http")]
+        #[cfg(all(feature = "aaronia_http", not(target_arch = "wasm32")))]
         {
             if driver.is_none() || matches!(driver, Some(Driver::AaroniaHttp)) {
-                match crate::impls::AaroniaHttp::open_with_runtime(&args, executor, connector) {
+                match crate::impls::AaroniaHttp::open_with_runtime(
+                    &args,
+                    crate::DefaultExecutor::default(),
+                    crate::DefaultConnector::default(),
+                ) {
                     Ok(d) => {
                         return Ok(Device {
                             dev: Arc::new(DeviceWrapper { dev: d }),
@@ -284,7 +269,7 @@ impl Device<GenericDevice> {
                 }
             }
         }
-        #[cfg(feature = "rtlsdr")]
+        #[cfg(all(feature = "rtlsdr", not(target_arch = "wasm32")))]
         {
             if driver.is_none() || matches!(driver, Some(Driver::RtlSdr)) {
                 match crate::impls::RtlSdr::open(&args) {
@@ -302,7 +287,97 @@ impl Device<GenericDevice> {
                 }
             }
         }
-        #[cfg(feature = "soapy")]
+        #[cfg(all(feature = "soapy", not(target_arch = "wasm32")))]
+        {
+            if driver.is_none() || matches!(driver, Some(Driver::Soapy)) {
+                match crate::impls::Soapy::open(&args) {
+                    Ok(d) => {
+                        return Ok(Device {
+                            dev: Arc::new(DeviceWrapper { dev: d }),
+                        })
+                    }
+                    Err(Error::NotFound) => {
+                        if driver.is_some() {
+                            return Err(Error::NotFound);
+                        }
+                    }
+                    Err(e) => return Err(e),
+                }
+            }
+        }
+        Err(Error::NotFound)
+    }
+
+    /// Creates a [`GenericDevice`] opening the first device with a given `driver`, specified in
+    /// the `args` or the first device discovered through [`enumerate`](crate::enumerate) that
+    /// matches the args.
+    #[cfg(all(feature = "web", not(target_arch = "wasm32")))]
+    pub fn from_args_with_runtime<A: TryInto<Args>, E: crate::Executor, C: crate::Connect>(
+        args: A,
+        executor: E,
+        connector: C,
+    ) -> Result<Self, Error> {
+        let args = args.try_into().or(Err(Error::ValueError))?;
+        let driver = match args.get::<Driver>("driver") {
+            Ok(d) => Some(d),
+            Err(Error::NotFound) => None,
+            Err(e) => return Err(e),
+        };
+        #[cfg(all(feature = "aaronia", any(target_os = "linux", target_os = "windows")))]
+        {
+            if driver.is_none() || matches!(driver, Some(Driver::Aaronia)) {
+                match crate::impls::Aaronia::open(&args) {
+                    Ok(d) => {
+                        return Ok(Device {
+                            dev: Arc::new(DeviceWrapper { dev: d }),
+                        })
+                    }
+                    Err(Error::NotFound) => {
+                        if driver.is_some() {
+                            return Err(Error::NotFound);
+                        }
+                    }
+                    Err(e) => return Err(e),
+                }
+            }
+        }
+        #[cfg(all(feature = "aaronia_http", not(target_arch = "wasm32")))]
+        {
+            if driver.is_none() || matches!(driver, Some(Driver::AaroniaHttp)) {
+                match crate::impls::AaroniaHttp::open_with_runtime(&args, executor, connector) {
+                    Ok(d) => {
+                        return Ok(Device {
+                            dev: Arc::new(DeviceWrapper { dev: d }),
+                        })
+                    }
+                    Err(Error::NotFound) => {
+                        if driver.is_some() {
+                            return Err(Error::NotFound);
+                        }
+                    }
+                    Err(e) => return Err(e),
+                }
+            }
+        }
+        #[cfg(all(feature = "rtlsdr", not(target_arch = "wasm32")))]
+        {
+            if driver.is_none() || matches!(driver, Some(Driver::RtlSdr)) {
+                match crate::impls::RtlSdr::open(&args) {
+                    Ok(d) => {
+                        return Ok(Device {
+                            dev: Arc::new(DeviceWrapper { dev: d }),
+                        })
+                    }
+                    Err(Error::NotFound) => {
+                        if driver.is_some() {
+                            return Err(Error::NotFound);
+                        }
+                    }
+                    Err(e) => return Err(e),
+                }
+            }
+        }
+        #[cfg(all(feature = "soapy", not(target_arch = "wasm32")))]
         {
             if driver.is_none() || matches!(driver, Some(Driver::Soapy)) {
                 match crate::impls::Soapy::open(&args) {
