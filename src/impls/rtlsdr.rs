@@ -415,10 +415,10 @@ impl crate::RxStreamer for RxStreamer {
     fn mtu(&self) -> Result<usize, Error> {
         Ok(16 * 16384)
     }
-    fn activate(&mut self, _time_ns: Option<i64>) -> Result<(), Error> {
+    fn activate_at(&mut self, _time_ns: Option<i64>) -> Result<(), Error> {
         self.dev.reset_buffer().or(Err(Error::DeviceError))
     }
-    fn deactivate(&mut self, _time_ns: Option<i64>) -> Result<(), Error> {
+    fn deactivate_at(&mut self, _time_ns: Option<i64>) -> Result<(), Error> {
         Ok(())
     }
     fn read(&mut self, buffers: &mut [&mut [Complex32]], _timeout_us: i64) -> Result<usize, Error> {
@@ -438,10 +438,10 @@ impl crate::TxStreamer for TxDummy {
     fn mtu(&self) -> Result<usize, Error> {
         unreachable!()
     }
-    fn activate(&mut self, _time_ns: Option<i64>) -> Result<(), Error> {
+    fn activate_at(&mut self, _time_ns: Option<i64>) -> Result<(), Error> {
         unreachable!()
     }
-    fn deactivate(&mut self, _time_ns: Option<i64>) -> Result<(), Error> {
+    fn deactivate_at(&mut self, _time_ns: Option<i64>) -> Result<(), Error> {
         unreachable!()
     }
     fn write(

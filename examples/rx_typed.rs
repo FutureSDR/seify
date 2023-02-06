@@ -36,7 +36,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut samps = [Complex32::new(0.0, 0.0); 8192];
     let mut rx = dev.rx_streamer(&[0])?;
-    rx.activate(None)?;
+    rx.activate()?;
     let n = rx.read(&mut [&mut samps], 2000)?;
 
     plot(&mut samps[..n]);

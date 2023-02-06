@@ -454,13 +454,13 @@ impl crate::RxStreamer for RxStreamer {
         Ok(1024)
     }
 
-    fn activate(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
+    fn activate_at(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
         let mut dev = self.dev.lock().unwrap();
         dev.connect().or(Err(Error::DeviceError))?;
         dev.start().or(Err(Error::DeviceError))
     }
 
-    fn deactivate(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
+    fn deactivate_at(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
         let mut dev = self.dev.lock().unwrap();
         dev.stop().or(Err(Error::DeviceError))?;
         dev.disconnect().or(Err(Error::DeviceError))
@@ -513,11 +513,11 @@ impl crate::TxStreamer for TxStreamer {
         Ok(1024)
     }
 
-    fn activate(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
+    fn activate_at(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
         todo!()
     }
 
-    fn deactivate(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
+    fn deactivate_at(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
         todo!()
     }
 

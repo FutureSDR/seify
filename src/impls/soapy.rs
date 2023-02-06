@@ -301,11 +301,11 @@ impl crate::RxStreamer for RxStreamer {
         Ok(self.streamer.mtu()?)
     }
 
-    fn activate(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
+    fn activate_at(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
         Ok(self.streamer.activate(time_ns)?)
     }
 
-    fn deactivate(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
+    fn deactivate_at(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
         Ok(self.streamer.deactivate(time_ns)?)
     }
 
@@ -323,11 +323,11 @@ impl crate::TxStreamer for TxStreamer {
         Ok(self.streamer.mtu()?)
     }
 
-    fn activate(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
+    fn activate_at(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
         Ok(self.streamer.activate(time_ns)?)
     }
 
-    fn deactivate(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
+    fn deactivate_at(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
         Ok(self.streamer.deactivate(time_ns)?)
     }
 

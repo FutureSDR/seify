@@ -156,9 +156,7 @@ impl<E: Executor, C: Connect> AaroniaHttp<E, C> {
 
             let f_offset = a.get::<f64>("f_offset").unwrap_or(20e6);
             let url = a.get::<String>("url")?;
-            let tx_url = a
-                .get::<String>("tx_url")
-                .unwrap_or_else(|_| url.clone());
+            let tx_url = a.get::<String>("tx_url").unwrap_or_else(|_| url.clone());
 
             Ok(Self {
                 client: Client::builder()
@@ -583,11 +581,11 @@ impl<E: Executor + Send + 'static, C: Connect + Send + 'static> DeviceTrait for 
                 }
                 });
                 self.send_json(json)
-            },
+            }
             (Tx, 0) => {
                 self.tx_sample_rate.store(rate as u64, Ordering::SeqCst);
                 Ok(())
-            },
+            }
             _ => Err(Error::ValueError),
         }
     }
@@ -639,7 +637,7 @@ impl<E: Executor + Send, C: Connect + Send> crate::RxStreamer for RxStreamer<E, 
         Ok(65536)
     }
 
-    fn activate(&mut self, _time_ns: Option<i64>) -> Result<(), Error> {
+    fn activate_at(&mut self, _time_ns: Option<i64>) -> Result<(), Error> {
         let stream = self.executor.0.block_on(async {
             Ok::<futures::stream::IntoStream<Body>, Error>(
                 self.client
@@ -659,7 +657,7 @@ impl<E: Executor + Send, C: Connect + Send> crate::RxStreamer for RxStreamer<E, 
         Ok(())
     }
 
-    fn deactivate(&mut self, _time_ns: Option<i64>) -> Result<(), Error> {
+    fn deactivate_at(&mut self, _time_ns: Option<i64>) -> Result<(), Error> {
         self.stream = None;
         Ok(())
     }
@@ -707,11 +705,11 @@ impl<E: Executor + Send, C: Connect> crate::TxStreamer for TxStreamer<E, C> {
         Ok(65536 * 8)
     }
 
-    fn activate(&mut self, _time_ns: Option<i64>) -> Result<(), Error> {
+    fn activate_at(&mut self, _time_ns: Option<i64>) -> Result<(), Error> {
         Ok(())
     }
 
-    fn deactivate(&mut self, _time_ns: Option<i64>) -> Result<(), Error> {
+    fn deactivate_at(&mut self, _time_ns: Option<i64>) -> Result<(), Error> {
         Ok(())
     }
 
@@ -743,7 +741,12 @@ impl<E: Executor + Send, C: Connect> crate::TxStreamer for TxStreamer<E, C> {
         let samples =
             unsafe { std::slice::from_raw_parts(buffers[0].as_ptr() as *const f32, len * 2) };
 
-        println!("sending json -- size {}   frequency {}   sample_rate {}", samples.len() / 2, frequency, sample_rate);
+        println!(
+            "sending json -- size {}   frequency {}   sample_rate {}",
+            samples.len() / 2,
+            frequency,
+            sample_rate
+        );
 
         let j = json!({
             "startTime": start,

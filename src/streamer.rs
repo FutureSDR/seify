@@ -14,11 +14,24 @@ pub trait RxStreamer: Send {
     /// Activate a stream.
     ///
     /// Call `activate` to enable a stream before using `read()`
+    fn activate(&mut self) -> Result<(), Error> {
+        self.activate_at(None)
+    }
+
+    /// Activate a stream.
+    ///
+    /// Call `activate` to enable a stream before using `read()`
     ///
     /// # Arguments:
     ///   * `time_ns` -- optional activation time in nanoseconds from the time the function is
     ///   called.
-    fn activate(&mut self, time_ns: Option<i64>) -> Result<(), Error>;
+    fn activate_at(&mut self, time_ns: Option<i64>) -> Result<(), Error>;
+
+    /// Deactivate a stream.
+    /// The implementation will control switches or halt data flow.
+    fn deactivate(&mut self) -> Result<(), Error> {
+        self.deactivate_at(None)
+    }
 
     /// Deactivate a stream.
     /// The implementation will control switches or halt data flow.
@@ -26,7 +39,7 @@ pub trait RxStreamer: Send {
     /// # Arguments:
     ///   * `time_ns` -- optional deactivation time in nanoseconds from the time the function is
     ///   called.
-    fn deactivate(&mut self, time_ns: Option<i64>) -> Result<(), Error>;
+    fn deactivate_at(&mut self, time_ns: Option<i64>) -> Result<(), Error>;
 
     /// Read samples from the stream into the provided buffers.
     ///
@@ -45,11 +58,11 @@ impl RxStreamer for Box<dyn RxStreamer> {
     fn mtu(&self) -> Result<usize, Error> {
         self.as_ref().mtu()
     }
-    fn activate(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
-        self.as_mut().activate(time_ns)
+    fn activate_at(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
+        self.as_mut().activate_at(time_ns)
     }
-    fn deactivate(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
-        self.as_mut().deactivate(time_ns)
+    fn deactivate_at(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
+        self.as_mut().deactivate_at(time_ns)
     }
     fn read(&mut self, buffers: &mut [&mut [Complex32]], timeout_us: i64) -> Result<usize, Error> {
         self.as_mut().read(buffers, timeout_us)
@@ -68,11 +81,24 @@ pub trait TxStreamer: Send {
     /// Activate a stream.
     ///
     /// Call `activate` to enable a stream before using `write()`
+    fn activate(&mut self) -> Result<(), Error> {
+        self.activate_at(None)
+    }
+
+    /// Activate a stream.
+    ///
+    /// Call `activate` to enable a stream before using `write()`
     ///
     /// # Arguments:
     ///   * `time_ns` -- optional activation time in nanoseconds from the time the function is
     ///   called.
-    fn activate(&mut self, time_ns: Option<i64>) -> Result<(), Error>;
+    fn activate_at(&mut self, time_ns: Option<i64>) -> Result<(), Error>;
+
+    /// Deactivate a stream.
+    /// The implementation will control switches or halt data flow.
+    fn deactivate(&mut self) -> Result<(), Error> {
+        self.deactivate_at(None)
+    }
 
     /// Deactivate a stream.
     /// The implementation will control switches or halt data flow.
@@ -80,7 +106,7 @@ pub trait TxStreamer: Send {
     /// # Arguments:
     ///   * `time_ns` -- optional deactivation time in nanoseconds from the time the function is
     ///   called
-    fn deactivate(&mut self, time_ns: Option<i64>) -> Result<(), Error>;
+    fn deactivate_at(&mut self, time_ns: Option<i64>) -> Result<(), Error>;
 
     /// Attempt to write samples to the device from the provided buffer.
     ///
@@ -137,11 +163,11 @@ impl TxStreamer for Box<dyn TxStreamer> {
     fn mtu(&self) -> Result<usize, Error> {
         self.as_ref().mtu()
     }
-    fn activate(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
-        self.as_mut().activate(time_ns)
+    fn activate_at(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
+        self.as_mut().activate_at(time_ns)
     }
-    fn deactivate(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
-        self.as_mut().deactivate(time_ns)
+    fn deactivate_at(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
+        self.as_mut().deactivate_at(time_ns)
     }
     fn write(
         &mut self,

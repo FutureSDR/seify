@@ -35,7 +35,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     std::thread::spawn(move || -> Result<(), Error> {
         let mut rx = dev.rx_streamer(&[0])?;
         let mtu = rx.mtu()?;
-        rx.activate(None)?;
+        rx.activate()?;
 
         loop {
             let w_buff = w.slice();
