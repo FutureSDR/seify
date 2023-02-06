@@ -33,6 +33,10 @@ impl Args {
             map: HashMap::new(),
         }
     }
+    /// Create new, [Args].from string
+    pub fn from<S: AsRef<str>>(s: S) -> Result<Self, Error> {
+        s.as_ref().parse()
+    }
     /// Try to get a value of type `V` that is tried to be parsed from the string mapped by the
     /// `key`.
     pub fn get<V: FromStr<Err = impl std::error::Error>>(

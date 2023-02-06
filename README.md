@@ -1,6 +1,4 @@
-# Seify! Shiny Samples from your Rusty SDR
-
-Seify is a Software Defined Radio hardware abstraction library.
+# Seify! A Rusty SDR Hardware Abstraction Library
 
 ## Goal
 
@@ -23,4 +21,4 @@ Also, while this concentrates maintainance efforts on Seify, it has adavantages:
 
 ## Conventions
 
-- name bidirectional antenna port "RX/TX" (not "TX/RX")
+- name bidirectional antenna port "TRX"

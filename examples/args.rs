@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use serde::Deserialize;
 use serde_with::serde_as;
 use serde_with::DisplayFromStr;
@@ -14,12 +15,20 @@ struct Config {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let args: Args = "driver=\"the driver\", id=123, not=interesting".parse()?;
-    println!("args:   {args:?}");
+    // create Args from string
+    let mut args = Args::from("driver=\"the driver\", id=123, not=interesting")?;
+    // set value manually
+    args.set("bar", "baz");
+    // merge with other args
+    args.merge(Args::from("foo = bar")?);
+    println!("args: {args:?}");
 
+    // get a value, parsing it from the value string
+    println!("id {}", args.get::<u32>("id").unwrap());
+
+    // deserialize a struct from the arguments
     let c: Config = args.deserialize().unwrap();
-    println!("driver: {:?}", c.driver);
-    println!("id:     {:?}", c.id);
+    println!("config {:#?}", c);
 
     Ok(())
 }

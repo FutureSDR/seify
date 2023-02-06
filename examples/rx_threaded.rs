@@ -10,7 +10,7 @@ use seify::RxStreamer;
 #[derive(Parser, Debug)]
 #[clap(version)]
 struct Args {
-    /// Device Filters
+    /// Device Filter
     #[clap(short, long, default_value = "")]
     args: String,
 }
