@@ -1,0 +1,30 @@
+on: [push, pull_request]
+
+name: CI
+
+jobs:
+  lints:
+    name: Linux
+    runs-on: ubuntu-latest
+    env:
+      RUST_BACKTRACE: full
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt, clippy
+
+      - name: Install Soapy
+        run: sudo apt-get -y install libsoapysdr-dev
+
+      - name: Fmt
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets --workspace --features=rtlsdr,aaronia_http,soapy -- -D warnings
+
+      - name: Test
+        run: cargo test --all-targets --features=aaronia_http,rtlsdrsoapy
