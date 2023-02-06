@@ -365,7 +365,7 @@ impl<E: Executor + Send + 'static, C: Connect + Send + 'static> DeviceTrait for 
                 self.send_json(json)
             }
             (Tx, 0) => {
-                if gain < -100.0 || gain > 10.0 {
+                if !(-100.0..=10.0).contains(&gain) {
                     return Err(Error::OutOfRange);
                 }
                 let json = json!({
@@ -546,7 +546,7 @@ impl<E: Executor + Send + 'static, C: Connect + Send + 'static> DeviceTrait for 
                 self.tx_frequency.store(frequency as u64, Ordering::SeqCst);
                 Ok(())
             }
-            _ => return Err(Error::ValueError),
+            _ => Err(Error::ValueError),
         }
     }
 

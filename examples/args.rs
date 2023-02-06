@@ -28,7 +28,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // deserialize a struct from the arguments
     let c: Config = args.deserialize().unwrap();
-    println!("config {:#?}", c);
+    println!("config {c:#?}");
 
     Ok(())
 }
