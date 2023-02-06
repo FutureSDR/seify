@@ -27,4 +27,4 @@ jobs:
         run: cargo clippy --all-targets --workspace --features=rtlsdr,aaronia_http,soapy -- -D warnings
 
       - name: Test
-        run: cargo test --all-targets --features=aaronia_http,rtlsdrsoapy
+        run: cargo test --all-targets --features=aaronia_http,rtlsdr,soapy
