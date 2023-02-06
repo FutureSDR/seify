@@ -1,6 +1,6 @@
 [package]
 name = "seify"
-version = "0.3.0"
+version = "0.4.0"
 description = "Shiny Samples from your Rusty SDR"
 documentation = "https://docs.rs/seify/"
 edition = "2021"
@@ -9,7 +9,7 @@ license = "Apache-2.0"
 repository = "https://github.com/FutureSDR/seify"
 
 [features]
-default = ["rtlsdr", "soapy", "aaronia_http"]
+default = ["soapy"]
 rtlsdr = ["dep:seify-rtlsdr"]
 aaronia = ["dep:aaronia-rtsa"]
 aaronia_http = ["web"]

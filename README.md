@@ -28,8 +28,8 @@ use num_complex::Complex32;
 use seify::Device;
 
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let dev = Device::new();
-    let mut samps = [Complex32::new(0.0, 0.0); 128];
+    let dev = Device::new()?;
+    let mut samps = [Complex32::new(0.0, 0.0); 1024];
     let mut rx = dev.rx_streamer(&[0])?;
     rx.activate()?;
     let n = rx.read(&mut [&mut samps], 200000)?;
