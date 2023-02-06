@@ -1,23 +1,25 @@
 # Seify! A Rusty SDR Hardware Abstraction Library
 
-## Goal
+## Goals
 
 A clear path towards a great Rust SDR driver ecosystem.
 
 - Seify has an implementation for Soapy and, therefore, supports basically all available SDR frontends.
-- Seify supports both typed and generic devices with dynamic dispatch. Using the typed interface
-- Once more native Rust drivers become available, they can be added to Seify and gradually move from Soapy to Rust.
+- Seify supports both typed and generic devices with dynamic dispatch. There is no or minimal overhead for the typed version, i.e., there should be no reason not to use Seify.
+- Once more native Rust drivers become available, they can be added to Seify and gradually move from Soapy to pure-Rust drivers.
 - A clear path towards a proper async and WASM WebUSB.
+- Zero-installation: Rust drivers need no libraries from the base system. Either they are network/http-based or they use `rusb`, which vendors `libusb`.
+- Proper driver integration for Rust drivers (e.g., no threads in the core library).
+- Rust drivers are added with crate features per binary and do not rely on system-wide libraries.  
+- Provide a framework for Rust SDR drivers, to avoid diverging concepts of driver implementations in the ecosystem.
 
 ## Hardware Drivers
 
-To add new SDRs driver, just add a new struct, implementation the `DeviceTrait` in the `src/impls` folder and add feature-gated logic for the driver to the probing/enumeration logic in `src/device.rs`.
-
+To add a new SDR driver, add a struct, implementing the `DeviceTrait` in the `src/impls` folder and add feature-gated logic for the driver to the probing/enumeration logic in `src/device.rs`.
 
 At the moment, Seify is designed to commit the driver implementations upstream, i.e., there is no plugin system.
-This could be easily implemented but is no priority at the moment.
-Also, while this concentrates maintainance efforts on Seify, it has adavantages:
-- the user just add Seify to the project and enables feature flags as needed
+This will probably be added but is no priority at the moment.
+While this concentrates maintenance efforts on Seify, it simplifies things for the user, who just add Seify to the project and enables feature flags for their SDR.
 
 ## Conventions
 
