@@ -410,12 +410,12 @@ pub type GenericDevice =
 
 impl<T: DeviceTrait + Clone + Any> Device<T> {
     /// Create a device from the device implementation.
-    pub fn from_device(dev: T) -> Self {
+    pub fn from_impl(dev: T) -> Self {
         Self { dev }
     }
     /// Try to downcast to a given device implementation `D`, either directly (from `Device<D>`)
     /// or indirectly (from a `Device<GenericDevice>` that wraps a `D`).
-    pub fn inner<D: DeviceTrait + Any>(&self) -> Result<&D, Error> {
+    pub fn impl_ref<D: DeviceTrait + Any>(&self) -> Result<&D, Error> {
         if let Some(d) = self.dev.as_any().downcast_ref::<D>() {
             return Ok(d);
         }
@@ -440,7 +440,7 @@ impl<T: DeviceTrait + Clone + Any> Device<T> {
     }
     /// Try to downcast mutably to a given device implementation `D`, either directly
     /// (from `Device<D>`) or indirectly (from a `Device<GenericDevice>` that wraps a `D`).
-    pub fn inner_mut<D: DeviceTrait + Any>(&mut self) -> Result<&mut D, Error> {
+    pub fn impl_mut<D: DeviceTrait + Any>(&mut self) -> Result<&mut D, Error> {
         // work around borrow checker limitation
         if let Some(d) = self.dev.as_any().downcast_ref::<D>() {
             Ok(self.dev.as_any_mut().downcast_mut::<D>().unwrap())
