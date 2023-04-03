@@ -18,7 +18,7 @@ use std::str::FromStr;
 use crate::Error;
 
 /// Arbitrary arguments and parameters.
-#[derive(Clone, Serialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 #[serde(transparent)]
 #[serde_as]
 pub struct Args {
@@ -64,7 +64,7 @@ impl Args {
     pub fn iter_mut(&mut self) -> std::collections::hash_map::IterMut<'_, String, String> {
         self.map.iter_mut()
     }
-    /// Get a reference to the underlying [HashMap](std::collections::HashMap).
+    /// Get a reference to the underlying [HashMap](HashMap).
     pub fn map(&self) -> &HashMap<String, String> {
         &self.map
     }

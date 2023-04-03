@@ -1,7 +1,10 @@
+use serde::Deserialize;
+use serde::Serialize;
+
 /// Component of a [Range].
 ///
 /// Can be an interval or an individual value.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum RangeItem {
     /// Interval (inclusive).
     Interval(f64, f64),
@@ -10,7 +13,7 @@ pub enum RangeItem {
 }
 
 /// Range of possible values, comprised of individual values and/or intervals.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)] //Serialize might be risky due to large memory allocations with Soapy
 pub struct Range {
     items: Vec<RangeItem>,
 }
