@@ -16,6 +16,8 @@ mod streamer;
 pub use streamer::RxStreamer;
 pub use streamer::TxStreamer;
 
+use serde::{Deserialize, Serialize};
+
 #[cfg(all(feature = "web", not(target_arch = "wasm32")))]
 pub(crate) mod web;
 #[cfg(all(feature = "web", not(target_arch = "wasm32")))]
@@ -31,7 +33,7 @@ use std::str::FromStr;
 use thiserror::Error;
 
 /// Seify Error
-#[derive(Debug, Error, PartialEq)]
+#[derive(Debug, Clone, Error, PartialEq, Serialize, Deserialize)]
 pub enum Error {
     #[error("DeviceError")]
     DeviceError,
@@ -58,7 +60,7 @@ impl From<std::io::Error> for Error {
 }
 
 /// Supported hardware drivers.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum Driver {
     Aaronia,
@@ -89,7 +91,7 @@ impl FromStr for Driver {
 }
 
 /// Direction (Rx/TX)
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum Direction {
     Rx,
     Tx,
