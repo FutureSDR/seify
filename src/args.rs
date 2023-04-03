@@ -64,7 +64,7 @@ impl Args {
     pub fn iter_mut(&mut self) -> std::collections::hash_map::IterMut<'_, String, String> {
         self.map.iter_mut()
     }
-    /// Get a reference to the underlying [HashMap](HashMap).
+    /// Get a reference to the underlying [HashMap](std::collections::HashMap).
     pub fn map(&self) -> &HashMap<String, String> {
         &self.map
     }

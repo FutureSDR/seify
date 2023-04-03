@@ -13,7 +13,7 @@ pub enum RangeItem {
 }
 
 /// Range of possible values, comprised of individual values and/or intervals.
-#[derive(Debug, Clone, Serialize, Deserialize)] //Serialize might be risky due to large memory allocations with Soapy
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Range {
     items: Vec<RangeItem>,
 }
