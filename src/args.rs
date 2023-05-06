@@ -18,7 +18,7 @@ use std::str::FromStr;
 use crate::Error;
 
 /// Arbitrary arguments and parameters.
-#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
 #[serde_as]
 pub struct Args {
