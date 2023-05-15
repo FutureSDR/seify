@@ -39,7 +39,7 @@ aaronia-rtsa = { version = "0.0.6", optional = true }
 [dev-dependencies]
 clap = { version = "4.2.7", features = ["derive"] }
 env_logger = "0.10.0"
-gnuplot = "0.0.37"
+gnuplot = "0.0.38"
 rustfft = "6.1.0"
 vmcircbuffer = "0.0.9"
 
