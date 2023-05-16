@@ -48,7 +48,7 @@ fn plot(s: &mut [num_complex::Complex32]) {
     let mut planner = rustfft::FftPlanner::new();
     planner.plan_fft_forward(s.len()).process(s);
 
-    let abs = s.iter().map(|s| s.norm_sqr().log10());
+    let abs: Vec<f32> = s.iter().map(|s| s.norm_sqr().log10()).collect();
 
     let mut fg = Figure::new();
     fg.axes2d().set_title("Spectrum", &[]).lines(

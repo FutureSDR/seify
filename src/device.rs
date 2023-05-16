@@ -250,11 +250,7 @@ impl Device<GenericDevice> {
         #[cfg(all(feature = "aaronia_http", not(target_arch = "wasm32")))]
         {
             if driver.is_none() || matches!(driver, Some(Driver::AaroniaHttp)) {
-                match crate::impls::AaroniaHttp::open_with_runtime(
-                    &args,
-                    crate::DefaultExecutor::default(),
-                    crate::DefaultConnector::default(),
-                ) {
+                match crate::impls::AaroniaHttp::open(&args) {
                     Ok(d) => {
                         return Ok(Device {
                             dev: Arc::new(DeviceWrapper { dev: d }),

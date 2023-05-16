@@ -18,22 +18,11 @@ pub use streamer::TxStreamer;
 
 use serde::{Deserialize, Serialize};
 
-#[cfg(all(feature = "web", not(target_arch = "wasm32")))]
-pub(crate) mod web;
-#[cfg(all(feature = "web", not(target_arch = "wasm32")))]
-pub use web::{Connect, DefaultConnector, DefaultExecutor, Executor};
-
-// Reexports
-#[cfg(all(feature = "web", not(target_arch = "wasm32")))]
-pub use ::hyper;
-#[cfg(all(feature = "web", not(target_arch = "wasm32")))]
-pub use tokio;
-
 use std::str::FromStr;
 use thiserror::Error;
 
 /// Seify Error
-#[derive(Debug, Clone, Error, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Error)]
 pub enum Error {
     #[error("DeviceError")]
     DeviceError,
@@ -49,13 +38,21 @@ pub enum Error {
     NotSupported,
     #[error("Inactive")]
     Inactive,
+    #[error("Json")]
+    Json(#[from] serde_json::Error),
+    #[error("Misc")]
+    Misc(String),
     #[error("Io")]
-    Io,
+    Io(#[from] std::io::Error),
+    #[cfg(all(feature = "aaronia_http", not(target_arch = "wasm32")))]
+    #[error("Ureq")]
+    Ureq(Box<ureq::Error>),
 }
 
-impl From<std::io::Error> for Error {
-    fn from(_value: std::io::Error) -> Self {
-        Error::Io
+#[cfg(all(feature = "aaronia_http", not(target_arch = "wasm32")))]
+impl From<ureq::Error> for Error {
+    fn from(value: ureq::Error) -> Self {
+        Error::Ureq(Box::new(value))
     }
 }
 

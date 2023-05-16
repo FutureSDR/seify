@@ -240,9 +240,9 @@ mod tests {
         assert_eq!(c.map.len(), 2);
         assert_eq!(c.get::<u32>("foo").unwrap(), 123);
         assert_eq!(c.get::<String>("foo").unwrap(), "123");
-        assert_eq!(c.get::<String>("fooo"), Err(Error::NotFound));
+        assert!(matches!(c.get::<String>("fooo"), Err(Error::NotFound)));
         assert_eq!(c.get::<String>("bar").unwrap(), "lol");
-        assert_eq!(c.get::<u32>("bar"), Err(Error::ValueError));
+        assert!(matches!(c.get::<u32>("bar"), Err(Error::ValueError)));
     }
     #[test]
     fn serde() {
