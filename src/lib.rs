@@ -26,8 +26,8 @@ use thiserror::Error;
 pub enum Error {
     #[error("DeviceError")]
     DeviceError,
-    #[error("value out of range")]
-    OutOfRange,
+    #[error("Value ({1}) out of range ({0:?})")]
+    OutOfRange(Range, f64),
     #[error("Value Error")]
     ValueError,
     #[error("Not Found")]
@@ -47,6 +47,9 @@ pub enum Error {
     #[cfg(all(feature = "aaronia_http", not(target_arch = "wasm32")))]
     #[error("Ureq")]
     Ureq(Box<ureq::Error>),
+    #[cfg(all(feature = "rtlsdr", not(target_arch = "wasm32")))]
+    #[error("RtlSdr")]
+    RtlSdr(#[from] seify_rtlsdr::error::RtlsdrError),
 }
 
 #[cfg(all(feature = "aaronia_http", not(target_arch = "wasm32")))]

@@ -72,14 +72,19 @@ impl RtlSdr {
         if index >= rtls.len() {
             return Err(Error::NotFound);
         }
+        let dev = Arc::new(Sdr::open(index).or(Err(Error::DeviceError))?);
+        dev.set_tuner_gain(TunerGain::Auto)?;
+        dev.set_bias_tee(false)?;
+        dev.reset_buffer()?;
+        dev.set_center_freq(98350000)?;
+        dev.set_sample_rate(1020000)?;
         let dev = RtlSdr {
-            dev: Arc::new(Sdr::open(index).or(Err(Error::DeviceError))?),
+            dev,
             index,
             i: Arc::new(Mutex::new(Inner {
                 gain: TunerGain::Auto,
             })),
         };
-        dev.enable_agc(Rx, 0, true)?;
         Ok(dev)
     }
 }
@@ -231,11 +236,10 @@ impl DeviceTrait for RtlSdr {
         if r.contains(gain) && name == "TUNER" {
             let mut inner = self.i.lock().unwrap();
             inner.gain = TunerGain::Manual(gain as i32);
-            self.dev
-                .set_tuner_gain(inner.gain.clone())
-                .or(Err(Error::ValueError))
+            Ok(self.dev.set_tuner_gain(inner.gain.clone())?)
         } else {
-            Err(Error::ValueError)
+            log::warn!("Gain out of range");
+            Err(Error::OutOfRange(r, gain))
         }
     }
 
@@ -387,9 +391,7 @@ impl DeviceTrait for RtlSdr {
                 .get_sample_rate_range(direction, channel)?
                 .contains(rate)
         {
-            self.dev
-                .set_sample_rate(rate as u32)
-                .or(Err(Error::DeviceError))
+            Ok(self.dev.set_sample_rate(rate as u32)?)
         } else if matches!(direction, Rx) {
             Err(Error::ValueError)
         } else {
@@ -423,7 +425,8 @@ impl crate::RxStreamer for RxStreamer {
     }
     fn read(&mut self, buffers: &mut [&mut [Complex32]], _timeout_us: i64) -> Result<usize, Error> {
         debug_assert_eq!(buffers.len(), 1);
-        let mut u = vec![0u8; buffers[0].len() * 2];
+        let len = std::cmp::min(buffers[0].len(), 8192);
+        let mut u = vec![0u8; len * 2];
         let n = self.dev.read_sync(&mut u).or(Err(Error::DeviceError))?;
         debug_assert_eq!(n % 2, 0);
 

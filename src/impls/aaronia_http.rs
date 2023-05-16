@@ -285,8 +285,10 @@ impl DeviceTrait for AaroniaHttp {
                 self.send_json(json)
             }
             (Tx, 0) => {
-                if !(-100.0..=10.0).contains(&gain) {
-                    return Err(Error::OutOfRange);
+                let range = Range::new(vec![RangeItem::Interval(-100.0, 10.0)]);
+                if !range.contains(gain) {
+                    log::warn!("aaronia_http: gain out of range");
+                    return Err(Error::OutOfRange(range, gain));
                 }
                 let json = json!({
                         "receiverName": "Block_Spectran_V6B_0",
@@ -624,12 +626,12 @@ impl crate::TxStreamer for TxStreamer {
         let samples =
             unsafe { std::slice::from_raw_parts(buffers[0].as_ptr() as *const f32, len * 2) };
 
-        println!(
-            "sending json -- size {}   frequency {}   sample_rate {}",
-            samples.len() / 2,
-            frequency,
-            sample_rate
-        );
+        // log::debug!(
+        //     "sending json -- size {}   frequency {}   sample_rate {}",
+        //     samples.len() / 2,
+        //     frequency,
+        //     sample_rate
+        // );
 
         let j = json!({
             "startTime": start,
