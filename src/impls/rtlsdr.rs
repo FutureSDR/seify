@@ -16,6 +16,8 @@ use crate::Error;
 use crate::Range;
 use crate::RangeItem;
 
+const MTU: usize = 4 * 16384;
+
 /// Rusty RTL-SDR driver
 #[derive(Clone)]
 pub struct RtlSdr {
@@ -33,13 +35,14 @@ struct Inner {
 /// Rusty RTL-SDR RX streamer
 pub struct RxStreamer {
     dev: Arc<Sdr>,
+    buf: [u8; MTU],
 }
 
 unsafe impl Send for RxStreamer {}
 
 impl RxStreamer {
     fn new(dev: Arc<Sdr>) -> Self {
-        Self { dev }
+        Self { dev, buf: [0; MTU] }
     }
 }
 
@@ -72,12 +75,9 @@ impl RtlSdr {
         if index >= rtls.len() {
             return Err(Error::NotFound);
         }
-        let dev = Arc::new(Sdr::open(index).or(Err(Error::DeviceError))?);
+        let dev = Arc::new(Sdr::open(index)?);
         dev.set_tuner_gain(TunerGain::Auto)?;
         dev.set_bias_tee(false)?;
-        dev.reset_buffer()?;
-        dev.set_center_freq(98350000)?;
-        dev.set_sample_rate(1020000)?;
         let dev = RtlSdr {
             dev,
             index,
@@ -186,14 +186,10 @@ impl DeviceTrait for RtlSdr {
             let mut inner = self.i.lock().unwrap();
             if agc {
                 inner.gain = TunerGain::Auto;
-                self.dev
-                    .set_tuner_gain(inner.gain.clone())
-                    .or(Err(Error::DeviceError))
+                Ok(self.dev.set_tuner_gain(inner.gain.clone())?)
             } else {
                 inner.gain = TunerGain::Manual(gains[gains.len() / 2]);
-                self.dev
-                    .set_tuner_gain(inner.gain.clone())
-                    .or(Err(Error::DeviceError))
+                Ok(self.dev.set_tuner_gain(inner.gain.clone())?)
             }
         } else if matches!(direction, Rx) {
             Err(Error::ValueError)
@@ -235,7 +231,7 @@ impl DeviceTrait for RtlSdr {
         let r = self.gain_range(direction, channel)?;
         if r.contains(gain) && name == "TUNER" {
             let mut inner = self.i.lock().unwrap();
-            inner.gain = TunerGain::Manual(gain as i32);
+            inner.gain = TunerGain::Manual((gain * 10.0) as i32);
             Ok(self.dev.set_tuner_gain(inner.gain.clone())?)
         } else {
             log::warn!("Gain out of range");
@@ -269,13 +265,7 @@ impl DeviceTrait for RtlSdr {
         name: &str,
     ) -> Result<Range, Error> {
         if matches!(direction, Rx) && channel == 0 && name == "TUNER" {
-            let gains = self.dev.get_tuner_gains().or(Err(Error::DeviceError))?;
-            Ok(Range::new(
-                gains
-                    .iter()
-                    .map(|g| RangeItem::Value(*g as f64 / 10.0))
-                    .collect(),
-            ))
+            Ok(Range::new(vec![RangeItem::Interval(0.0, 50.0)]))
         } else if matches!(direction, Rx) {
             Err(Error::ValueError)
         } else {
@@ -359,9 +349,8 @@ impl DeviceTrait for RtlSdr {
                 .contains(frequency)
             && name == "TUNER"
         {
-            self.dev
-                .set_center_freq(frequency as u32)
-                .or(Err(Error::DeviceError))
+            self.dev.set_center_freq(frequency as u32)?;
+            Ok(self.dev.reset_buffer()?)
         } else if matches!(direction, Rx) {
             Err(Error::ValueError)
         } else {
@@ -391,6 +380,7 @@ impl DeviceTrait for RtlSdr {
                 .get_sample_rate_range(direction, channel)?
                 .contains(rate)
         {
+            self.dev.set_tuner_bandwidth(rate as u32)?;
             Ok(self.dev.set_sample_rate(rate as u32)?)
         } else if matches!(direction, Rx) {
             Err(Error::ValueError)
@@ -415,7 +405,7 @@ impl DeviceTrait for RtlSdr {
 
 impl crate::RxStreamer for RxStreamer {
     fn mtu(&self) -> Result<usize, Error> {
-        Ok(16 * 16384)
+        Ok(MTU)
     }
     fn activate_at(&mut self, _time_ns: Option<i64>) -> Result<(), Error> {
         self.dev.reset_buffer().or(Err(Error::DeviceError))
@@ -425,13 +415,17 @@ impl crate::RxStreamer for RxStreamer {
     }
     fn read(&mut self, buffers: &mut [&mut [Complex32]], _timeout_us: i64) -> Result<usize, Error> {
         debug_assert_eq!(buffers.len(), 1);
-        let len = std::cmp::min(buffers[0].len(), 8192);
-        let mut u = vec![0u8; len * 2];
-        let n = self.dev.read_sync(&mut u).or(Err(Error::DeviceError))?;
+        // make len multiple of 256 to make u multiple of 512
+        let len = std::cmp::min(buffers[0].len(), MTU / 2);
+        let len = len & !0xff;
+        let n = self.dev.read_sync(&mut self.buf[0..len * 2])?;
         debug_assert_eq!(n % 2, 0);
 
         for i in 0..n / 2 {
-            buffers[0][i] = Complex32::new(u[i * 2] as f32 - 127.0, u[i * 2 + 1] as f32 - 127.0);
+            buffers[0][i] = Complex32::new(
+                (self.buf[i * 2] as f32 - 127.0) / 128.0,
+                (self.buf[i * 2 + 1] as f32 - 127.0) / 128.0,
+            );
         }
         Ok(n / 2)
     }
