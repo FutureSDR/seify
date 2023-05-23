@@ -418,6 +418,9 @@ impl crate::RxStreamer for RxStreamer {
         // make len multiple of 256 to make u multiple of 512
         let len = std::cmp::min(buffers[0].len(), MTU / 2);
         let len = len & !0xff;
+        if len == 0 {
+            return Ok(0);
+        }
         let n = self.dev.read_sync(&mut self.buf[0..len * 2])?;
         debug_assert_eq!(n % 2, 0);
 
