@@ -36,6 +36,8 @@ pub enum Error {
     FeatureNotEnabled,
     #[error("Not Supported")]
     NotSupported,
+    #[error("Overflow")]
+    Overflow,
     #[error("Inactive")]
     Inactive,
     #[error("Json")]
@@ -44,6 +46,9 @@ pub enum Error {
     Misc(String),
     #[error("Io")]
     Io(#[from] std::io::Error),
+    #[cfg(all(feature = "soapy", not(target_arch = "wasm32")))]
+    #[error("Soapy")]
+    Soapy(soapysdr::Error),
     #[cfg(all(feature = "aaronia_http", not(target_arch = "wasm32")))]
     #[error("Ureq")]
     Ureq(Box<ureq::Error>),

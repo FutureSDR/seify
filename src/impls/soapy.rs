@@ -13,6 +13,7 @@ use crate::RangeItem;
 #[derive(Clone)]
 pub struct Soapy {
     dev: soapysdr::Device,
+    args: Args,
     index: usize,
 }
 
@@ -59,6 +60,7 @@ impl Soapy {
         let mut args: Args = args.try_into().or(Err(Error::ValueError))?;
         let index = args.get("index").unwrap_or(0);
 
+        let orig_args = args.clone();
         if let Ok(d) = args.get::<String>("soapy_driver") {
             args.set("driver", d);
         } else {
@@ -67,6 +69,7 @@ impl Soapy {
 
         Ok(Self {
             dev: soapysdr::Device::new(soapysdr::Args::try_from(args)?)?,
+            args: orig_args,
             index,
         })
     }
@@ -93,7 +96,7 @@ impl DeviceTrait for Soapy {
     }
 
     fn info(&self) -> Result<Args, Error> {
-        format!("driver=soapy, index={}", self.index).try_into()
+        Ok(self.args.clone())
     }
 
     fn num_channels(&self, direction: Direction) -> Result<usize, Error> {
@@ -355,8 +358,12 @@ impl crate::TxStreamer for TxStreamer {
 }
 
 impl From<soapysdr::Error> for Error {
-    fn from(_value: soapysdr::Error) -> Self {
-        Error::DeviceError
+    fn from(value: soapysdr::Error) -> Self {
+        if value.code == soapysdr::ErrorCode::Overflow {
+            Error::Overflow
+        } else {
+            Error::Soapy(value)
+        }
     }
 }
 
