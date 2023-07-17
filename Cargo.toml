@@ -15,6 +15,10 @@ aaronia = ["dep:aaronia-rtsa"]
 aaronia_http = ["dep:ureq"]
 soapy = ["dep:soapysdr"]
 
+[[example]]
+name = "rx_typed"
+required-features = ["rtlsdr"]
+
 [dependencies]
 futures = "0.3.28"
 log = "0.4.17"

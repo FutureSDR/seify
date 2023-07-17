@@ -384,15 +384,7 @@ impl From<soapysdr::Range> for Range {
         } else if range.step == 0.0 {
             r.push(RangeItem::Interval(range.minimum, range.maximum));
         } else {
-            let mut v = range.minimum;
-            loop {
-                r.push(RangeItem::Value(v));
-                v += range.step;
-
-                if v > range.maximum {
-                    break;
-                }
-            }
+            r.push(RangeItem::Step(range.minimum, range.maximum, range.step));
         }
         Range::new(r)
     }

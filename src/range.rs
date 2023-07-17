@@ -10,6 +10,8 @@ pub enum RangeItem {
     Interval(f64, f64),
     /// Exact value.
     Value(f64),
+    /// Step
+    Step(f64, f64, f64),
 }
 
 /// Range of possible values, comprised of individual values and/or intervals.
@@ -35,6 +37,18 @@ impl Range {
                 RangeItem::Value(v) => {
                     if (v - value).abs() <= f64::EPSILON {
                         return true;
+                    }
+                }
+                RangeItem::Step(min, max, step) => {
+                    if value < min {
+                        continue;
+                    }
+                    let mut v = min + ((value - min) / step).floor() * step;
+                    while v <= max && v <= value {
+                        if (v - value).abs() <= f64::EPSILON {
+                            return true;
+                        }
+                        v += step;
                     }
                 }
             }
@@ -69,6 +83,21 @@ impl Range {
                     }
                     RangeItem::Value(a) => {
                         close = Some(closer(value, close, *a));
+                    }
+                    RangeItem::Step(min, max, step) => {
+                        if value <= *min {
+                            close = Some(closer(value, close, *min));
+                            continue;
+                        }
+                        if value >= *max {
+                            close = Some(closer(value, close, *max));
+                            continue;
+                        }
+                        let mut v = min + ((value - min) / step).floor() * step;
+                        while v <= *max && v <= value + step {
+                            close = Some(closer(value, close, v));
+                            v += step;
+                        }
                     }
                 }
             }
@@ -110,6 +139,21 @@ impl Range {
                     RangeItem::Value(a) => {
                         close = closer_at_least(value, close, *a);
                     }
+                    RangeItem::Step(min, max, step) => {
+                        if value <= *min {
+                            close = closer_at_least(value, close, *min);
+                            continue;
+                        }
+                        if value >= *max {
+                            close = closer_at_least(value, close, *max);
+                            continue;
+                        }
+                        let mut v = min + ((value - min) / step).floor() * step;
+                        while v <= *max && v <= value + step {
+                            close = closer_at_least(value, close, v);
+                            v += step;
+                        }
+                    }
                 }
             }
             close
@@ -150,6 +194,21 @@ impl Range {
                     RangeItem::Value(a) => {
                         close = closer_at_max(value, close, *a);
                     }
+                    RangeItem::Step(min, max, step) => {
+                        if value <= *min {
+                            close = closer_at_max(value, close, *min);
+                            continue;
+                        }
+                        if value >= *max {
+                            close = closer_at_max(value, close, *max);
+                            continue;
+                        }
+                        let mut v = min + ((value - min) / step).floor() * step;
+                        while v <= *max && v <= value + step {
+                            close = closer_at_max(value, close, v);
+                            v += step;
+                        }
+                    }
                 }
             }
             close
@@ -175,11 +234,15 @@ mod tests {
         let r = Range::new(vec![
             RangeItem::Value(123.0),
             RangeItem::Interval(23.0, 42.0),
+            RangeItem::Step(100.0, 110.0, 1.0),
         ]);
         assert!(r.contains(123.0));
         assert!(r.contains(23.0));
         assert!(r.contains(42.0));
         assert!(r.contains(40.0));
+        assert!(r.contains(100.0));
+        assert!(r.contains(107.0));
+        assert!(r.contains(110.0));
         assert!(!r.contains(19.0));
     }
     #[test]
@@ -187,33 +250,46 @@ mod tests {
         let r = Range::new(vec![
             RangeItem::Value(123.0),
             RangeItem::Interval(23.0, 42.0),
+            RangeItem::Step(100.0, 110.0, 1.0),
         ]);
-        assert_eq!(r.closest(100.0), Some(123.0));
+        assert_eq!(r.closest(122.0), Some(123.0));
         assert_eq!(r.closest(1000.0), Some(123.0));
         assert_eq!(r.closest(30.0), Some(30.0));
         assert_eq!(r.closest(20.0), Some(23.0));
         assert_eq!(r.closest(50.0), Some(42.0));
+        assert_eq!(r.closest(99.5), Some(100.0));
+        assert_eq!(r.closest(105.3), Some(105.0));
+        assert_eq!(r.closest(105.8), Some(106.0));
+        assert_eq!(r.closest(109.8), Some(110.0));
+        assert_eq!(r.closest(113.8), Some(110.0));
     }
     #[test]
     fn at_least() {
         let r = Range::new(vec![
             RangeItem::Value(123.0),
             RangeItem::Interval(23.0, 42.0),
+            RangeItem::Step(100.0, 110.0, 1.0),
         ]);
-        assert_eq!(r.at_least(100.0), Some(123.0));
+        assert_eq!(r.at_least(120.0), Some(123.0));
         assert_eq!(r.at_least(1000.0), None);
         assert_eq!(r.at_least(30.0), Some(30.0));
         assert_eq!(r.at_least(10.0), Some(23.0));
+        assert_eq!(r.at_least(99.0), Some(100.0));
+        assert_eq!(r.at_least(105.5), Some(106.0));
     }
     #[test]
     fn at_max() {
         let r = Range::new(vec![
             RangeItem::Value(123.0),
             RangeItem::Interval(23.0, 42.0),
+            RangeItem::Step(100.0, 110.0, 1.0),
         ]);
-        assert_eq!(r.at_max(100.0), Some(42.0));
+        assert_eq!(r.at_max(90.0), Some(42.0));
         assert_eq!(r.at_max(10.0), None);
         assert_eq!(r.at_max(30.0), Some(30.0));
         assert_eq!(r.at_max(50.0), Some(42.0));
+        assert_eq!(r.at_max(101.0), Some(101.0));
+        assert_eq!(r.at_max(100.3), Some(100.0));
+        assert_eq!(r.at_max(111.3), Some(110.0));
     }
 }
