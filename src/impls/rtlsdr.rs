@@ -64,7 +64,7 @@ impl RtlSdr {
         }
         Ok(devs)
     }
-    /// Create an Aaronia SpectranV6 Device
+    /// Create an RTL-SDR device
     ///
     /// At the moment, only an `index` argument is considered, which defines the index of the
     /// devices in the list returned by the driver.
@@ -75,6 +75,7 @@ impl RtlSdr {
         if index >= rtls.len() {
             return Err(Error::NotFound);
         }
+        #[allow(clippy::arc_with_non_send_sync)]
         let dev = Arc::new(Sdr::open(index)?);
         dev.set_tuner_gain(TunerGain::Auto)?;
         dev.set_bias_tee(false)?;

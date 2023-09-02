@@ -97,6 +97,7 @@ impl Aaronia {
             .get_this_device(&devs[index])
             .or(Err(Error::DeviceError))?;
         dev.open().or(Err(Error::DeviceError))?;
+        #[allow(clippy::arc_with_non_send_sync)]
         Ok(Aaronia {
             dev: Arc::new(Mutex::new(dev)),
             index,
