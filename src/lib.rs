@@ -40,20 +40,20 @@ pub enum Error {
     Overflow,
     #[error("Inactive")]
     Inactive,
-    #[error("Json")]
+    #[error("Json ({0})")]
     Json(#[from] serde_json::Error),
     #[error("Misc")]
     Misc(String),
-    #[error("Io")]
+    #[error("Io ({0})")]
     Io(#[from] std::io::Error),
     #[cfg(all(feature = "soapy", not(target_arch = "wasm32")))]
-    #[error("Soapy")]
+    #[error("Soapy ({0})")]
     Soapy(soapysdr::Error),
     #[cfg(all(feature = "aaronia_http", not(target_arch = "wasm32")))]
-    #[error("Ureq")]
+    #[error("Ureq ({0})")]
     Ureq(Box<ureq::Error>),
     #[cfg(all(feature = "rtlsdr", not(target_arch = "wasm32")))]
-    #[error("RtlSdr")]
+    #[error("RtlSdr ({0})")]
     RtlSdr(#[from] seify_rtlsdr::error::RtlsdrError),
 }
 
