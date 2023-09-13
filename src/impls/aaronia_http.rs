@@ -672,16 +672,16 @@ impl crate::TxStreamer for TxStreamer {
             )
         };
 
-        log::debug!(
-            "sending {}{} samples with delay of {}s",
-            if end_burst { "burst of " } else { "" },
-            num_streamable_samples,
-            start
-                - SystemTime::now()
-                    .duration_since(SystemTime::UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs_f64()
-        );
+        // log::debug!(
+        //     "sending {}{} samples with delay of {}s",
+        //     if end_burst { "burst of " } else { "" },
+        //     num_streamable_samples,
+        //     start
+        //         - SystemTime::now()
+        //             .duration_since(SystemTime::UNIX_EPOCH)
+        //             .unwrap()
+        //             .as_secs_f64()
+        // );
 
         let j = json!({
             "startTime": start,
