@@ -17,6 +17,9 @@ jobs:
         with:
           components: rustfmt, clippy
 
+      - name: Apt Update
+        run: sudo apt-get -y update
+
       - name: Install Soapy
         run: sudo apt-get -y install libsoapysdr-dev
 
