@@ -171,7 +171,7 @@ impl DeviceTrait for RtlSdr {
         }
     }
 
-    fn suports_agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+    fn supports_agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
         if matches!(direction, Rx) && channel == 0 {
             Ok(true)
         } else if matches!(direction, Rx) {
