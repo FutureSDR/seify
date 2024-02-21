@@ -139,7 +139,7 @@ impl DeviceTrait for Soapy {
         Ok(self.dev.list_gains(direction.into(), channel)?)
     }
 
-    fn suports_agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+    fn supports_agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
         Ok(self.dev.has_gain_mode(direction.into(), channel)?)
     }
 
