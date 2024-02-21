@@ -50,7 +50,7 @@ pub trait DeviceTrait: Any + Send {
 
     //================================ AGC ============================================
     /// Does the device support automatic gain control?
-    fn suports_agc(&self, direction: Direction, channel: usize) -> Result<bool, Error>;
+    fn supports_agc(&self, direction: Direction, channel: usize) -> Result<bool, Error>;
 
     /// Enable or disable automatic gain control.
     fn enable_agc(&self, direction: Direction, channel: usize, agc: bool) -> Result<(), Error>;
@@ -520,8 +520,8 @@ impl<
         self.dev.gain_elements(direction, channel)
     }
 
-    fn suports_agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        self.dev.suports_agc(direction, channel)
+    fn supports_agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+        self.dev.supports_agc(direction, channel)
     }
 
     fn enable_agc(&self, direction: Direction, channel: usize, agc: bool) -> Result<(), Error> {
@@ -698,8 +698,8 @@ impl DeviceTrait for GenericDevice {
         self.as_ref().gain_elements(direction, channel)
     }
 
-    fn suports_agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        self.as_ref().suports_agc(direction, channel)
+    fn supports_agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+        self.as_ref().supports_agc(direction, channel)
     }
 
     fn enable_agc(&self, direction: Direction, channel: usize, agc: bool) -> Result<(), Error> {
@@ -892,8 +892,8 @@ impl<
 
     //================================ AGC ============================================
     /// Does the device support automatic gain control?
-    pub fn suports_agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        self.dev.suports_agc(direction, channel)
+    pub fn supports_agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+        self.dev.supports_agc(direction, channel)
     }
     /// Enable or disable automatic gain control.
     pub fn enable_agc(&self, direction: Direction, channel: usize, agc: bool) -> Result<(), Error> {
