@@ -17,7 +17,7 @@ pub enum RangeItem {
 /// Range of possible values, comprised of individual values and/or intervals.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Range {
-    items: Vec<RangeItem>,
+    pub items: Vec<RangeItem>,
 }
 
 impl Range {
