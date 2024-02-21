@@ -253,7 +253,7 @@ impl DeviceTrait for AaroniaHttp {
         }
     }
 
-    fn suports_agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+    fn supports_agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
         match (direction, channel) {
             (Rx, 0 | 1) => Ok(true),
             _ => Err(Error::ValueError),
