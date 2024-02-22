@@ -405,7 +405,7 @@ impl TryFrom<Args> for soapysdr::Args {
 
     fn try_from(args: Args) -> Result<Self, Self::Error> {
         let s = format!("{args}");
-        s.as_str().try_into().or(Err(Error::ValueError))
+        Ok(s.as_str().into())
     }
 }
 
