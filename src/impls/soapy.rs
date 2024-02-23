@@ -413,6 +413,10 @@ impl TryFrom<soapysdr::Args> for Args {
     type Error = Error;
 
     fn try_from(value: soapysdr::Args) -> Result<Self, Self::Error> {
-        value.to_string().try_into()
+        let mut a = Self::new();
+        for (key, value) in value.iter() {
+            a.set(key, value);
+        }
+        Ok(a)
     }
 }
