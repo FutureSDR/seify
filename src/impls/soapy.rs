@@ -35,10 +35,7 @@ impl Soapy {
     /// `driver` argument for Soapy.
     pub fn probe(args: &Args) -> Result<Vec<Args>, Error> {
         let v = soapysdr::enumerate(soapysdr::Args::try_from(args.clone())?)?;
-        let v: Vec<Args> = v
-            .into_iter()
-            .map(Args::try_from)
-            .collect::<Result<Vec<Args>, Error>>()?;
+        let v: Vec<Args> = v.into_iter().map(Into::into).collect();
         Ok(v.into_iter()
             .map(|mut a| {
                 match a.get::<String>("driver") {
@@ -409,14 +406,12 @@ impl TryFrom<Args> for soapysdr::Args {
     }
 }
 
-impl TryFrom<soapysdr::Args> for Args {
-    type Error = Error;
-
-    fn try_from(value: soapysdr::Args) -> Result<Self, Self::Error> {
+impl From<soapysdr::Args> for Args {
+    fn from(value: soapysdr::Args) -> Self {
         let mut a = Self::new();
         for (key, value) in value.iter() {
             a.set(key, value);
         }
-        Ok(a)
+        a
     }
 }
