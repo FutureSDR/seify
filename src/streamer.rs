@@ -24,7 +24,7 @@ pub trait RxStreamer: Send {
     ///
     /// # Arguments:
     ///   * `time_ns` -- optional activation time in nanoseconds from the time the function is
-    ///   called.
+    ///     called.
     fn activate_at(&mut self, time_ns: Option<i64>) -> Result<(), Error>;
 
     /// Deactivate a stream.
@@ -38,7 +38,7 @@ pub trait RxStreamer: Send {
     ///
     /// # Arguments:
     ///   * `time_ns` -- optional deactivation time in nanoseconds from the time the function is
-    ///   called.
+    ///     called.
     fn deactivate_at(&mut self, time_ns: Option<i64>) -> Result<(), Error>;
 
     /// Read samples from the stream into the provided buffers.
@@ -49,7 +49,7 @@ pub trait RxStreamer: Send {
     ///
     /// # Panics
     ///  * If `buffers` is not the same length as the `channels` array passed to
-    ///  [`Device::rx_streamer`](crate::Device::rx_streamer) that created the streamer.
+    ///    [`Device::rx_streamer`](crate::Device::rx_streamer) that created the streamer.
     fn read(&mut self, buffers: &mut [&mut [Complex32]], timeout_us: i64) -> Result<usize, Error>;
 }
 
@@ -91,7 +91,7 @@ pub trait TxStreamer: Send {
     ///
     /// # Arguments:
     ///   * `time_ns` -- optional activation time in nanoseconds from the time the function is
-    ///   called.
+    ///     called.
     fn activate_at(&mut self, time_ns: Option<i64>) -> Result<(), Error>;
 
     /// Deactivate a stream.
@@ -105,7 +105,7 @@ pub trait TxStreamer: Send {
     ///
     /// # Arguments:
     ///   * `time_ns` -- optional deactivation time in nanoseconds from the time the function is
-    ///   called
+    ///     called
     fn deactivate_at(&mut self, time_ns: Option<i64>) -> Result<(), Error>;
 
     /// Attempt to write samples to the device from the provided buffer.
