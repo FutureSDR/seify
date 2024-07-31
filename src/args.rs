@@ -166,6 +166,17 @@ impl TryInto<Args> for &String {
     }
 }
 
+impl TryInto<Args> for Option<String> {
+    type Error = Error;
+
+    fn try_into(self) -> Result<Args, Self::Error> {
+        match self {
+            Some(s) => s.parse(),
+            None => Ok(Args::new()),
+        }
+    }
+}
+
 impl From<&Args> for Args {
     fn from(value: &Args) -> Self {
         value.clone()
