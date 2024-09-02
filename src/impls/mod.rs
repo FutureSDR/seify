@@ -18,3 +18,8 @@ pub use rtlsdr::RtlSdr;
 pub mod soapy;
 #[cfg(all(feature = "soapy", not(target_arch = "wasm32")))]
 pub use soapy::Soapy;
+
+#[cfg(all(feature = "hackrfone", not(target_arch = "wasm32")))]
+pub mod hackrfone;
+#[cfg(all(feature = "hackrfone", not(target_arch = "wasm32")))]
+pub use hackrfone::HackRfOne;
