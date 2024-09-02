@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use num_complex::Complex32;
-use seify_hackrfone::{HackRf, RxConfig};
+use seify_hackrfone::{Config, HackRf};
 use std::time::Instant;
 
 fn main() -> Result<()> {
@@ -12,7 +12,7 @@ fn main() -> Result<()> {
     println!("Device version: {:?}", radio.device_version());
 
     radio
-        .start_rx(&RxConfig {
+        .start_rx(&Config {
             frequency_hz: 2_410_000_000,
             amp_enable: true,
             antenna_enable: false,
