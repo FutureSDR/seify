@@ -365,7 +365,7 @@ impl HackRf {
     ///
     /// The source docs are a little lacking in terms of explanations here.
     pub fn set_antenna_enable(&self, value: bool) -> Result<()> {
-        let value = value.then(|| 1).unwrap_or(0);
+        let value = if value { 1 } else { 0 };
         self.write_control(Request::AntennaEnable, value, 0, &[])
     }
 
@@ -652,7 +652,7 @@ fn freq_params(hz: u64) -> [u8; 8] {
 mod test {
     use std::time::Duration;
 
-    use crate::TxConfig;
+    
 
     use super::{freq_params, HackRf};
 
