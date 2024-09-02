@@ -55,6 +55,9 @@ pub enum Error {
     #[cfg(all(feature = "rtlsdr", not(target_arch = "wasm32")))]
     #[error("RtlSdr ({0})")]
     RtlSdr(#[from] seify_rtlsdr::error::RtlsdrError),
+    #[cfg(all(feature = "rtlsdr", not(target_arch = "wasm32")))]
+    #[error("RtlSdr ({0})")]
+    HackRfOne(#[from] seify_rtlsdr::error::RtlsdrError),
 }
 
 #[cfg(all(feature = "aaronia_http", not(target_arch = "wasm32")))]
