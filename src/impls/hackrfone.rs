@@ -1,12 +1,21 @@
 use std::sync::Arc;
 
-use crate::Error;
+use crate::{Error, RxStreamer, TxStreamer};
 
 pub struct HackRfOne {
-    dev: Arc<seify_hackrf::HackRfOne>,
+    dev: Arc<seify_hackrfone::HackRf>,
 }
 
-impl seify::RxStreamer for Rx {
+struct HackRfInner {
+    dev: seify_hackrfone::HackRf,
+
+}
+
+pub struct Rx {
+    dev: Arc<seify_hackrfone::HackRf>,
+}
+
+impl RxStreamer for Rx {
     fn mtu(&self) -> Result<usize, Error> {
         // TOOD(tjn): verify
         Ok(128 * 1024)
@@ -14,21 +23,6 @@ impl seify::RxStreamer for Rx {
 
     fn activate_at(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
         // TODO(tjn): sleep precisely for `time_ns`
-
-        let cfg = &self.inner.rx_config;
-        self.inner.set_freq(cfg.frequency_hz)?;
-        self.inner.set_vga_gain(cfg.vga_db)?;
-        self.inner.set_txvga_gain(0)?;
-        self.inner.set_amp_enable(cfg.amp_enable)?;
-        self.inner.set_antenna_enable(cfg.antenna_enable)?;
-
-        self.inner.write_control(
-            Request::SetTransceiverMode,
-            TranscieverMode::Receive as u16,
-            0,
-            &[],
-        );
-        self.dh.claim_interface(0)?;
 
         Ok(())
     }
@@ -55,11 +49,11 @@ impl seify::RxStreamer for Rx {
     }
 }
 
-struct Tx {
-    inner: Arc<HackRf>,
+pub struct Tx {
+    dev: Arc<seify_hackrfone::HackRf>,
 }
 
-impl seify::TxStreamer for Tx {
+impl TxStreamer for Tx {
     fn mtu(&self) -> Result<usize, Error> {
         // TOOD(tjn): verify
         Ok(128 * 1024)

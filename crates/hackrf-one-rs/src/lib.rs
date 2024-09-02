@@ -80,39 +80,11 @@ pub enum Mode {
 /// Configuration for TX gain settings
 /// The LNA is always turned off for TX operations
 #[derive(Debug)]
-pub struct TxConfig {
+pub struct Config {
     /// Baseband gain, 0-62dB in 2dB increments
     pub vga_db: u16,
     /// 0 - 47 dB in 1dB increments
     pub txvga_db: u16,
-    /// RF amplifier (on/off)
-    pub amp_enable: bool,
-    /// Antenna power port control
-    pub antenna_enable: bool,
-    /// Frequency in hz
-    pub frequency_hz: u64,
-}
-
-impl Default for TxConfig {
-    fn default() -> Self {
-        Self {
-            vga_db: 16,
-            txvga_db: 40,
-            amp_enable: true,
-            antenna_enable: true,
-            // set within ITU americas 900mhz ISM
-            // as punishment for calling ::default()
-            frequency_hz: 908_000_000,
-        }
-    }
-}
-
-/// Configuration for RX gain settings
-/// The TXVGA is always turned off for RX operations
-#[derive(Debug)]
-pub struct RxConfig {
-    /// Baseband gain, 0-62dB in 2dB increments
-    pub vga_db: u16,
     /// Low-noise amplifier gain, in 0-40dB in 8dB increments
     pub lna_db: u16,
     /// RF amplifier (on/off)
@@ -123,11 +95,12 @@ pub struct RxConfig {
     pub frequency_hz: u64,
 }
 
-impl Default for RxConfig {
+impl Default for Config {
     fn default() -> Self {
         Self {
-            vga_db: 8,
-            lna_db: 16,
+            vga_db: 16,
+            lna_db: 0,
+            txvga_db: 40,
             amp_enable: true,
             antenna_enable: true,
             // set within global 900mhz ISM band to avoid sending our engineers to foreign prisons
@@ -377,7 +350,7 @@ impl HackRf {
     /// # Errors
     /// This function will return an error if a tx or rx operation is already in progress or if an
     /// I/O error occurs
-    pub fn start_tx(&self, config: &TxConfig) -> Result<()> {
+    pub fn start_tx(&self, config: &Config) -> Result<()> {
         // NOTE:  perform atomic exchange first so that we only change the transceiver mode once if
         // other therads are racing to change the mode
         if let Err(actual) = self.mode.compare_exchange(
@@ -392,12 +365,7 @@ impl HackRf {
             });
         }
 
-        self.set_lna_gain(0)?;
-        self.set_vga_gain(config.vga_db)?;
-        self.set_txvga_gain(config.txvga_db)?;
-        self.set_freq(config.frequency_hz)?;
-        self.set_amp_enable(config.amp_enable)?;
-        self.set_antenna_enable(config.antenna_enable)?;
+        self.apply_config(config)?;
 
         self.write_control(
             Request::SetTransceiverMode,
@@ -420,7 +388,7 @@ impl HackRf {
     /// # Errors
     /// This function will return an error if a tx or rx operation is already in progress or if an
     /// I/O error occurs
-    pub fn start_rx(&self, config: &RxConfig) -> Result<()> {
+    pub fn start_rx(&self, config: &Config) -> Result<()> {
         // NOTE: perform the atomic exchange first so that we only change the hackrf's state once if
         // other threads are racing with us
         if let Err(actual) = self.mode.compare_exchange(
@@ -435,11 +403,7 @@ impl HackRf {
             });
         }
 
-        self.set_freq(config.frequency_hz)?;
-        self.set_vga_gain(config.vga_db)?;
-        self.set_txvga_gain(0)?;
-        self.set_amp_enable(config.amp_enable)?;
-        self.set_antenna_enable(config.antenna_enable)?;
+        self.apply_config(config)?;
 
         self.write_control(
             Request::SetTransceiverMode,
@@ -551,6 +515,16 @@ impl HackRf {
 }
 
 impl HackRf {
+    fn apply_config(&self, config: &Config) -> Result<()> {
+        self.set_lna_gain(config.lna_db)?;
+        self.set_vga_gain(config.vga_db)?;
+        self.set_txvga_gain(config.txvga_db)?;
+        self.set_freq(config.frequency_hz)?;
+        self.set_amp_enable(config.amp_enable)?;
+        self.set_antenna_enable(config.antenna_enable)?;
+        Ok(())
+    }
+
     fn ensure_mode(&self, expected: Mode) -> Result<()> {
         let actual = self.mode.load(Ordering::Acquire);
         if actual != expected {
@@ -652,8 +626,6 @@ fn freq_params(hz: u64) -> [u8; 8] {
 mod test {
     use std::time::Duration;
 
-    
-
     use super::{freq_params, HackRf};
 
     #[test]
@@ -677,9 +649,29 @@ mod test {
     }
 
     #[test]
-    fn abc() {
-        let context = rusb::Context::new().expect("Failed to get libusb context");
-        let radio = HackRf::new(context).expect("Failed to open hackrf. No radio connected?");
+    fn device_states() {
+        let strict = true;
+
+        let context = match rusb::Context::new() {
+            Ok(c) => c,
+            Err(e) => {
+                if strict {
+                    panic!("{e:?}");
+                }
+                println!("Failed to create rusb context, passing test anyway: {e:?}");
+                return;
+            }
+        };
+        let radio = match HackRf::new(context) {
+            Some(r) => r,
+            None => {
+                if strict {
+                    panic!("Failed to open hackrf");
+                }
+                println!("Failed to open hackrf, passing test anyway");
+                return;
+            }
+        };
         radio.start_tx(&Default::default()).unwrap();
         std::thread::sleep(Duration::from_millis(50));
 
