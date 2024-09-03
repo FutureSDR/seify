@@ -13,7 +13,6 @@ const MTU: usize = 64 * 1024;
 
 impl HackRfOne {
     pub fn probe(_args: &Args) -> Result<Vec<Args>, Error> {
-        panic!();
         let mut devs = vec![];
         for (bus_number, address) in seify_hackrfone::HackRf::scan()? {
             println!("probing {bus_number}:{address}");
@@ -78,14 +77,14 @@ struct HackRfInner {
 
 pub struct RxStreamer {
     inner: Arc<HackRfInner>,
-    buf: Vec<u8>,
+    stream: Option<seify_hackrfone::RxStream>,
 }
 
 impl RxStreamer {
     fn new(inner: Arc<HackRfInner>) -> Self {
         Self {
             inner,
-            buf: vec![0u8; MTU],
+            stream: None,
         }
     }
 }
@@ -100,12 +99,16 @@ impl crate::RxStreamer for RxStreamer {
         let config = self.inner.rx_config.lock().unwrap();
         self.inner.dev.start_rx(&config)?;
 
+        self.stream = Some(self.inner.dev.start_rx_stream(MTU)?);
+
         Ok(())
     }
 
     fn deactivate_at(&mut self, _time_ns: Option<i64>) -> Result<(), Error> {
         // TODO(tjn): sleep precisely for `time_ns`
 
+        println!("dropping stream");
+        let _ = self.stream.take().unwrap();
         self.inner.dev.stop_rx()?;
         Ok(())
     }
@@ -117,36 +120,29 @@ impl crate::RxStreamer for RxStreamer {
     ) -> Result<usize, Error> {
         debug_assert_eq!(buffers.len(), 1);
 
-        // make len multiple of 256 to make u multiple of 512
-        let len = std::cmp::min(buffers[0].len(), MTU / 2);
-        let len = len & !0xff;
-        if len == 0 {
+        if buffers[0].len() == 0 {
             return Ok(0);
         }
-        let n = self.inner.dev.read(&mut self.buf[0..len * 2])?;
-        debug_assert_eq!(n % 2, 0);
+        let buf = self.stream.as_mut().unwrap().read_sync(buffers[0].len())?;
 
-        for i in 0..n / 2 {
+        let samples = buf.len() / 2;
+        for i in 0..samples {
             buffers[0][i] = Complex32::new(
-                (self.buf[i * 2] as f32 - 127.0) / 128.0,
-                (self.buf[i * 2 + 1] as f32 - 127.0) / 128.0,
+                (buf[i * 2] as f32 - 127.0) / 128.0,
+                (buf[i * 2 + 1] as f32 - 127.0) / 128.0,
             );
         }
-        Ok(n / 2)
+        Ok(samples)
     }
 }
 
 pub struct TxStreamer {
     inner: Arc<HackRfInner>,
-    buf: Vec<u8>,
 }
 
 impl TxStreamer {
     fn new(inner: Arc<HackRfInner>) -> Self {
-        Self {
-            inner,
-            buf: vec![0u8; MTU],
-        }
+        Self { inner }
     }
 }
 

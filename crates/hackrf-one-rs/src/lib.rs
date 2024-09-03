@@ -14,7 +14,7 @@ use std::{
 
 use futures_lite::future::block_on;
 use nusb::{
-    transfer::{ControlIn, ControlOut, ControlType, Recipient, RequestBuffer},
+    transfer::{ControlIn, ControlOut, ControlType, Queue, Recipient, RequestBuffer},
     DeviceInfo,
 };
 
@@ -338,7 +338,7 @@ impl HackRf {
     /// This function will return an error if a tx or rx operation is already in progress or if an
     /// I/O error occurs
     pub fn start_tx(&self, config: &Config) -> Result<()> {
-        println!("Starting tx: {config:?}");
+        tracing::info!("Starting tx: {config:?}");
 
         // NOTE:  perform atomic exchange first so that we only change the transceiver mode once if
         // other therads are racing to change the mode
@@ -502,6 +502,68 @@ impl HackRf {
         let n = block_on(self.interface.bulk_out(ENDPOINT, buf)).into_result()?;
 
         Ok(n.actual_length())
+    }
+
+    pub fn start_rx_stream(&self, transfer_size: usize) -> Result<RxStream> {
+        if transfer_size % 512 != 0 {
+            panic!("transfer_size must be a multiple of 512");
+        }
+
+        const ENDPOINT: u8 = 0x81;
+        Ok(RxStream {
+            interface: self.interface.clone(),
+            queue: self.interface.bulk_in_queue(ENDPOINT),
+            in_flight_transfers: 3,
+            transfer_size,
+            buf_pos: transfer_size,
+            buf: vec![0u8; transfer_size],
+        })
+    }
+}
+
+pub struct RxStream {
+    interface: nusb::Interface,
+    queue: Queue<RequestBuffer>,
+    in_flight_transfers: usize,
+    transfer_size: usize,
+    buf_pos: usize,
+    buf: Vec<u8>,
+}
+
+impl RxStream {
+    pub fn read_sync(&mut self, count: usize) -> Result<&[u8]> {
+        let buffered_remaining = self.buf.len() - self.buf_pos;
+        if buffered_remaining > 0 {
+            let to_consume = std::cmp::min(count, buffered_remaining);
+            let ret = &self.buf[self.buf_pos..self.buf_pos + to_consume];
+            self.buf_pos += ret.len();
+            //tracing::info!("  returning {to_consume} buffered bytes");
+            if self.buf_pos == self.buf.len() {
+                //tracing::info!("  this is the last of buffered bytes");
+            }
+            return Ok(ret);
+        }
+
+        while self.queue.pending() < self.in_flight_transfers {
+            //tracing::info!("Submitting async transfer");
+            self.queue.submit(RequestBuffer::new(self.transfer_size));
+        }
+        let completion = block_on(self.queue.next_complete());
+        //tracing::info!("Read {} bytes", completion.data.len());
+
+        if let Err(e) = completion.status {
+            //tracing::error!("transfer error: {e:?}");
+            return Err(e.into());
+        }
+
+        let reuse = std::mem::replace(&mut self.buf, completion.data);
+        self.buf_pos = 0;
+
+        self.queue
+            .submit(RequestBuffer::reuse(reuse, self.transfer_size));
+
+        // bytes are now buffered, use tail recursion for code above to return subslice
+        self.read_sync(count)
     }
 }
 
