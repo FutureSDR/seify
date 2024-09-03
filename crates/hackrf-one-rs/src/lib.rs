@@ -7,10 +7,15 @@
 // TODO(tjn): re-enable
 // #![warn(missing_docs)]
 
-use rusb::{request_type, Context, Direction, Recipient, RequestType, UsbContext, Version};
 use std::{
     sync::atomic::{AtomicU64, Ordering},
     time::Duration,
+};
+
+use futures_lite::future::block_on;
+use nusb::{
+    transfer::{ControlIn, ControlOut, ControlType, Recipient, RequestBuffer},
+    DeviceInfo,
 };
 
 /// HackRF USB vendor ID.
@@ -133,12 +138,12 @@ impl Config {
 /// HackRF One errors.
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-    #[error("rusb")]
-    Usb(#[from] rusb::Error),
+    #[error("io")]
+    Io(#[from] std::io::Error),
     #[error("transfer")]
-    Transfer {
-        /// Control transfer direction.
-        dir: Direction,
+    Transfer(#[from] nusb::transfer::TransferError),
+    #[error("transfer truncated")]
+    TransferTruncated {
         /// Actual amount of bytes transferred.
         actual: usize,
         /// Excepted number of bytes transferred.
@@ -150,9 +155,9 @@ pub enum Error {
     #[error("no api")]
     NoApi {
         /// Current device version.
-        device: Version,
+        device: UsbVersion,
         /// Minimum version required.
-        min: Version,
+        min: UsbVersion,
     },
     #[error("{0}")]
     Argument(&'static str),
@@ -164,10 +169,63 @@ pub enum Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
+/// A three-part version consisting of major, minor, and sub minor components.
+///
+/// The intended use case of `Version` is to extract meaning from the version fields in USB
+/// descriptors, such as `bcdUSB` and `bcdDevice` in device descriptors.
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash, PartialOrd, Ord)]
+// Taken from rusb::Version: https://github.com/a1ien/rusb/blob/8f8c3c6bff6a494a140da4d93dd946bf1e564d66/src/fields.rs#L142-L203
+pub struct UsbVersion(pub u8, pub u8, pub u8);
+
+impl UsbVersion {
+    /// Extracts a version from a binary coded decimal (BCD) field. BCD fields exist in USB
+    /// descriptors as 16-bit integers encoding a version as `0xJJMN`, where `JJ` is the major
+    /// version, `M` is the minor version, and `N` is the sub minor version. For example, 2.0 is
+    /// encoded as `0x0200` and 1.1 is encoded as `0x0110`.
+    pub fn from_bcd(mut raw: u16) -> Self {
+        let sub_minor: u8 = (raw & 0x000F) as u8;
+        raw >>= 4;
+
+        let minor: u8 = (raw & 0x000F) as u8;
+        raw >>= 4;
+
+        let mut major: u8 = (raw & 0x000F) as u8;
+        raw >>= 4;
+
+        major += (10 * raw) as u8;
+
+        UsbVersion(major, minor, sub_minor)
+    }
+
+    /// Returns the major version.
+    pub fn major(self) -> u8 {
+        let UsbVersion(major, _, _) = self;
+        major
+    }
+
+    /// Returns the minor version.
+    pub fn minor(self) -> u8 {
+        let UsbVersion(_, minor, _) = self;
+        minor
+    }
+
+    /// Returns the sub minor version.
+    pub fn sub_minor(self) -> u8 {
+        let UsbVersion(_, _, sub_minor) = self;
+        sub_minor
+    }
+}
+
+impl std::fmt::Display for UsbVersion {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}.{}.{}", self.major(), self.minor(), self.sub_minor())
+    }
+}
+
 /// HackRF One software defined radio.
 pub struct HackRf {
-    handle: rusb::DeviceHandle<Context>,
-    discriptor: rusb::DeviceDescriptor,
+    interface: nusb::Interface,
+    version: UsbVersion,
     mode: AtomicMode,
     timeout_nanos: AtomicU64,
 }
@@ -175,29 +233,25 @@ pub struct HackRf {
 const DEFAULT_TIMEOUT_NANOS: u64 = Duration::from_millis(500).as_nanos() as u64;
 
 impl HackRf {
+    fn open(info: DeviceInfo) -> Result<Self> {
+        let device = info.open()?;
+        // TODO(tjn): verify interface
+        let interface = device.claim_interface(0)?;
+
+        return Ok(HackRf {
+            interface,
+            version: UsbVersion::from_bcd(info.device_version()),
+            timeout_nanos: AtomicU64::new(Duration::from_millis(500).as_nanos() as u64),
+            mode: AtomicMode::new(Mode::Idle),
+        });
+    }
+
     /// Opens the first Hackrf One radio (if found) by scanning `ctx`.
     pub fn open_first() -> Result<HackRf> {
-        let ctx = Context::new()?;
-        let devices = ctx.devices()?;
-
-        for device in devices.iter() {
-            let desc = match device.device_descriptor() {
-                Ok(d) => d,
-                Err(_) => continue,
-            };
-
-            if desc.vendor_id() == HACKRF_USB_VID && desc.product_id() == HACKRF_ONE_USB_PID {
-                match device.open() {
-                    Ok(handle) => {
-                        return Ok(HackRf {
-                            handle,
-                            discriptor: desc,
-                            timeout_nanos: AtomicU64::new(
-                                Duration::from_millis(500).as_nanos() as u64
-                            ),
-                            mode: AtomicMode::new(Mode::Idle),
-                        })
-                    }
+        for device in nusb::list_devices()? {
+            if device.vendor_id() == HACKRF_USB_VID && device.product_id() == HACKRF_ONE_USB_PID {
+                match Self::open(device) {
+                    Ok(dev) => return Ok(dev),
                     Err(_) => continue,
                 }
             }
@@ -207,18 +261,10 @@ impl HackRf {
     }
 
     pub fn scan() -> Result<Vec<(u8, u8)>> {
-        let ctx = Context::new()?;
-        let devices = ctx.devices()?;
-
         let mut res = vec![];
-        for device in devices.iter() {
-            let desc = match device.device_descriptor() {
-                Ok(d) => d,
-                Err(_) => continue,
-            };
-
-            if desc.vendor_id() == HACKRF_USB_VID && desc.product_id() == HACKRF_ONE_USB_PID {
-                res.push((device.bus_number(), device.address()));
+        for device in nusb::list_devices()? {
+            if device.vendor_id() == HACKRF_USB_VID && device.product_id() == HACKRF_ONE_USB_PID {
+                res.push((device.bus_number(), device.device_address()));
             }
         }
         Ok(res)
@@ -226,54 +272,40 @@ impl HackRf {
 
     /// Opens a hackrf with usb address `<bus_number>:<address>`
     pub fn open_bus(bus_number: u8, address: u8) -> Result<HackRf> {
-        let ctx = Context::new()?;
-
-        let devices = ctx.devices()?;
-
-        println!("Opening bus addr: {bus_number}:{address}");
-        for device in devices.iter() {
-            let desc = match device.device_descriptor() {
-                Ok(d) => d,
-                Err(_) => continue,
-            };
-
-            if desc.vendor_id() == HACKRF_USB_VID
-                && desc.product_id() == HACKRF_ONE_USB_PID
+        for device in nusb::list_devices()? {
+            if device.vendor_id() == HACKRF_USB_VID
+                && device.product_id() == HACKRF_ONE_USB_PID
                 && device.bus_number() == bus_number
-                && device.address() == address
+                && device.device_address() == address
             {
-                let handle = device.open()?;
-                return Ok(HackRf {
-                    handle,
-                    discriptor: desc,
-                    timeout_nanos: AtomicU64::new(DEFAULT_TIMEOUT_NANOS),
-                    mode: AtomicMode::new(Mode::Idle),
-                });
+                return Self::open(device);
             }
         }
 
-        Err(rusb::Error::NoDevice.into())
+        Err(Error::NotFound)
     }
 
+    /*
     /// Wraps an existing rusb device handle.
     pub fn wrap(handle: rusb::DeviceHandle<Context>, desc: rusb::DeviceDescriptor) -> HackRf {
         HackRf {
-            handle,
+            interface: handle,
             discriptor: desc,
             timeout_nanos: AtomicU64::new(DEFAULT_TIMEOUT_NANOS),
             mode: AtomicMode::new(Mode::Idle),
         }
     }
+    */
 
     pub fn reset(self) -> Result<()> {
-        self.check_api_version(Version::from_bcd(0x0102))?;
+        self.check_api_version(UsbVersion::from_bcd(0x0102))?;
         self.write_control(Request::Reset, 0, 0, &[])?;
 
         Ok(())
     }
 
-    pub fn device_version(&self) -> Version {
-        self.discriptor.device_version()
+    pub fn device_version(&self) -> UsbVersion {
+        self.version
     }
 
     pub fn board_id(&self) -> Result<u8> {
@@ -283,16 +315,18 @@ impl HackRf {
 
     /// Read the firmware version.
     pub fn version(&self) -> Result<String> {
-        let mut buf: [u8; 16] = [0; 16];
-        let n: usize = self.handle.read_control(
-            request_type(Direction::In, RequestType::Vendor, Recipient::Device),
-            Request::VersionStringRead as u8,
-            0,
-            0,
-            &mut buf,
-            self.timeout(),
-        )?;
-        Ok(String::from_utf8_lossy(&buf[0..n]).into())
+        let buf = block_on(self.interface.control_in(ControlIn {
+            control_type: ControlType::Vendor,
+            recipient: Recipient::Device,
+            request: Request::VersionStringRead as u8,
+            value: 0x0,
+            index: 0x0,
+            length: 64,
+        }))
+        .into_result()
+        .expect("transfer failed?");
+
+        Ok(String::from_utf8_lossy(&buf).into())
     }
 
     /// Transitions the radio into transmit mode.
@@ -329,9 +363,6 @@ impl HackRf {
             &[],
         )?;
 
-        //released when devh goes out of scope. may pose an issue when switching between rx and tx
-        self.handle.claim_interface(0)?;
-
         Ok(())
     }
 
@@ -367,9 +398,6 @@ impl HackRf {
             &[],
         )?;
 
-        //released when devh goes out of scope. may pose an issue when switching between rx and tx
-        self.handle.claim_interface(0)?;
-
         Ok(())
     }
 
@@ -385,8 +413,6 @@ impl HackRf {
         // To keep this crate low-level and low-overhead, this solution is fine and we expect
         // consumers to wrap our type in an Arc and be smart enough to not enable / disable tx / rx
         // from multiple threads at the same time.
-
-        self.handle.release_interface(0)?;
 
         self.write_control(
             Request::SetTransceiverMode,
@@ -413,8 +439,6 @@ impl HackRf {
     pub fn stop_rx(&self) -> Result<()> {
         // NOTE:  perform atomic exchange last so that we prevent other threads from racing to
         // start tx/rx with the delivery of our TransceiverMode::Off request
-
-        self.handle.release_interface(0)?;
 
         self.write_control(
             Request::SetTransceiverMode,
@@ -450,7 +474,15 @@ impl HackRf {
         }
 
         const ENDPOINT: u8 = 0x81;
-        Ok(self.handle.read_bulk(ENDPOINT, samples, self.timeout())?)
+        // TODO(tjn): dont allocate, dont block
+        let buf = block_on(
+            self.interface
+                .bulk_in(ENDPOINT, RequestBuffer::new(samples.len())),
+        )
+        .into_result()?;
+        samples[..buf.len()].copy_from_slice(&buf);
+
+        Ok(buf.len())
     }
 
     /// Writes samples to the radio.
@@ -465,7 +497,11 @@ impl HackRf {
         }
 
         const ENDPOINT: u8 = 0x02;
-        Ok(self.handle.write_bulk(ENDPOINT, samples, self.timeout())?)
+        let buf = Vec::from(samples);
+        // TODO(tjn): dont allocate, dont block
+        let n = block_on(self.interface.bulk_out(ENDPOINT, buf)).into_result()?;
+
+        Ok(n.actual_length())
     }
 }
 
@@ -503,39 +539,42 @@ impl HackRf {
         value: u16,
         index: u16,
     ) -> Result<[u8; N]> {
-        let mut buf: [u8; N] = [0; N];
-        let n: usize = self.handle.read_control(
-            request_type(Direction::In, RequestType::Vendor, Recipient::Device),
-            request as u8,
+        let mut res: [u8; N] = [0; N];
+        let buf = block_on(self.interface.control_in(ControlIn {
+            control_type: ControlType::Vendor,
+            recipient: Recipient::Device,
+            request: request as u8,
             value,
             index,
-            &mut buf,
-            self.timeout(),
-        )?;
-        if n != buf.len() {
-            Err(Error::Transfer {
-                dir: Direction::In,
-                actual: n,
-                expected: buf.len(),
-            })
-        } else {
-            Ok(buf)
+            length: N as u16,
+        }))
+        .into_result()?;
+
+        if buf.len() != N {
+            return Err(Error::TransferTruncated {
+                actual: buf.len(),
+                expected: N,
+            });
         }
+
+        res.copy_from_slice(&buf);
+        Ok(res)
     }
 
     fn write_control(&self, request: Request, value: u16, index: u16, buf: &[u8]) -> Result<()> {
-        let n: usize = self.handle.write_control(
-            request_type(Direction::Out, RequestType::Vendor, Recipient::Device),
-            request as u8,
+        let out = block_on(self.interface.control_out(ControlOut {
+            control_type: ControlType::Vendor,
+            recipient: Recipient::Device,
+            request: request as u8,
             value,
             index,
-            buf,
-            self.timeout(),
-        )?;
-        if n != buf.len() {
-            Err(Error::Transfer {
-                dir: Direction::Out,
-                actual: n,
+            data: buf,
+        }))
+        .into_result()?;
+
+        if out.actual_length() != buf.len() {
+            Err(Error::TransferTruncated {
+                actual: out.actual_length(),
                 expected: buf.len(),
             })
         } else {
@@ -543,17 +582,18 @@ impl HackRf {
         }
     }
 
-    fn check_api_version(&self, min: Version) -> Result<()> {
-        fn version_to_u32(v: Version) -> u32 {
+    fn check_api_version(&self, min: UsbVersion) -> Result<()> {
+        fn version_to_u32(v: UsbVersion) -> u32 {
             ((v.major() as u32) << 16) | ((v.minor() as u32) << 8) | (v.sub_minor() as u32)
         }
 
-        let v = self.discriptor.device_version();
-
-        if version_to_u32(v) >= version_to_u32(min) {
+        if version_to_u32(self.version) >= version_to_u32(min) {
             Ok(())
         } else {
-            Err(Error::NoApi { device: v, min })
+            Err(Error::NoApi {
+                device: self.version,
+                min,
+            })
         }
     }
 

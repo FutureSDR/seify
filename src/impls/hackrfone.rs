@@ -303,7 +303,7 @@ impl crate::DeviceTrait for HackRfOne {
         }
     }
 
-    fn enable_agc(&self, _direction: Direction, channel: usize, agc: bool) -> Result<(), Error> {
+    fn enable_agc(&self, _direction: Direction, channel: usize, _agc: bool) -> Result<(), Error> {
         if channel == 0 {
             Err(Error::NotSupported)
         } else {
@@ -469,9 +469,11 @@ impl crate::DeviceTrait for HackRfOne {
             && name == "TUNER"
         {
             self.with_config(direction, |config| {
+                println!("Set frequency to {frequency}");
                 config.frequency_hz = frequency as u64;
-            });
-            Ok(())
+                self.inner.dev.set_freq(frequency as u64)?;
+                Ok(())
+            })
         } else {
             Err(Error::ValueError)
         }
