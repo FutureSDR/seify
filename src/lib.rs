@@ -55,9 +55,9 @@ pub enum Error {
     #[cfg(all(feature = "rtlsdr", not(target_arch = "wasm32")))]
     #[error("RtlSdr ({0})")]
     RtlSdr(#[from] seify_rtlsdr::error::RtlsdrError),
-    #[cfg(all(feature = "rtlsdr", not(target_arch = "wasm32")))]
-    #[error("RtlSdr ({0})")]
-    HackRfOne(#[from] seify_rtlsdr::error::RtlsdrError),
+    #[cfg(all(feature = "hackrfone", not(target_arch = "wasm32")))]
+    #[error("Hackrf ({0})")]
+    HackRfOne(#[from] seify_hackrfone::Error),
 }
 
 #[cfg(all(feature = "aaronia_http", not(target_arch = "wasm32")))]
@@ -73,6 +73,7 @@ impl From<ureq::Error> for Error {
 pub enum Driver {
     Aaronia,
     AaroniaHttp,
+    HackRf,
     RtlSdr,
     Soapy,
 }
@@ -93,6 +94,9 @@ impl FromStr for Driver {
         }
         if s == "soapy" || s == "soapysdr" {
             return Ok(Driver::Soapy);
+        }
+        if s == "hackrf" || s == "hackrfone" {
+            return Ok(Driver::HackRf);
         }
         Err(Error::ValueError)
     }
@@ -179,6 +183,19 @@ pub fn enumerate_with_args<A: TryInto<Args>>(a: A) -> Result<Vec<Args>, Error> {
     #[cfg(not(all(feature = "soapy", not(target_arch = "wasm32"))))]
     {
         if matches!(driver, Some(Driver::Soapy)) {
+            return Err(Error::FeatureNotEnabled);
+        }
+    }
+
+    #[cfg(all(feature = "hackrfone", not(target_arch = "wasm32")))]
+    {
+        if driver.is_none() || matches!(driver, Some(Driver::HackRf)) {
+            devs.append(&mut impls::HackRfOne::probe(&args)?)
+        }
+    }
+    #[cfg(not(all(feature = "hackrfone", not(target_arch = "wasm32"))))]
+    {
+        if matches!(driver, Some(Driver::HackRf)) {
             return Err(Error::FeatureNotEnabled);
         }
     }

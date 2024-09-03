@@ -1,124 +1,212 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
-use crate::{Error, RxStreamer, TxStreamer};
+use num_complex::Complex32;
+use seify_hackrfone::Config;
+
+use crate::{Args, Direction, Error, Range, RangeItem};
 
 pub struct HackRfOne {
-    dev: Arc<seify_hackrfone::HackRf>,
+    inner: Arc<HackRfInner>,
+}
+
+const MTU: usize = 64 * 1024;
+
+impl HackRfOne {
+    pub fn probe(_args: &Args) -> Result<Vec<Args>, Error> {
+        panic!();
+        let mut devs = vec![];
+        for (bus_number, address) in seify_hackrfone::HackRf::scan()? {
+            println!("probing {bus_number}:{address}");
+            devs.push(
+                format!(
+                    "driver=hackrfone, bus_number={}, address={}",
+                    bus_number, address
+                )
+                .try_into()?,
+            );
+        }
+        Ok(devs)
+    }
+
+    /// Create a Hackrf One devices
+    pub fn open<A: TryInto<Args>>(args: A) -> Result<Self, Error> {
+        let args: Args = args.try_into().or(Err(Error::ValueError))?;
+
+        let bus_number = args.get("bus_number");
+        let address = args.get("address");
+        let dev = match (bus_number, address) {
+            (Ok(bus_number), Ok(address)) => {
+                dbg!(bus_number, address);
+                seify_hackrfone::HackRf::open_bus(bus_number, address)?
+            }
+            (Err(Error::NotFound), Err(Error::NotFound)) => {
+                println!("Opening first hackrf device");
+                seify_hackrfone::HackRf::open_first()?
+            }
+            (bus_number, address) => {
+                println!("HackRfOne::open received invalid args: bus_number: {bus_number:?}, address: {address:?}");
+                return Err(Error::ValueError);
+            }
+        };
+
+        Ok(Self {
+            inner: Arc::new(HackRfInner {
+                dev,
+                tx_config: Mutex::new(Config::tx_default()),
+                rx_config: Mutex::new(Config::rx_default()),
+            }),
+        })
+    }
+
+    pub fn with_config<F, R>(&self, direction: Direction, f: F) -> R
+    where
+        F: FnOnce(&mut Config) -> R,
+    {
+        let config = match direction {
+            Direction::Tx => self.inner.tx_config.lock(),
+            Direction::Rx => self.inner.rx_config.lock(),
+        };
+        f(&mut config.unwrap())
+    }
 }
 
 struct HackRfInner {
     dev: seify_hackrfone::HackRf,
-
+    tx_config: Mutex<seify_hackrfone::Config>,
+    rx_config: Mutex<seify_hackrfone::Config>,
 }
 
-pub struct Rx {
-    dev: Arc<seify_hackrfone::HackRf>,
+pub struct RxStreamer {
+    inner: Arc<HackRfInner>,
+    buf: Vec<u8>,
 }
 
-impl RxStreamer for Rx {
+impl RxStreamer {
+    fn new(inner: Arc<HackRfInner>) -> Self {
+        Self {
+            inner,
+            buf: vec![0u8; MTU],
+        }
+    }
+}
+
+impl crate::RxStreamer for RxStreamer {
     fn mtu(&self) -> Result<usize, Error> {
-        // TOOD(tjn): verify
-        Ok(128 * 1024)
+        Ok(MTU)
     }
 
-    fn activate_at(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
+    fn activate_at(&mut self, _time_ns: Option<i64>) -> Result<(), Error> {
         // TODO(tjn): sleep precisely for `time_ns`
+        let config = self.inner.rx_config.lock().unwrap();
+        self.inner.dev.start_rx(&config)?;
 
         Ok(())
     }
 
-    fn deactivate_at(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
+    fn deactivate_at(&mut self, _time_ns: Option<i64>) -> Result<(), Error> {
         // TODO(tjn): sleep precisely for `time_ns`
-        self.inner.dh.release_interface(0).unwrap();
-        self.inner.set_transceiver_mode(TranscieverMode::Off).unwrap();
+
+        self.inner.dev.stop_rx()?;
         Ok(())
     }
 
     fn read(
         &mut self,
         buffers: &mut [&mut [num_complex::Complex32]],
-        timeout_us: i64,
+        _timeout_us: i64,
     ) -> Result<usize, Error> {
-        const ENDPOINT: u8 = 0x81;
-        assert_eq!(buffers.len(), 1);
-        let dst = buffers[0];
-        self.buf.resize(dst.len() * 2, 0);
+        debug_assert_eq!(buffers.len(), 1);
 
-        let n = self.inner.dh.read_bulk(ENDPOINT, &mut self.buf, self.inner.to).unwrap();
-        assert_eq!(n, self.buf.len());
+        // make len multiple of 256 to make u multiple of 512
+        let len = std::cmp::min(buffers[0].len(), MTU / 2);
+        let len = len & !0xff;
+        if len == 0 {
+            return Ok(0);
+        }
+        let n = self.inner.dev.read(&mut self.buf[0..len * 2])?;
+        debug_assert_eq!(n % 2, 0);
+
+        for i in 0..n / 2 {
+            buffers[0][i] = Complex32::new(
+                (self.buf[i * 2] as f32 - 127.0) / 128.0,
+                (self.buf[i * 2 + 1] as f32 - 127.0) / 128.0,
+            );
+        }
+        Ok(n / 2)
     }
 }
 
-pub struct Tx {
-    dev: Arc<seify_hackrfone::HackRf>,
+pub struct TxStreamer {
+    inner: Arc<HackRfInner>,
+    buf: Vec<u8>,
 }
 
-impl TxStreamer for Tx {
+impl TxStreamer {
+    fn new(inner: Arc<HackRfInner>) -> Self {
+        Self {
+            inner,
+            buf: vec![0u8; MTU],
+        }
+    }
+}
+
+impl crate::TxStreamer for TxStreamer {
     fn mtu(&self) -> Result<usize, Error> {
-        // TOOD(tjn): verify
-        Ok(128 * 1024)
+        Ok(MTU)
     }
 
-    fn activate_at(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
+    fn activate_at(&mut self, _time_ns: Option<i64>) -> Result<(), Error> {
         // TODO(tjn): sleep precisely for `time_ns`
 
-        let cfg = &self.inner.tx_config;
-        self.inner.set_lna_gain(0)?;
-        self.inner.set_vga_gain(cfg.vga_db)?;
-        self.inner.set_txvga_gain(cfg.txvga_db)?;
-        self.inner.set_freq(cfg.frequency_hz)?;
-        self.inner.set_amp_enable(cfg.amp_enable)?;
-        self.inner.set_antenna_enable(cfg.antenna_enable)?;
+        let config = self.inner.tx_config.lock().unwrap();
+        self.inner.dev.start_rx(&config)?;
 
-        self.inner.
-        /*
-        self.write_control(
-            Request::SetTransceiverMode,
-            TranscieverMode::Transmit as u16,
-            0,
-            &[],
-        );
-        */
-        
         Ok(())
     }
 
-    fn deactivate_at(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
-        self.dh.release_interface(0)?;
-        self.set_transceiver_mode(TranscieverMode::Off)?;
-        todo!()
+    fn deactivate_at(&mut self, _time_ns: Option<i64>) -> Result<(), Error> {
+        // TODO(tjn): sleep precisely for `time_ns`
+
+        self.inner.dev.stop_tx()?;
+        Ok(())
     }
 
     fn write(
         &mut self,
         buffers: &[&[num_complex::Complex32]],
-        at_ns: Option<i64>,
-        end_burst: bool,
-        timeout_us: i64,
+        _at_ns: Option<i64>,
+        _end_burst: bool,
+        _timeout_us: i64,
     ) -> Result<usize, Error> {
+        debug_assert_eq!(buffers.len(), 1);
+        todo!();
 
-        // TODO:
-        self.dh
-            .write_bulk(ENDPOINT, samples, Duration::from_millis(1))
-            .map_err(Error::Usb)
-        todo!()
+        // self.inner.dev.write(samples)
     }
 
     fn write_all(
         &mut self,
         buffers: &[&[num_complex::Complex32]],
-        at_ns: Option<i64>,
-        end_burst: bool,
-        timeout_us: i64,
+        _at_ns: Option<i64>,
+        _end_burst: bool,
+        _timeout_us: i64,
     ) -> Result<(), Error> {
-        todo!()
+        debug_assert_eq!(buffers.len(), 1);
+
+        let mut n = 0;
+        while n < buffers[0].len() {
+            let buf = &buffers[0][n..];
+            n += self.write(&[buf], None, false, 0)?;
+        }
+
+        Ok(())
     }
 }
 
-impl seify::DeviceTrait for HackRf {
-    type RxStreamer = Rx;
+impl crate::DeviceTrait for HackRfOne {
+    type RxStreamer = RxStreamer;
 
-    type TxStreamer = Tx;
+    type TxStreamer = TxStreamer;
 
     fn as_any(&self) -> &dyn std::any::Any {
         self
@@ -128,25 +216,21 @@ impl seify::DeviceTrait for HackRf {
         self
     }
 
-    fn driver(&self) -> seify::Driver {
-        // ??? no enum variant that makes sense for us
-        todo!()
+    fn driver(&self) -> crate::Driver {
+        crate::Driver::HackRf
     }
 
     fn id(&self) -> Result<String, Error> {
         todo!()
     }
 
-    fn info(&self) -> Result<seify::Args, Error> {
+    fn info(&self) -> Result<crate::Args, Error> {
         Ok(Default::default())
     }
 
-    fn num_channels(&self, _: seify::Direction) -> Result<usize, seify::Error> {
+    fn num_channels(&self, _: crate::Direction) -> Result<usize, Error> {
         Ok(1)
     }
-
-
-
 
     fn full_duplex(&self, _direction: Direction, _channel: usize) -> Result<bool, Error> {
         Ok(false)
@@ -156,12 +240,16 @@ impl seify::DeviceTrait for HackRf {
         if channels != [0] {
             Err(Error::ValueError)
         } else {
-            Ok(RxStreamer::new(self.dev.clone()))
+            Ok(RxStreamer::new(Arc::clone(&self.inner)))
         }
     }
 
-    fn tx_streamer(&self, _channels: &[usize], _args: Args) -> Result<Self::TxStreamer, Error> {
-        Err(Error::NotSupported)
+    fn tx_streamer(&self, channels: &[usize], _args: Args) -> Result<Self::TxStreamer, Error> {
+        if channels != [0] {
+            Err(Error::ValueError)
+        } else {
+            Ok(TxStreamer::new(Arc::clone(&self.inner)))
+        }
     }
 
     fn antennas(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
@@ -169,84 +257,81 @@ impl seify::DeviceTrait for HackRf {
     }
 
     fn antenna(&self, direction: Direction, channel: usize) -> Result<String, Error> {
-        if matches!(direction, Rx) && channel == 0 {
-            Ok("RX".to_string())
-        } else if matches!(direction, Rx) {
-            Err(Error::ValueError)
+        if channel == 0 {
+            Ok(match direction {
+                Direction::Rx => "RX".to_string(),
+                Direction::Tx => "TX".to_string(),
+            })
         } else {
-            Err(Error::NotSupported)
+            Err(Error::ValueError)
         }
     }
 
     fn set_antenna(&self, direction: Direction, channel: usize, name: &str) -> Result<(), Error> {
-        if matches!(direction, Rx) && channel == 0 && name == "RX" {
-            Ok(())
-        } else if matches!(direction, Rx) {
-            Err(Error::ValueError)
+        if channel == 0 {
+            if direction == Direction::Rx && name == "RX"
+                || direction == Direction::Tx && name == "TX"
+            {
+                Ok(())
+            } else {
+                Err(Error::NotSupported)
+            }
         } else {
-            Err(Error::NotSupported)
+            Err(Error::ValueError)
         }
     }
 
     fn gain_elements(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
-        if matches!(direction, Rx) && channel == 0 {
-            Ok(vec!["TUNER".to_string()])
-        } else if matches!(direction, Rx) {
-            Err(Error::ValueError)
-        } else {
-            Err(Error::NotSupported)
-        }
-    }
-
-    fn supports_agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        if matches!(direction, Rx) && channel == 0 {
-            Ok(true)
-        } else if matches!(direction, Rx) {
-            Err(Error::ValueError)
-        } else {
-            Err(Error::NotSupported)
-        }
-    }
-
-    fn enable_agc(&self, direction: Direction, channel: usize, agc: bool) -> Result<(), Error> {
-        let gains = self.dev.get_tuner_gains().or(Err(Error::DeviceError))?;
-        if matches!(direction, Rx) && channel == 0 {
-            let mut inner = self.i.lock().unwrap();
-            if agc {
-                inner.gain = TunerGain::Auto;
-                Ok(self.dev.set_tuner_gain(inner.gain.clone())?)
-            } else {
-                inner.gain = TunerGain::Manual(gains[gains.len() / 2]);
-                Ok(self.dev.set_tuner_gain(inner.gain.clone())?)
+        if channel == 0 {
+            // TODO(tjn): add support for other gains (RF and baseband)
+            // See: https://hackrf.readthedocs.io/en/latest/faq.html#what-gain-controls-are-provided-by-hackrf
+            match direction {
+                Direction::Tx => Ok(vec!["IF".into()]),
+                // TODO: add rest
+                Direction::Rx => Ok(vec!["IF".into()]),
             }
-        } else if matches!(direction, Rx) {
-            Err(Error::ValueError)
         } else {
-            Err(Error::NotSupported)
+            Err(Error::ValueError)
         }
     }
 
-    fn agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        if matches!(direction, Rx) && channel == 0 {
-            let inner = self.i.lock().unwrap();
-            Ok(matches!(inner.gain, TunerGain::Auto))
-        } else if matches!(direction, Rx) {
-            Err(Error::ValueError)
+    fn supports_agc(&self, _direction: Direction, channel: usize) -> Result<bool, Error> {
+        if channel == 0 {
+            Ok(false)
         } else {
+            Err(Error::ValueError)
+        }
+    }
+
+    fn enable_agc(&self, _direction: Direction, channel: usize, agc: bool) -> Result<(), Error> {
+        if channel == 0 {
             Err(Error::NotSupported)
+        } else {
+            Err(Error::ValueError)
+        }
+    }
+
+    fn agc(&self, _direction: Direction, channel: usize) -> Result<bool, Error> {
+        if channel == 0 {
+            Err(Error::NotSupported)
+        } else {
+            Err(Error::ValueError)
         }
     }
 
     fn set_gain(&self, direction: Direction, channel: usize, gain: f64) -> Result<(), Error> {
-        self.set_gain_element(direction, channel, "TUNER", gain)
+        println!("set_gain");
+        self.set_gain_element(direction, channel, "IF", gain)
     }
 
     fn gain(&self, direction: Direction, channel: usize) -> Result<Option<f64>, Error> {
-        self.gain_element(direction, channel, "TUNER")
+        println!("gain");
+        self.gain_element(direction, channel, "IF")
     }
 
     fn gain_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
-        self.gain_element_range(direction, channel, "TUNER")
+        println!("gain_range");
+        self.gain_element_range(direction, channel, "IF")
     }
 
     fn set_gain_element(
@@ -256,11 +341,20 @@ impl seify::DeviceTrait for HackRf {
         name: &str,
         gain: f64,
     ) -> Result<(), Error> {
+        println!("set_gain_element");
+        dbg!(direction, channel, name, gain);
+
         let r = self.gain_range(direction, channel)?;
-        if r.contains(gain) && name == "TUNER" {
-            let mut inner = self.i.lock().unwrap();
-            inner.gain = TunerGain::Manual((gain * 10.0) as i32);
-            Ok(self.dev.set_tuner_gain(inner.gain.clone())?)
+        if r.contains(gain) && name == "IF" {
+            match direction {
+                Direction::Tx => todo!(),
+                Direction::Rx => {
+                    let mut config = self.inner.rx_config.lock().unwrap();
+                    println!("setting lna_db to {gain}");
+                    config.lna_db = gain as u16;
+                    Ok(())
+                }
+            }
         } else {
             log::warn!("Gain out of range");
             Err(Error::OutOfRange(r, gain))
@@ -273,16 +367,17 @@ impl seify::DeviceTrait for HackRf {
         channel: usize,
         name: &str,
     ) -> Result<Option<f64>, Error> {
-        if matches!(direction, Rx) && channel == 0 && name == "TUNER" {
-            let inner = self.i.lock().unwrap();
-            match inner.gain {
-                TunerGain::Auto => Ok(None),
-                TunerGain::Manual(i) => Ok(Some(i as f64)),
+        dbg!(direction, channel, name);
+        if channel == 0 && name == "IF" {
+            match direction {
+                Direction::Tx => todo!(),
+                Direction::Rx => {
+                    let config = self.inner.rx_config.lock().unwrap();
+                    Ok(Some(config.lna_db as f64))
+                }
             }
-        } else if matches!(direction, Rx) {
-            Err(Error::ValueError)
         } else {
-            Err(Error::NotSupported)
+            Err(Error::ValueError)
         }
     }
 
@@ -292,12 +387,14 @@ impl seify::DeviceTrait for HackRf {
         channel: usize,
         name: &str,
     ) -> Result<Range, Error> {
-        if matches!(direction, Rx) && channel == 0 && name == "TUNER" {
-            Ok(Range::new(vec![RangeItem::Interval(0.0, 50.0)]))
-        } else if matches!(direction, Rx) {
-            Err(Error::ValueError)
+        // TODO(tjn): add support for other gains
+        if channel == 0 && name == "IF" {
+            match direction {
+                Direction::Tx => Ok(Range::new(vec![RangeItem::Step(0.0, 47.0, 1.0)])),
+                Direction::Rx => Ok(Range::new(vec![RangeItem::Step(0.0, 40.0, 8.0)])),
+            }
         } else {
-            Err(Error::NotSupported)
+            Err(Error::ValueError)
         }
     }
 
@@ -321,30 +418,27 @@ impl seify::DeviceTrait for HackRf {
 
     fn frequency_components(
         &self,
-        direction: Direction,
+        _direction: Direction,
         channel: usize,
     ) -> Result<Vec<String>, Error> {
-        if matches!(direction, Rx) && channel == 0 {
+        if channel == 0 {
             Ok(vec!["TUNER".to_string()])
-        } else if matches!(direction, Rx) {
-            Err(Error::ValueError)
         } else {
-            Err(Error::NotSupported)
+            Err(Error::ValueError)
         }
     }
 
     fn component_frequency_range(
         &self,
-        direction: Direction,
+        _direction: Direction,
         channel: usize,
         name: &str,
     ) -> Result<Range, Error> {
-        if matches!(direction, Rx) && channel == 0 && name == "TUNER" {
-            Ok(Range::new(vec![RangeItem::Interval(0.0, 2e9)]))
-        } else if matches!(direction, Rx) {
-            Err(Error::ValueError)
+        if channel == 0 && name == "TUNER" {
+            // up to 7.25GHz
+            Ok(Range::new(vec![RangeItem::Interval(0.0, 7_270_000_000.0)]))
         } else {
-            Err(Error::NotSupported)
+            Err(Error::ValueError)
         }
     }
 
@@ -354,12 +448,10 @@ impl seify::DeviceTrait for HackRf {
         channel: usize,
         name: &str,
     ) -> Result<f64, Error> {
-        if matches!(direction, Rx) && channel == 0 && name == "TUNER" {
-            Ok(self.dev.get_center_freq() as f64)
-        } else if matches!(direction, Rx) {
-            Err(Error::ValueError)
+        if channel == 0 && name == "TUNER" {
+            self.with_config(direction, |config| Ok(config.frequency_hz as f64))
         } else {
-            Err(Error::NotSupported)
+            Err(Error::ValueError)
         }
     }
 
@@ -370,29 +462,28 @@ impl seify::DeviceTrait for HackRf {
         name: &str,
         frequency: f64,
     ) -> Result<(), Error> {
-        if matches!(direction, Rx)
-            && channel == 0
+        if channel == 0
             && self
                 .frequency_range(direction, channel)?
                 .contains(frequency)
             && name == "TUNER"
         {
-            self.dev.set_center_freq(frequency as u32)?;
-            Ok(self.dev.reset_buffer()?)
-        } else if matches!(direction, Rx) {
-            Err(Error::ValueError)
+            self.with_config(direction, |config| {
+                config.frequency_hz = frequency as u64;
+            });
+            Ok(())
         } else {
-            Err(Error::NotSupported)
+            Err(Error::ValueError)
         }
     }
 
     fn sample_rate(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
-        if matches!(direction, Rx) && channel == 0 {
-            Ok(self.dev.get_sample_rate() as f64)
-        } else if matches!(direction, Rx) {
-            Err(Error::ValueError)
+        // NOTE: same state for both "directions" lets hope future sdr doesnt assume there are two
+        // values here, should be fine since we told it were not full duplex
+        if channel == 0 {
+            self.with_config(direction, |config| Ok(config.sample_rate_hz as f64))
         } else {
-            Err(Error::NotSupported)
+            Err(Error::ValueError)
         }
     }
 
@@ -402,31 +493,30 @@ impl seify::DeviceTrait for HackRf {
         channel: usize,
         rate: f64,
     ) -> Result<(), Error> {
-        if matches!(direction, Rx)
-            && channel == 0
+        if channel == 0
             && self
                 .get_sample_rate_range(direction, channel)?
                 .contains(rate)
         {
-            self.dev.set_tuner_bandwidth(rate as u32)?;
-            Ok(self.dev.set_sample_rate(rate as u32)?)
-        } else if matches!(direction, Rx) {
-            Err(Error::ValueError)
+            self.with_config(direction, |config| {
+                // TODO: use sample rate div to enable lower effective sampling rate
+                config.sample_rate_hz = rate as u32;
+                config.sample_rate_div = 1;
+            });
+            Ok(())
         } else {
-            Err(Error::NotSupported)
+            Err(Error::ValueError)
         }
     }
 
-    fn get_sample_rate_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
-        if matches!(direction, Rx) && channel == 0 {
-            Ok(Range::new(vec![
-                RangeItem::Interval(225_001.0, 300_000.0),
-                RangeItem::Interval(900_001.0, 3_200_000.0),
-            ]))
-        } else if matches!(direction, Rx) {
-            Err(Error::ValueError)
+    fn get_sample_rate_range(&self, _direction: Direction, channel: usize) -> Result<Range, Error> {
+        if channel == 0 {
+            Ok(Range::new(vec![RangeItem::Interval(
+                1_000_000.0,
+                20_000_000.0,
+            )]))
         } else {
-            Err(Error::NotSupported)
+            Err(Error::ValueError)
         }
     }
 }

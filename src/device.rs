@@ -229,6 +229,7 @@ impl Device<GenericDevice> {
             Err(Error::NotFound) => None,
             Err(e) => return Err(e),
         };
+        dbg!(&args);
         #[cfg(all(feature = "aaronia", any(target_os = "linux", target_os = "windows")))]
         {
             if driver.is_none() || matches!(driver, Some(Driver::Aaronia)) {
@@ -287,6 +288,24 @@ impl Device<GenericDevice> {
         {
             if driver.is_none() || matches!(driver, Some(Driver::Soapy)) {
                 match crate::impls::Soapy::open(&args) {
+                    Ok(d) => {
+                        return Ok(Device {
+                            dev: Arc::new(DeviceWrapper { dev: d }),
+                        })
+                    }
+                    Err(Error::NotFound) => {
+                        if driver.is_some() {
+                            return Err(Error::NotFound);
+                        }
+                    }
+                    Err(e) => return Err(e),
+                }
+            }
+        }
+        #[cfg(all(feature = "hackrfone", not(target_arch = "wasm32")))]
+        {
+            if driver.is_none() || matches!(driver, Some(Driver::HackRf)) {
+                match crate::impls::HackRfOne::open(&args) {
                     Ok(d) => {
                         return Ok(Device {
                             dev: Arc::new(DeviceWrapper { dev: d }),

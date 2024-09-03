@@ -77,35 +77,55 @@ pub enum Mode {
     Transmit,
 }
 
-/// Configuration for TX gain settings
-/// The LNA is always turned off for TX operations
+/// Configurable parameters on the hackrf
 #[derive(Debug)]
 pub struct Config {
-    /// Baseband gain, 0-62dB in 2dB increments
+    /// Baseband gain, 0-62dB in 2dB increments (rx only)
     pub vga_db: u16,
-    /// 0 - 47 dB in 1dB increments
+    /// 0 - 47 dB in 1dB increments (tx only)
     pub txvga_db: u16,
-    /// Low-noise amplifier gain, in 0-40dB in 8dB increments
+
+    /// Low-noise amplifier gain, in 0-40dB in 8dB increments (rx only)
+    // Pre baseband receive
     pub lna_db: u16,
     /// RF amplifier (on/off)
-    pub amp_enable: bool,
+    /// NOTE: called `amp_enable` in HackRf docs
+    pub power_port_enable: bool,
+
     /// Antenna power port control
+    // Power enable on antenna
     pub antenna_enable: bool,
     /// Frequency in hz
     pub frequency_hz: u64,
+    pub sample_rate_hz: u32,
+    // TODO: provide helpers for setting this up
+    pub sample_rate_div: u32,
 }
 
-impl Default for Config {
-    fn default() -> Self {
+impl Config {
+    pub fn tx_default() -> Self {
         Self {
-            vga_db: 16,
+            vga_db: 0,
             lna_db: 0,
             txvga_db: 40,
-            amp_enable: true,
-            antenna_enable: true,
-            // set within global 900mhz ISM band to avoid sending our engineers to foreign prisons
-            // as punishment for calling ::default()
+            power_port_enable: false,
+            antenna_enable: false,
             frequency_hz: 908_000_000,
+            sample_rate_hz: 2_500_000,
+            sample_rate_div: 1,
+        }
+    }
+
+    pub fn rx_default() -> Self {
+        Self {
+            vga_db: 24,
+            lna_db: 0,
+            txvga_db: 0,
+            power_port_enable: false,
+            antenna_enable: false,
+            frequency_hz: 908_000_000,
+            sample_rate_hz: 2_500_000,
+            sample_rate_div: 1,
         }
     }
 }
@@ -138,6 +158,8 @@ pub enum Error {
     Argument(&'static str),
     #[error("Hackrf in invalid mode. Required: {required:?}, actual: {actual:?}")]
     WrongMode { required: Mode, actual: Mode },
+    #[error("Device not found")]
+    NotFound,
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -150,13 +172,13 @@ pub struct HackRf {
     timeout_nanos: AtomicU64,
 }
 
+const DEFAULT_TIMEOUT_NANOS: u64 = Duration::from_millis(500).as_nanos() as u64;
+
 impl HackRf {
-    pub fn new(ctx: Context) -> Option<HackRf> {
-        // TODO: use seify args
-        let devices = match ctx.devices() {
-            Ok(d) => d,
-            Err(_) => return None,
-        };
+    /// Opens the first Hackrf One radio (if found) by scanning `ctx`.
+    pub fn open_first() -> Result<HackRf> {
+        let ctx = Context::new()?;
+        let devices = ctx.devices()?;
 
         for device in devices.iter() {
             let desc = match device.device_descriptor() {
@@ -167,7 +189,7 @@ impl HackRf {
             if desc.vendor_id() == HACKRF_USB_VID && desc.product_id() == HACKRF_ONE_USB_PID {
                 match device.open() {
                     Ok(handle) => {
-                        return Some(HackRf {
+                        return Ok(HackRf {
                             handle,
                             discriptor: desc,
                             timeout_nanos: AtomicU64::new(
@@ -181,14 +203,64 @@ impl HackRf {
             }
         }
 
-        None
+        Err(Error::NotFound)
     }
 
+    pub fn scan() -> Result<Vec<(u8, u8)>> {
+        let ctx = Context::new()?;
+        let devices = ctx.devices()?;
+
+        let mut res = vec![];
+        for device in devices.iter() {
+            let desc = match device.device_descriptor() {
+                Ok(d) => d,
+                Err(_) => continue,
+            };
+
+            if desc.vendor_id() == HACKRF_USB_VID && desc.product_id() == HACKRF_ONE_USB_PID {
+                res.push((device.bus_number(), device.address()));
+            }
+        }
+        Ok(res)
+    }
+
+    /// Opens a hackrf with usb address `<bus_number>:<address>`
+    pub fn open_bus(bus_number: u8, address: u8) -> Result<HackRf> {
+        let ctx = Context::new()?;
+
+        let devices = ctx.devices()?;
+
+        println!("Opening bus addr: {bus_number}:{address}");
+        for device in devices.iter() {
+            let desc = match device.device_descriptor() {
+                Ok(d) => d,
+                Err(_) => continue,
+            };
+
+            if desc.vendor_id() == HACKRF_USB_VID
+                && desc.product_id() == HACKRF_ONE_USB_PID
+                && device.bus_number() == bus_number
+                && device.address() == address
+            {
+                let handle = device.open()?;
+                return Ok(HackRf {
+                    handle,
+                    discriptor: desc,
+                    timeout_nanos: AtomicU64::new(DEFAULT_TIMEOUT_NANOS),
+                    mode: AtomicMode::new(Mode::Idle),
+                });
+            }
+        }
+
+        Err(rusb::Error::NoDevice.into())
+    }
+
+    /// Wraps an existing rusb device handle.
     pub fn wrap(handle: rusb::DeviceHandle<Context>, desc: rusb::DeviceDescriptor) -> HackRf {
         HackRf {
             handle,
             discriptor: desc,
-            timeout_nanos: AtomicU64::new(Duration::from_millis(500).as_nanos() as u64),
+            timeout_nanos: AtomicU64::new(DEFAULT_TIMEOUT_NANOS),
             mode: AtomicMode::new(Mode::Idle),
         }
     }
@@ -223,125 +295,6 @@ impl HackRf {
         Ok(String::from_utf8_lossy(&buf[0..n]).into())
     }
 
-    /// Set the center frequency.
-    pub fn set_freq(&self, hz: u64) -> Result<()> {
-        let buf: [u8; 8] = freq_params(hz);
-        self.write_control(Request::SetFreq, 0, 0, &buf)
-    }
-
-    /// Enable the RX/TX RF amplifier.
-    ///
-    /// In GNU radio this is used as the RF gain, where a value of 0 dB is off,
-    /// and a value of 14 dB is on.
-    pub fn set_amp_enable(&self, enable: bool) -> Result<()> {
-        self.write_control(Request::AmpEnable, enable.into(), 0, &[])
-    }
-
-    /// Set the baseband filter bandwidth.
-    ///
-    /// This is automatically set when the sample rate is changed with
-    /// [`set_sample_rate`].
-    pub fn set_baseband_filter_bandwidth(&self, hz: u32) -> Result<()> {
-        self.write_control(
-            Request::BasebandFilterBandwidthSet,
-            (hz & 0xFFFF) as u16,
-            (hz >> 16) as u16,
-            &[],
-        )
-    }
-
-    /// Set the sample rate.
-    ///
-    /// For anti-aliasing, the baseband filter bandwidth is automatically set to
-    /// the widest available setting that is no more than 75% of the sample rate.
-    /// This happens every time the sample rate is set.
-    /// If you want to override the baseband filter selection, you must do so
-    /// after setting the sample rate.
-    ///
-    /// Limits are 8MHz - 20MHz.
-    /// Preferred rates are 8, 10, 12.5, 16, 20MHz due to less jitter.
-    pub fn set_sample_rate(&self, hz: u32, div: u32) -> Result<()> {
-        let hz: u32 = hz.to_le();
-        let div: u32 = div.to_le();
-        let buf: [u8; 8] = [
-            (hz & 0xFF) as u8,
-            ((hz >> 8) & 0xFF) as u8,
-            ((hz >> 16) & 0xFF) as u8,
-            ((hz >> 24) & 0xFF) as u8,
-            (div & 0xFF) as u8,
-            ((div >> 8) & 0xFF) as u8,
-            ((div >> 16) & 0xFF) as u8,
-            ((div >> 24) & 0xFF) as u8,
-        ];
-        self.write_control(Request::SampleRateSet, 0, 0, &buf)?;
-        self.set_baseband_filter_bandwidth((0.75 * (hz as f32) / (div as f32)) as u32)
-    }
-
-    /// Set the LNA (low noise amplifier) gain.
-    ///
-    /// Range 0 to 40dB in 8dB steps.
-    ///
-    /// This is also known as the IF gain.
-    pub fn set_lna_gain(&self, gain: u16) -> Result<()> {
-        if gain > 40 {
-            Err(Error::Argument("lna gain must be less than 40"))
-        } else {
-            let buf: [u8; 1] = self.read_control(Request::SetLnaGain, 0, gain & !0x07)?;
-            if buf[0] == 0 {
-                // TODO(tjn): check hackrf docs
-                panic!();
-            } else {
-                Ok(())
-            }
-        }
-    }
-
-    /// Set the VGA (variable gain amplifier) gain.
-    ///
-    /// Range 0 to 62dB in 2dB steps.
-    ///
-    /// This is also known as the baseband (BB) gain.
-    pub fn set_vga_gain(&self, gain: u16) -> Result<()> {
-        if gain > 62 || gain % 2 == 1 {
-            Err(Error::Argument(
-                "gain parameter out of range. must be even and less than or equal to 62",
-            ))
-        } else {
-            // TODO(tjn): read_control seems wrong here, investigate
-            let buf: [u8; 1] = self.read_control(Request::SetVgaGain, 0, gain & !0b1)?;
-            if buf[0] == 0 {
-                panic!("What is this return value?")
-            } else {
-                Ok(())
-            }
-        }
-    }
-
-    /// Set the transmit VGA gain.
-    ///
-    /// Range 0 to 47dB in 1db steps.
-    pub fn set_txvga_gain(&self, gain: u16) -> Result<()> {
-        if gain > 47 {
-            Err(Error::Argument("gain parameter out of range. max is 47"))
-        } else {
-            // TODO(tjn): read_control seems wrong here, investigate
-            let buf: [u8; 1] = self.read_control(Request::SetTxvgaGain, 0, gain)?;
-            if buf[0] == 0 {
-                panic!("What is this return value?")
-            } else {
-                Ok(())
-            }
-        }
-    }
-
-    /// Antenna power port control. Dhruv's guess: is this DC bias?
-    ///
-    /// The source docs are a little lacking in terms of explanations here.
-    pub fn set_antenna_enable(&self, value: bool) -> Result<()> {
-        let value = if value { 1 } else { 0 };
-        self.write_control(Request::AntennaEnable, value, 0, &[])
-    }
-
     /// Transitions the radio into transmit mode.
     /// Call this function before calling [`Self::tx`].
     ///
@@ -351,6 +304,8 @@ impl HackRf {
     /// This function will return an error if a tx or rx operation is already in progress or if an
     /// I/O error occurs
     pub fn start_tx(&self, config: &Config) -> Result<()> {
+        println!("Starting tx: {config:?}");
+
         // NOTE:  perform atomic exchange first so that we only change the transceiver mode once if
         // other therads are racing to change the mode
         if let Err(actual) = self.mode.compare_exchange(
@@ -487,7 +442,7 @@ impl HackRf {
     ///
     /// # Panics
     /// This function panics if samples is not a multiple of 512
-    pub fn rx(&self, samples: &mut [u8]) -> Result<usize> {
+    pub fn read(&self, samples: &mut [u8]) -> Result<usize> {
         self.ensure_mode(Mode::Receive)?;
 
         if samples.len() % 512 != 0 {
@@ -502,7 +457,7 @@ impl HackRf {
     ///
     /// # Panics
     /// This function panics if samples is not a multiple of 512
-    pub fn tx(&self, samples: &[u8]) -> Result<usize> {
+    pub fn write(&self, samples: &[u8]) -> Result<usize> {
         self.ensure_mode(Mode::Transmit)?;
 
         if samples.len() % 512 != 0 {
@@ -520,8 +475,10 @@ impl HackRf {
         self.set_vga_gain(config.vga_db)?;
         self.set_txvga_gain(config.txvga_db)?;
         self.set_freq(config.frequency_hz)?;
-        self.set_amp_enable(config.amp_enable)?;
+        self.set_amp_enable(config.power_port_enable)?;
         self.set_antenna_enable(config.antenna_enable)?;
+        self.set_sample_rate(config.sample_rate_hz, config.sample_rate_div)?;
+
         Ok(())
     }
 
@@ -599,6 +556,125 @@ impl HackRf {
             Err(Error::NoApi { device: v, min })
         }
     }
+
+    /// Set the center frequency.
+    pub fn set_freq(&self, hz: u64) -> Result<()> {
+        let buf: [u8; 8] = freq_params(hz);
+        self.write_control(Request::SetFreq, 0, 0, &buf)
+    }
+
+    /// Enable the RX/TX RF amplifier.
+    ///
+    /// In GNU radio this is used as the RF gain, where a value of 0 dB is off,
+    /// and a value of 14 dB is on.
+    pub fn set_amp_enable(&self, enable: bool) -> Result<()> {
+        self.write_control(Request::AmpEnable, enable.into(), 0, &[])
+    }
+
+    /// Set the baseband filter bandwidth.
+    ///
+    /// This is automatically set when the sample rate is changed with
+    /// [`set_sample_rate`].
+    pub fn set_baseband_filter_bandwidth(&self, hz: u32) -> Result<()> {
+        self.write_control(
+            Request::BasebandFilterBandwidthSet,
+            (hz & 0xFFFF) as u16,
+            (hz >> 16) as u16,
+            &[],
+        )
+    }
+
+    /// Set the sample rate.
+    ///
+    /// For anti-aliasing, the baseband filter bandwidth is automatically set to
+    /// the widest available setting that is no more than 75% of the sample rate.
+    /// This happens every time the sample rate is set.
+    /// If you want to override the baseband filter selection, you must do so
+    /// after setting the sample rate.
+    ///
+    /// Limits are 8MHz - 20MHz.
+    /// Preferred rates are 8, 10, 12.5, 16, 20MHz due to less jitter.
+    pub fn set_sample_rate(&self, hz: u32, div: u32) -> Result<()> {
+        let hz: u32 = hz.to_le();
+        let div: u32 = div.to_le();
+        let buf: [u8; 8] = [
+            (hz & 0xFF) as u8,
+            ((hz >> 8) & 0xFF) as u8,
+            ((hz >> 16) & 0xFF) as u8,
+            ((hz >> 24) & 0xFF) as u8,
+            (div & 0xFF) as u8,
+            ((div >> 8) & 0xFF) as u8,
+            ((div >> 16) & 0xFF) as u8,
+            ((div >> 24) & 0xFF) as u8,
+        ];
+        self.write_control(Request::SampleRateSet, 0, 0, &buf)?;
+        self.set_baseband_filter_bandwidth((0.75 * (hz as f32) / (div as f32)) as u32)
+    }
+
+    /// Set the LNA (low noise amplifier) gain.
+    ///
+    /// Range 0 to 40dB in 8dB steps.
+    ///
+    /// This is also known as the IF gain.
+    pub fn set_lna_gain(&self, gain: u16) -> Result<()> {
+        if gain > 40 {
+            Err(Error::Argument("lna gain must be less than 40"))
+        } else {
+            let buf: [u8; 1] = self.read_control(Request::SetLnaGain, 0, gain & !0x07)?;
+            if buf[0] == 0 {
+                // TODO(tjn): check hackrf docs
+                panic!();
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    /// Set the VGA (variable gain amplifier) gain.
+    ///
+    /// Range 0 to 62dB in 2dB steps.
+    ///
+    /// This is also known as the baseband (BB) gain.
+    pub fn set_vga_gain(&self, gain: u16) -> Result<()> {
+        if gain > 62 || gain % 2 == 1 {
+            Err(Error::Argument(
+                "gain parameter out of range. must be even and less than or equal to 62",
+            ))
+        } else {
+            // TODO(tjn): read_control seems wrong here, investigate
+            let buf: [u8; 1] = self.read_control(Request::SetVgaGain, 0, gain & !0b1)?;
+            if buf[0] == 0 {
+                panic!("What is this return value?")
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    /// Set the transmit VGA gain.
+    ///
+    /// Range 0 to 47dB in 1db steps.
+    pub fn set_txvga_gain(&self, gain: u16) -> Result<()> {
+        if gain > 47 {
+            Err(Error::Argument("gain parameter out of range. max is 47"))
+        } else {
+            // TODO(tjn): read_control seems wrong here, investigate
+            let buf: [u8; 1] = self.read_control(Request::SetTxvgaGain, 0, gain)?;
+            if buf[0] == 0 {
+                panic!("What is this return value?")
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    /// Antenna power port control. Dhruv's guess: is this DC bias?
+    ///
+    /// The source docs are a little lacking in terms of explanations here.
+    pub fn set_antenna_enable(&self, value: bool) -> Result<()> {
+        let value = if value { 1 } else { 0 };
+        self.write_control(Request::AntennaEnable, value, 0, &[])
+    }
 }
 
 // Helper for set_freq
@@ -662,7 +738,7 @@ mod test {
                 return;
             }
         };
-        let radio = match HackRf::new(context) {
+        let radio = match HackRf::open_first() {
             Some(r) => r,
             None => {
                 if strict {
