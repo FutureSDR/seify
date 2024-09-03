@@ -4,10 +4,11 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-rusb = "0.9"
 num-complex = "0.4"
 thiserror = "1.0.63"
 atomic_enum = "0.3.0"
+nusb = "0.1.10"
+futures-lite = "2.3.0"
 
 [dev-dependencies]
 anyhow = "1.0.86"
