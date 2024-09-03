@@ -9,6 +9,7 @@ thiserror = "1.0.63"
 atomic_enum = "0.3.0"
 nusb = "0.1.10"
 futures-lite = "2.3.0"
+tracing = "0.1.40"
 
 [dev-dependencies]
 anyhow = "1.0.86"
