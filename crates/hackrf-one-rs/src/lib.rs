@@ -233,9 +233,21 @@ pub struct HackRf {
 const DEFAULT_TIMEOUT_NANOS: u64 = Duration::from_millis(500).as_nanos() as u64;
 
 impl HackRf {
+    pub fn wrap(device: nusb::Device) -> Result<Self> {
+        let interface = device.claim_interface(0)?;
+        // Need a nice way to get version
+
+        return Ok(HackRf {
+            interface,
+            // TODO(tjn): Actually read version
+            version: UsbVersion::from_bcd(0x0102),
+            timeout_nanos: AtomicU64::new(Duration::from_millis(500).as_nanos() as u64),
+            mode: AtomicMode::new(Mode::Idle),
+        });
+    }
+
     fn open(info: DeviceInfo) -> Result<Self> {
         let device = info.open()?;
-        // TODO(tjn): verify interface
         let interface = device.claim_interface(0)?;
 
         return Ok(HackRf {
@@ -264,7 +276,7 @@ impl HackRf {
         let mut res = vec![];
         for device in nusb::list_devices()? {
             if device.vendor_id() == HACKRF_USB_VID && device.product_id() == HACKRF_ONE_USB_PID {
-                res.push((device.bus_number(), device.device_address()));
+                res.push((device.busnum(), device.device_address()));
             }
         }
         Ok(res)
@@ -275,7 +287,7 @@ impl HackRf {
         for device in nusb::list_devices()? {
             if device.vendor_id() == HACKRF_USB_VID
                 && device.product_id() == HACKRF_ONE_USB_PID
-                && device.bus_number() == bus_number
+                && device.busnum() == bus_number
                 && device.device_address() == address
             {
                 return Self::open(device);
@@ -284,18 +296,6 @@ impl HackRf {
 
         Err(Error::NotFound)
     }
-
-    /*
-    /// Wraps an existing rusb device handle.
-    pub fn wrap(handle: rusb::DeviceHandle<Context>, desc: rusb::DeviceDescriptor) -> HackRf {
-        HackRf {
-            interface: handle,
-            discriptor: desc,
-            timeout_nanos: AtomicU64::new(DEFAULT_TIMEOUT_NANOS),
-            mode: AtomicMode::new(Mode::Idle),
-        }
-    }
-    */
 
     pub fn reset(self) -> Result<()> {
         self.check_api_version(UsbVersion::from_bcd(0x0102))?;

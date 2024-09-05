@@ -229,7 +229,6 @@ impl Device<GenericDevice> {
             Err(Error::NotFound) => None,
             Err(e) => return Err(e),
         };
-        dbg!(&args);
         #[cfg(all(feature = "aaronia", any(target_os = "linux", target_os = "windows")))]
         {
             if driver.is_none() || matches!(driver, Some(Driver::Aaronia)) {
@@ -320,6 +319,7 @@ impl Device<GenericDevice> {
                 }
             }
         }
+        panic!("DRIVER NOT FOUND (cfg block?)");
         Err(Error::NotFound)
     }
 }
