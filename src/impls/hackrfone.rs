@@ -1,4 +1,7 @@
-use std::sync::{Arc, Mutex};
+use std::{
+    os::fd::{FromRawFd, OwnedFd},
+    sync::{Arc, Mutex},
+};
 
 use num_complex::Complex32;
 use seify_hackrfone::Config;
@@ -30,6 +33,21 @@ impl HackRfOne {
     /// Create a Hackrf One devices
     pub fn open<A: TryInto<Args>>(args: A) -> Result<Self, Error> {
         let args: Args = args.try_into().or(Err(Error::ValueError))?;
+        log::info!("HackRfOne::open called: {args}");
+
+        if let Ok(fd) = args.get::<i32>("fd") {
+            log::info!("device open got special fd arg");
+            let fd = unsafe { OwnedFd::from_raw_fd(fd) };
+            let dev = nusb::Device::from_fd(fd)?;
+
+            return Ok(Self {
+                inner: Arc::new(HackRfInner {
+                    dev: seify_hackrfone::HackRf::wrap(dev)?,
+                    tx_config: Mutex::new(Config::tx_default()),
+                    rx_config: Mutex::new(Config::rx_default()),
+                }),
+            });
+        }
 
         let bus_number = args.get("bus_number");
         let address = args.get("address");
