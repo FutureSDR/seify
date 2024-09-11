@@ -319,7 +319,7 @@ impl Device<GenericDevice> {
                 }
             }
         }
-        panic!("DRIVER NOT FOUND (cfg block?)");
+
         Err(Error::NotFound)
     }
 }
