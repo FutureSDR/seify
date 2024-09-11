@@ -18,7 +18,7 @@ impl HackRfOne {
     pub fn probe(_args: &Args) -> Result<Vec<Args>, Error> {
         let mut devs = vec![];
         for (bus_number, address) in seify_hackrfone::HackRf::scan()? {
-            println!("probing {bus_number}:{address}");
+            log::debug!("probing {bus_number}:{address}");
             devs.push(
                 format!(
                     "driver=hackrfone, bus_number={}, address={}",
@@ -53,7 +53,6 @@ impl HackRfOne {
         let address = args.get("address");
         let dev = match (bus_number, address) {
             (Ok(bus_number), Ok(address)) => {
-                dbg!(bus_number, address);
                 seify_hackrfone::HackRf::open_bus(bus_number, address)?
             }
             (Err(Error::NotFound), Err(Error::NotFound)) => {
@@ -235,11 +234,13 @@ impl crate::DeviceTrait for HackRfOne {
     }
 
     fn id(&self) -> Result<String, Error> {
-        todo!()
+        Ok(self.inner.dev.board_id()?.to_string())
     }
 
     fn info(&self) -> Result<crate::Args, Error> {
-        Ok(Default::default())
+        let mut args = crate::Args::default();
+        args.set("firmware version", self.inner.dev.version()?);
+        Ok(args)
     }
 
     fn num_channels(&self, _: crate::Direction) -> Result<usize, Error> {
@@ -355,9 +356,6 @@ impl crate::DeviceTrait for HackRfOne {
         name: &str,
         gain: f64,
     ) -> Result<(), Error> {
-        println!("set_gain_element");
-        dbg!(direction, channel, name, gain);
-
         let r = self.gain_range(direction, channel)?;
         if r.contains(gain) && name == "IF" {
             match direction {
@@ -381,7 +379,6 @@ impl crate::DeviceTrait for HackRfOne {
         channel: usize,
         name: &str,
     ) -> Result<Option<f64>, Error> {
-        dbg!(direction, channel, name);
         if channel == 0 && name == "IF" {
             match direction {
                 Direction::Tx => todo!(),
