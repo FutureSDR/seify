@@ -2,7 +2,7 @@
 
 //! HackRF One API.
 //!
-//! To get started take a look at [`HackRfOne::new`].
+//! To get started take a look at [`HackRf::open_first`].
 #![cfg_attr(docsrs, feature(doc_cfg), feature(doc_auto_cfg))]
 // TODO(tjn): re-enable
 // #![warn(missing_docs)]
@@ -329,7 +329,7 @@ impl HackRf {
     }
 
     /// Transitions the radio into transmit mode.
-    /// Call this function before calling [`Self::tx`].
+    /// Call this function before calling [`Self::write`].
     ///
     /// Previous state set via `set_xxx` functions will be overriden with the parameters set in `config`.
     ///
@@ -366,7 +366,7 @@ impl HackRf {
     }
 
     /// Transitions the radio into receive mode.
-    /// Call this function before calling [`Self::rx`].
+    /// Call this function before calling [`Self::read`].
     ///
     /// Previous state set via `set_xxx` functions will be overriden with the parameters set in `config`.
     ///
@@ -503,6 +503,7 @@ impl HackRf {
         Ok(n.actual_length())
     }
 
+    /// Setup the device to stream samples.
     pub fn start_rx_stream(&self, transfer_size: usize) -> Result<RxStream> {
         if transfer_size % 512 != 0 {
             panic!("transfer_size must be a multiple of 512");
@@ -528,6 +529,7 @@ pub struct RxStream {
 }
 
 impl RxStream {
+    /// Read samples from the device, blocking until more are available.
     pub fn read_sync(&mut self, count: usize) -> Result<&[u8]> {
         let buffered_remaining = self.buf.len() - self.buf_pos;
         if buffered_remaining > 0 {
@@ -666,7 +668,7 @@ impl HackRf {
     /// Set the baseband filter bandwidth.
     ///
     /// This is automatically set when the sample rate is changed with
-    /// [`set_sample_rate`].
+    /// [`Self::set_sample_rate`].
     pub fn set_baseband_filter_bandwidth(&self, hz: u32) -> Result<()> {
         self.write_control(
             Request::BasebandFilterBandwidthSet,
