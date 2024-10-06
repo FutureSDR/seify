@@ -31,7 +31,7 @@ fn main() -> Result<()> {
     let mut last_print = Instant::now();
 
     while samples.len() < collect_count {
-        let n = radio.rx(&mut buf).context("Failed to receive samples")?;
+        let n = radio.read(&mut buf).context("Failed to receive samples")?;
         assert_eq!(n, buf.len());
         for iq in buf.chunks_exact(2) {
             samples.push(Complex32::new(
