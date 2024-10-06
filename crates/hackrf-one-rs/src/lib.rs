@@ -256,7 +256,7 @@ impl HackRf {
         });
     }
 
-    /// Opens the first Hackrf One radio (if found) by scanning `ctx`.
+    /// Opens the first Hackrf One found via USB.
     pub fn open_first() -> Result<HackRf> {
         for device in nusb::list_devices()? {
             if device.vendor_id() == HACKRF_USB_VID && device.product_id() == HACKRF_ONE_USB_PID {
@@ -270,6 +270,8 @@ impl HackRf {
         Err(Error::NotFound)
     }
 
+    /// Scans the usb bus for hackrf devices, returning the pair of (bus_num, bus_addr) for each
+    /// device.
     pub fn scan() -> Result<Vec<(u8, u8)>> {
         let mut res = vec![];
         for device in nusb::list_devices()? {
@@ -321,8 +323,7 @@ impl HackRf {
             index: 0x0,
             length: 64,
         }))
-        .into_result()
-        .expect("transfer failed?");
+        .into_result()?;
 
         Ok(String::from_utf8_lossy(&buf).into())
     }
@@ -824,7 +825,7 @@ mod test {
                 antenna_enable: false,
                 frequency_hz: 915_000_000,
                 sample_rate_hz: 2_000_000,
-                sample_rate_div: 0,
+                sample_rate_div: 1,
             })
             .unwrap();
         std::thread::sleep(Duration::from_millis(50));
@@ -846,7 +847,7 @@ mod test {
                 antenna_enable: false,
                 frequency_hz: 915_000_000,
                 sample_rate_hz: 2_000_000,
-                sample_rate_div: 0,
+                sample_rate_div: 1,
             })
             .unwrap();
         std::thread::sleep(Duration::from_millis(50));
