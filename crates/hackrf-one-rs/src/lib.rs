@@ -230,8 +230,6 @@ pub struct HackRf {
     timeout_nanos: AtomicU64,
 }
 
-const DEFAULT_TIMEOUT_NANOS: u64 = Duration::from_millis(500).as_nanos() as u64;
-
 impl HackRf {
     pub fn wrap(device: nusb::Device) -> Result<Self> {
         let interface = device.claim_interface(0)?;
@@ -341,7 +339,7 @@ impl HackRf {
         tracing::info!("Starting tx: {config:?}");
 
         // NOTE:  perform atomic exchange first so that we only change the transceiver mode once if
-        // other therads are racing to change the mode
+        // other threads are racing to change the mode
         if let Err(actual) = self.mode.compare_exchange(
             Mode::Idle,
             Mode::Transmit,
@@ -511,7 +509,6 @@ impl HackRf {
 
         const ENDPOINT: u8 = 0x81;
         Ok(RxStream {
-            interface: self.interface.clone(),
             queue: self.interface.bulk_in_queue(ENDPOINT),
             in_flight_transfers: 3,
             transfer_size,
@@ -522,7 +519,6 @@ impl HackRf {
 }
 
 pub struct RxStream {
-    interface: nusb::Interface,
     queue: Queue<RequestBuffer>,
     in_flight_transfers: usize,
     transfer_size: usize,
@@ -537,22 +533,15 @@ impl RxStream {
             let to_consume = std::cmp::min(count, buffered_remaining);
             let ret = &self.buf[self.buf_pos..self.buf_pos + to_consume];
             self.buf_pos += ret.len();
-            //tracing::info!("  returning {to_consume} buffered bytes");
-            if self.buf_pos == self.buf.len() {
-                //tracing::info!("  this is the last of buffered bytes");
-            }
             return Ok(ret);
         }
 
         while self.queue.pending() < self.in_flight_transfers {
-            //tracing::info!("Submitting async transfer");
             self.queue.submit(RequestBuffer::new(self.transfer_size));
         }
         let completion = block_on(self.queue.next_complete());
-        //tracing::info!("Read {} bytes", completion.data.len());
 
         if let Err(e) = completion.status {
-            //tracing::error!("transfer error: {e:?}");
             return Err(e.into());
         }
 
@@ -591,7 +580,7 @@ impl HackRf {
         Ok(())
     }
 
-    fn timeout(&self) -> Duration {
+    pub fn timeout(&self) -> Duration {
         Duration::from_nanos(self.timeout_nanos.load(Ordering::Acquire))
     }
 
@@ -804,53 +793,40 @@ fn freq_params(hz: u64) -> [u8; 8] {
 mod test {
     use std::time::Duration;
 
-    use super::{freq_params, HackRf};
+    use super::*;
 
     #[test]
-    fn nominal() {
+    fn test_freq_params() {
         assert_eq!(freq_params(915_000_000), [0x93, 0x03, 0, 0, 0, 0, 0, 0]);
         assert_eq!(freq_params(915_000_001), [0x93, 0x03, 0, 0, 1, 0, 0, 0]);
         assert_eq!(
             freq_params(123456789),
             [0x7B, 0, 0, 0, 0x55, 0xF8, 0x06, 0x00]
         );
-    }
 
-    #[test]
-    fn min() {
         assert_eq!(freq_params(0), [0; 8]);
-    }
 
-    #[test]
-    fn max() {
         assert_eq!(freq_params(u64::MAX), [0xFF; 8]);
     }
 
-    #[test]
+    // NOTE: make sure you can transmit on the frequency below in your country!
+    // #[test]
+    #[allow(dead_code)]
     fn device_states() {
-        let strict = true;
+        let radio = HackRf::open_first().expect("Failed to open hackrf");
 
-        let context = match rusb::Context::new() {
-            Ok(c) => c,
-            Err(e) => {
-                if strict {
-                    panic!("{e:?}");
-                }
-                println!("Failed to create rusb context, passing test anyway: {e:?}");
-                return;
-            }
-        };
-        let radio = match HackRf::open_first() {
-            Some(r) => r,
-            None => {
-                if strict {
-                    panic!("Failed to open hackrf");
-                }
-                println!("Failed to open hackrf, passing test anyway");
-                return;
-            }
-        };
-        radio.start_tx(&Default::default()).unwrap();
+        radio
+            .start_tx(&Config {
+                vga_db: 0,
+                txvga_db: 0,
+                lna_db: 0,
+                power_port_enable: false,
+                antenna_enable: false,
+                frequency_hz: 915_000_000,
+                sample_rate_hz: 2_000_000,
+                sample_rate_div: 0,
+            })
+            .unwrap();
         std::thread::sleep(Duration::from_millis(50));
 
         radio.stop_tx().unwrap();
@@ -861,7 +837,18 @@ mod test {
 
         std::thread::sleep(Duration::from_millis(50));
 
-        radio.start_rx(&Default::default()).unwrap();
+        radio
+            .start_rx(&Config {
+                vga_db: 0,
+                txvga_db: 0,
+                lna_db: 0,
+                power_port_enable: false,
+                antenna_enable: false,
+                frequency_hz: 915_000_000,
+                sample_rate_hz: 2_000_000,
+                sample_rate_div: 0,
+            })
+            .unwrap();
         std::thread::sleep(Duration::from_millis(50));
 
         radio.stop_rx().unwrap();

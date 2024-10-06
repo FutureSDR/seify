@@ -9,7 +9,8 @@ license = "Apache-2.0"
 repository = "https://github.com/FutureSDR/seify"
 
 [features]
-default = ["soapy", "hackrfone"]
+# default = ["soapy", "hackrfone"]
+default = ["hackrfone"]
 rtlsdr = ["dep:seify-rtlsdr"]
 hackrfone = ["dep:seify-hackrfone"]
 aaronia = ["dep:aaronia-rtsa"]
@@ -25,8 +26,7 @@ futures = "0.3"
 log = "0.4"
 nom = "7.1"
 num-complex = "0.4"
-# nusb = "0.1.10"
-nusb = { path = "../nusb" }
+nusb = { git = "https://github.com/kevinmehall/nusb.git" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_with = "3.6"
