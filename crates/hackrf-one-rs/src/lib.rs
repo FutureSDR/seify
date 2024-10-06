@@ -174,6 +174,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// descriptors, such as `bcdUSB` and `bcdDevice` in device descriptors.
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash, PartialOrd, Ord)]
 // Taken from rusb::Version: https://github.com/a1ien/rusb/blob/8f8c3c6bff6a494a140da4d93dd946bf1e564d66/src/fields.rs#L142-L203
+// nusb doesnt currently have this
 pub struct UsbVersion(pub u8, pub u8, pub u8);
 
 impl UsbVersion {
@@ -230,6 +231,8 @@ pub struct HackRf {
 }
 
 impl HackRf {
+    /// Wraps an existing nusb::Device.
+    /// Useful on platform like Android where you are forced to use [`nusb::Device::from_fd`].
     pub fn wrap(device: nusb::Device) -> Result<Self> {
         let interface = device.claim_interface(0)?;
 
@@ -242,6 +245,7 @@ impl HackRf {
         });
     }
 
+    /// Opens `info` based on the result of a `nusb` scan.
     fn open(info: DeviceInfo) -> Result<Self> {
         let device = info.open()?;
         let interface = device.claim_interface(0)?;
@@ -295,6 +299,7 @@ impl HackRf {
         Err(Error::NotFound)
     }
 
+    /// Resets the HackRf.
     pub fn reset(self) -> Result<()> {
         self.check_api_version(UsbVersion::from_bcd(0x0102))?;
         self.write_control(Request::Reset, 0, 0, &[])?;
@@ -337,8 +342,8 @@ impl HackRf {
     pub fn start_tx(&self, config: &Config) -> Result<()> {
         tracing::info!("Starting tx: {config:?}");
 
-        // NOTE:  perform atomic exchange first so that we only change the transceiver mode once if
-        // other threads are racing to change the mode
+        // NOTE: perform atomic exchange first so that we only change the transceiver mode once if
+        // other threads are racing to change with us
         if let Err(actual) = self.mode.compare_exchange(
             Mode::Idle,
             Mode::Transmit,
@@ -372,8 +377,8 @@ impl HackRf {
     /// This function will return an error if a tx or rx operation is already in progress or if an
     /// I/O error occurs
     pub fn start_rx(&self, config: &Config) -> Result<()> {
-        // NOTE: perform the atomic exchange first so that we only change the hackrf's state once if
-        // other threads are racing with us
+        // NOTE: perform atomic exchange first so that we only change the transceiver mode once if
+        // other threads are racing to change with us
         if let Err(actual) = self.mode.compare_exchange(
             Mode::Idle,
             Mode::Receive,
@@ -402,14 +407,16 @@ impl HackRf {
         // NOTE:  perform atomic exchange last so that we prevent other threads from racing to
         // start tx/rx with the delivery of our TransceiverMode::Off request
         //
-        // This means that multiple threads can race on stop_tx/stop_rx, however in the worst case
-        // the hackrf will receive multiple TransceiverMode::Off requests, but will always end up
-        // in a valid state with the transceiver disabled. A mutex or other mode variants like
-        // Mode::IdlePending would solve this, however quickly this begins to look like a manually implemented mutex.
+        // This means if multiple threads call stop_tx/stop_rx concurrently the hackrf may receive
+        // multiple TransceiverMode::Off requests, but will always end up in a valid state with the
+        // transceiver disabled. 
+        //
+        // Adding something like Mode::IdlePending would solve this,
+        // however quickly this begins to look like a manually implemented mutex.
         //
         // To keep this crate low-level and low-overhead, this solution is fine and we expect
         // consumers to wrap our type in an Arc and be smart enough to not enable / disable tx / rx
-        // from multiple threads at the same time.
+        // from multiple threads at the same time on a single duplex radio.
 
         self.write_control(
             Request::SetTransceiverMode,
@@ -425,7 +432,7 @@ impl HackRf {
             Ordering::Relaxed,
         ) {
             return Err(Error::WrongMode {
-                required: Mode::Idle,
+                required: Mode::Transmit,
                 actual,
             });
         }
@@ -434,8 +441,7 @@ impl HackRf {
     }
 
     pub fn stop_rx(&self) -> Result<()> {
-        // NOTE:  perform atomic exchange last so that we prevent other threads from racing to
-        // start tx/rx with the delivery of our TransceiverMode::Off request
+        // NOTE: same as above - perform atomic exchange last
 
         self.write_control(
             Request::SetTransceiverMode,
@@ -451,7 +457,7 @@ impl HackRf {
             Ordering::Relaxed,
         ) {
             return Err(Error::WrongMode {
-                required: Mode::Idle,
+                required: Mode::Receive,
                 actual,
             });
         }
@@ -806,7 +812,7 @@ mod test {
         assert_eq!(freq_params(u64::MAX), [0xFF; 8]);
     }
 
-    // NOTE: make sure you can transmit on the frequency below in your country!
+    // NOTE: make sure you can transmit on the frequency below before enabling!
     // #[test]
     #[allow(dead_code)]
     fn device_states() {

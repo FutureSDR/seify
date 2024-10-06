@@ -2,6 +2,7 @@
 name = "seify-hackrfone"
 version = "0.1.0"
 edition = "2021"
+authors = ["Troy Neubauer <troy@foxhunter.ai>"]
 
 [dependencies]
 num-complex = "0.4"
