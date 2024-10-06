@@ -33,10 +33,10 @@ impl HackRfOne {
     /// Create a Hackrf One devices
     pub fn open<A: TryInto<Args>>(args: A) -> Result<Self, Error> {
         let args: Args = args.try_into().or(Err(Error::ValueError))?;
-        log::info!("HackRfOne::open called: {args}");
 
         if let Ok(fd) = args.get::<i32>("fd") {
-            log::info!("device open got special fd arg");
+            log::info!("Wrapping hackrf fd={fd}");
+            // SAFETY: the caller intends to pass ownership to us
             let fd = unsafe { OwnedFd::from_raw_fd(fd) };
             let dev = nusb::Device::from_fd(fd)?;
 
@@ -56,11 +56,11 @@ impl HackRfOne {
                 seify_hackrfone::HackRf::open_bus(bus_number, address)?
             }
             (Err(Error::NotFound), Err(Error::NotFound)) => {
-                println!("Opening first hackrf device");
+                log::debug!("Opening first hackrf device");
                 seify_hackrfone::HackRf::open_first()?
             }
             (bus_number, address) => {
-                println!("HackRfOne::open received invalid args: bus_number: {bus_number:?}, address: {address:?}");
+                info::warn!("HackRfOne::open received invalid args: bus_number: {bus_number:?}, address: {address:?}");
                 return Err(Error::ValueError);
             }
         };
@@ -112,7 +112,7 @@ impl crate::RxStreamer for RxStreamer {
     }
 
     fn activate_at(&mut self, _time_ns: Option<i64>) -> Result<(), Error> {
-        // TODO(tjn): sleep precisely for `time_ns`
+        // TODO: sleep precisely for `time_ns`
         let config = self.inner.rx_config.lock().unwrap();
         self.inner.dev.start_rx(&config)?;
 
@@ -122,9 +122,8 @@ impl crate::RxStreamer for RxStreamer {
     }
 
     fn deactivate_at(&mut self, _time_ns: Option<i64>) -> Result<(), Error> {
-        // TODO(tjn): sleep precisely for `time_ns`
+        // TODO: sleep precisely for `time_ns`
 
-        println!("dropping stream");
         let _ = self.stream.take().unwrap();
         self.inner.dev.stop_rx()?;
         Ok(())
@@ -169,7 +168,7 @@ impl crate::TxStreamer for TxStreamer {
     }
 
     fn activate_at(&mut self, _time_ns: Option<i64>) -> Result<(), Error> {
-        // TODO(tjn): sleep precisely for `time_ns`
+        // TODO: sleep precisely for `time_ns`
 
         let config = self.inner.tx_config.lock().unwrap();
         self.inner.dev.start_rx(&config)?;
@@ -178,7 +177,7 @@ impl crate::TxStreamer for TxStreamer {
     }
 
     fn deactivate_at(&mut self, _time_ns: Option<i64>) -> Result<(), Error> {
-        // TODO(tjn): sleep precisely for `time_ns`
+        // TODO: sleep precisely for `time_ns`
 
         self.inner.dev.stop_tx()?;
         Ok(())
@@ -298,7 +297,7 @@ impl crate::DeviceTrait for HackRfOne {
 
     fn gain_elements(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
         if channel == 0 {
-            // TODO(tjn): add support for other gains (RF and baseband)
+            // TODO: add support for other gains (RF and baseband)
             // See: https://hackrf.readthedocs.io/en/latest/faq.html#what-gain-controls-are-provided-by-hackrf
             match direction {
                 Direction::Tx => Ok(vec!["IF".into()]),
@@ -335,17 +334,14 @@ impl crate::DeviceTrait for HackRfOne {
     }
 
     fn set_gain(&self, direction: Direction, channel: usize, gain: f64) -> Result<(), Error> {
-        println!("set_gain");
         self.set_gain_element(direction, channel, "IF", gain)
     }
 
     fn gain(&self, direction: Direction, channel: usize) -> Result<Option<f64>, Error> {
-        println!("gain");
         self.gain_element(direction, channel, "IF")
     }
 
     fn gain_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
-        println!("gain_range");
         self.gain_element_range(direction, channel, "IF")
     }
 
@@ -362,7 +358,6 @@ impl crate::DeviceTrait for HackRfOne {
                 Direction::Tx => todo!(),
                 Direction::Rx => {
                     let mut config = self.inner.rx_config.lock().unwrap();
-                    println!("setting lna_db to {gain}");
                     config.lna_db = gain as u16;
                     Ok(())
                 }
@@ -398,7 +393,7 @@ impl crate::DeviceTrait for HackRfOne {
         channel: usize,
         name: &str,
     ) -> Result<Range, Error> {
-        // TODO(tjn): add support for other gains
+        // TODO: add support for other gains
         if channel == 0 && name == "IF" {
             match direction {
                 Direction::Tx => Ok(Range::new(vec![RangeItem::Step(0.0, 47.0, 1.0)])),
@@ -480,7 +475,6 @@ impl crate::DeviceTrait for HackRfOne {
             && name == "TUNER"
         {
             self.with_config(direction, |config| {
-                println!("Set frequency to {frequency}");
                 config.frequency_hz = frequency as u64;
                 self.inner.dev.set_freq(frequency as u64)?;
                 Ok(())
@@ -492,7 +486,7 @@ impl crate::DeviceTrait for HackRfOne {
 
     fn sample_rate(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
         // NOTE: same state for both "directions" lets hope future sdr doesnt assume there are two
-        // values here, should be fine since we told it were not full duplex
+        // values here, should be fine since we told it we're not full duplex
         if channel == 0 {
             self.with_config(direction, |config| Ok(config.sample_rate_hz as f64))
         } else {
