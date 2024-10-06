@@ -94,8 +94,7 @@ pub struct Config {
     // Pre baseband receive
     pub lna_db: u16,
     /// RF amplifier (on/off)
-    /// NOTE: called `amp_enable` in HackRf docs
-    pub power_port_enable: bool,
+    pub amp_enable: bool,
 
     /// Antenna power port control
     // Power enable on antenna
@@ -113,7 +112,7 @@ impl Config {
             vga_db: 0,
             lna_db: 0,
             txvga_db: 40,
-            power_port_enable: false,
+            amp_enable: false,
             antenna_enable: false,
             frequency_hz: 908_000_000,
             sample_rate_hz: 2_500_000,
@@ -126,7 +125,7 @@ impl Config {
             vga_db: 24,
             lna_db: 0,
             txvga_db: 0,
-            power_port_enable: false,
+            amp_enable: false,
             antenna_enable: false,
             frequency_hz: 908_000_000,
             sample_rate_hz: 2_500_000,
@@ -233,11 +232,10 @@ pub struct HackRf {
 impl HackRf {
     pub fn wrap(device: nusb::Device) -> Result<Self> {
         let interface = device.claim_interface(0)?;
-        // Need a nice way to get version
 
         return Ok(HackRf {
             interface,
-            // TODO(tjn): Actually read version
+            // TODO: Actually read version, dont assume latest
             version: UsbVersion::from_bcd(0x0102),
             timeout_nanos: AtomicU64::new(Duration::from_millis(500).as_nanos() as u64),
             mode: AtomicMode::new(Mode::Idle),
@@ -473,7 +471,6 @@ impl HackRf {
         }
 
         const ENDPOINT: u8 = 0x81;
-        // TODO(tjn): dont allocate, dont block
         let buf = block_on(
             self.interface
                 .bulk_in(ENDPOINT, RequestBuffer::new(samples.len())),
@@ -497,7 +494,7 @@ impl HackRf {
 
         const ENDPOINT: u8 = 0x02;
         let buf = Vec::from(samples);
-        // TODO(tjn): dont allocate, dont block
+        // TODO: dont allocate
         let n = block_on(self.interface.bulk_out(ENDPOINT, buf)).into_result()?;
 
         Ok(n.actual_length())
@@ -565,7 +562,7 @@ impl HackRf {
         self.set_vga_gain(config.vga_db)?;
         self.set_txvga_gain(config.txvga_db)?;
         self.set_freq(config.frequency_hz)?;
-        self.set_amp_enable(config.power_port_enable)?;
+        self.set_amp_enable(config.amp_enable)?;
         self.set_antenna_enable(config.antenna_enable)?;
         self.set_sample_rate(config.sample_rate_hz, config.sample_rate_div)?;
 
@@ -716,8 +713,7 @@ impl HackRf {
         } else {
             let buf: [u8; 1] = self.read_control(Request::SetLnaGain, 0, gain & !0x07)?;
             if buf[0] == 0 {
-                // TODO(tjn): check hackrf docs
-                panic!();
+                panic!("Unexpected return value from read_control(SetLnaGain)");
             } else {
                 Ok(())
             }
@@ -735,7 +731,6 @@ impl HackRf {
                 "gain parameter out of range. must be even and less than or equal to 62",
             ))
         } else {
-            // TODO(tjn): read_control seems wrong here, investigate
             let buf: [u8; 1] = self.read_control(Request::SetVgaGain, 0, gain & !0b1)?;
             if buf[0] == 0 {
                 panic!("What is this return value?")
@@ -752,7 +747,6 @@ impl HackRf {
         if gain > 47 {
             Err(Error::Argument("gain parameter out of range. max is 47"))
         } else {
-            // TODO(tjn): read_control seems wrong here, investigate
             let buf: [u8; 1] = self.read_control(Request::SetTxvgaGain, 0, gain)?;
             if buf[0] == 0 {
                 panic!("What is this return value?")
@@ -823,7 +817,7 @@ mod test {
                 vga_db: 0,
                 txvga_db: 0,
                 lna_db: 0,
-                power_port_enable: false,
+                amp_enable: false,
                 antenna_enable: false,
                 frequency_hz: 915_000_000,
                 sample_rate_hz: 2_000_000,
@@ -845,7 +839,7 @@ mod test {
                 vga_db: 0,
                 txvga_db: 0,
                 lna_db: 0,
-                power_port_enable: false,
+                amp_enable: false,
                 antenna_enable: false,
                 frequency_hz: 915_000_000,
                 sample_rate_hz: 2_000_000,
