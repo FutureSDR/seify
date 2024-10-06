@@ -152,13 +152,14 @@ dependencies = [
 [[package]]
 name = "nusb"
 version = "0.1.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2d8beeee5c0ad012e1eaca540f5610d09a3af58ec435537d511b67e0be36ea66"
+source = "git+https://github.com/kevinmehall/nusb.git#809228038f43de2d7a636825d17439b445f612b7"
 dependencies = [
  "atomic-waker",
  "core-foundation",
  "core-foundation-sys",
+ "futures-core",
  "io-kit-sys",
+ "libc",
  "log",
  "once_cell",
  "rustix",

@@ -4,8 +4,7 @@ use seify_hackrfone::{Config, HackRf};
 use std::time::Instant;
 
 fn main() -> Result<()> {
-    let context = rusb::Context::new().context("Failed to create rusb Context")?;
-    let radio = HackRf::new(context).context("Failed to open Hackrf")?;
+    let radio = HackRf::open_first().context("Failed to open Hackrf")?;
 
     println!("Board ID: {:?}", radio.board_id());
     println!("Version: {:?}", radio.version());
@@ -13,10 +12,14 @@ fn main() -> Result<()> {
 
     radio
         .start_rx(&Config {
-            frequency_hz: 2_410_000_000,
-            amp_enable: true,
+            vga_db: 0,
+            txvga_db: 0,
+            lna_db: 0,
+            power_port_enable: false,
             antenna_enable: false,
-            ..Default::default()
+            frequency_hz: 915_000_000,
+            sample_rate_hz: 2_000_000,
+            sample_rate_div: 0,
         })
         .context("Failed to receive on hackrf")?;
 
