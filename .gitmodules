@@ -1,3 +1,6 @@
 [submodule "crates/rtl-sdr-rs"]
 	path = crates/rtl-sdr-rs
 	url = https://github.com/bastibl/rtl-sdr-rs.git
+[submodule "crates/seify-hackrfone"]
+	path = crates/seify-hackrfone
+	url = https://github.com/MerchGuardian/seify-hackrfone.git
