@@ -133,7 +133,7 @@ impl crate::RxStreamer for RxStreamer {
     ) -> Result<usize, Error> {
         debug_assert_eq!(buffers.len(), 1);
 
-        if buffers[0].len() == 0 {
+        if buffers[0].is_empty() {
             return Ok(0);
         }
         let buf = self.stream.as_mut().unwrap().read_sync(buffers[0].len())?;
