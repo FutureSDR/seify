@@ -35,14 +35,11 @@ impl HackRfOne {
         let args: Args = args.try_into().or(Err(Error::ValueError))?;
 
         if let Ok(fd) = args.get::<i32>("fd") {
-            log::info!("Wrapping hackrf fd={fd}");
-            // SAFETY: the caller intends to pass ownership to us
             let fd = unsafe { OwnedFd::from_raw_fd(fd) };
-            let dev = nusb::Device::from_fd(fd)?;
 
             return Ok(Self {
                 inner: Arc::new(HackRfInner {
-                    dev: seify_hackrfone::HackRf::wrap(dev)?,
+                    dev: seify_hackrfone::HackRf::from_fd(fd)?,
                     tx_config: Mutex::new(Config::tx_default()),
                     rx_config: Mutex::new(Config::rx_default()),
                 }),
@@ -60,7 +57,7 @@ impl HackRfOne {
                 seify_hackrfone::HackRf::open_first()?
             }
             (bus_number, address) => {
-                info::warn!("HackRfOne::open received invalid args: bus_number: {bus_number:?}, address: {address:?}");
+                log::warn!("HackRfOne::open received invalid args: bus_number: {bus_number:?}, address: {address:?}");
                 return Err(Error::ValueError);
             }
         };
