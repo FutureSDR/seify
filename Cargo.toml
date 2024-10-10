@@ -9,8 +9,7 @@ license = "Apache-2.0"
 repository = "https://github.com/FutureSDR/seify"
 
 [features]
-# default = ["soapy"]
-default = ["hackrfone"]
+default = ["soapy"]
 rtlsdr = ["dep:seify-rtlsdr"]
 hackrfone = ["dep:seify-hackrfone"]
 aaronia = ["dep:aaronia-rtsa"]

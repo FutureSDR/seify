@@ -1,7 +1,4 @@
-use std::{
-    os::fd::{FromRawFd, OwnedFd},
-    sync::{Arc, Mutex},
-};
+use std::sync::{Arc, Mutex};
 
 use num_complex::Complex32;
 use seify_hackrfone::Config;
@@ -34,6 +31,9 @@ impl HackRfOne {
     pub fn open<A: TryInto<Args>>(args: A) -> Result<Self, Error> {
         let args: Args = args.try_into().or(Err(Error::ValueError))?;
 
+        // TODO(troy):
+        // re-enable once new version of nusb is published: https://github.com/kevinmehall/nusb/issues/84
+        /*
         if let Ok(fd) = args.get::<i32>("fd") {
             let fd = unsafe { OwnedFd::from_raw_fd(fd) };
 
@@ -45,6 +45,7 @@ impl HackRfOne {
                 }),
             });
         }
+        */
 
         let bus_number = args.get("bus_number");
         let address = args.get("address");
