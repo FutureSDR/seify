@@ -197,6 +197,23 @@ pub trait DeviceTrait: Any + Send {
 
     /// Get the range of possible baseband sample rates.
     fn get_sample_rate_range(&self, direction: Direction, channel: usize) -> Result<Range, Error>;
+
+    //================================ BANDWIDTH ============================================
+
+    /// Get the hardware bandwidth filter, if available.
+    /// 
+    /// Returns `Err(Error::NotSupported)` if unsupported in underlying driver.
+    fn bandwidth(&self, direction: Direction, channel: usize) -> Result<f64, Error>;
+
+    /// Set the hardware bandwidth filter, if available.
+    /// 
+    /// Returns `Err(Error::NotSupported)` if unsupported in underlying driver.
+    fn set_bandwidth(&self, direction: Direction, channel: usize, bw: f64) -> Result<(), Error>;
+
+    /// Get the range of possible bandwidth filter values, if available.
+    /// 
+    /// Returns `Err(Error::NotSupported)` if unsupported in underlying driver.
+    fn get_bandwidth_range(&self, direction: Direction, channel: usize) -> Result<Range, Error>;
 }
 
 /// Wrapps a driver, implementing the [DeviceTrait].
@@ -572,6 +589,18 @@ impl<
     fn get_sample_rate_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
         self.dev.get_sample_rate_range(direction, channel)
     }
+
+    fn bandwidth(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
+        self.dev.bandwidth(direction, channel)
+    }
+
+    fn set_bandwidth(&self, direction: Direction, channel: usize, bw: f64) -> Result<(), Error> {
+        self.dev.set_bandwidth(direction, channel, bw)
+    }
+
+    fn get_bandwidth_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
+        self.dev.get_bandwidth_range(direction, channel)
+    }
 }
 
 #[doc(hidden)]
@@ -752,6 +781,18 @@ impl DeviceTrait for GenericDevice {
 
     fn get_sample_rate_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
         self.as_ref().get_sample_rate_range(direction, channel)
+    }
+
+    fn bandwidth(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
+        self.as_ref().bandwidth(direction, channel)
+    }
+
+    fn set_bandwidth(&self, direction: Direction, channel: usize, bw: f64) -> Result<(), Error> {
+        self.as_ref().set_bandwidth(direction, channel, bw)
+    }
+
+    fn get_bandwidth_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
+        self.as_ref().get_bandwidth_range(direction, channel)
     }
 }
 
@@ -1029,5 +1070,28 @@ impl<
         channel: usize,
     ) -> Result<Range, Error> {
         self.dev.get_sample_rate_range(direction, channel)
+    }
+
+    //================================ BANDWIDTH ============================================
+
+    /// Get the hardware bandwidth filter, if available.
+    ///
+    /// Returns `Err(Error::NotSupported)` if unsupported in underlying driver.
+    fn bandwidth(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
+        self.dev.bandwidth(direction, channel)
+    }
+
+    /// Set the hardware bandwidth filter, if available.
+    ///
+    /// Returns `Err(Error::NotSupported)` if unsupported in underlying driver.
+    fn set_bandwidth(&self, direction: Direction, channel: usize, bw: f64) -> Result<(), Error> {
+        self.dev.set_bandwidth(direction, channel, bw)
+    }
+
+    /// Get the range of possible bandwidth filter values, if available.
+    ///
+    /// Returns `Err(Error::NotSupported)` if unsupported in underlying driver.
+    fn get_bandwidth_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
+        self.dev.get_bandwidth_range(direction, channel)
     }
 }

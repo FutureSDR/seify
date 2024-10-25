@@ -402,6 +402,18 @@ impl DeviceTrait for RtlSdr {
             Err(Error::NotSupported)
         }
     }
+
+    fn bandwidth(&self, _direction: Direction, _channel: usize) -> Result<f64, Error> {
+        Err(Error::NotSupported)
+    }
+
+    fn set_bandwidth(&self, _direction: Direction, _channel: usize, bw: f64) -> Result<(), Error> {
+        Ok(self.dev.set_tuner_bandwidth(bw as _)?)
+    }
+
+    fn get_bandwidth_range(&self, _direction: Direction, _channel: usize) -> Result<Range, Error> {
+        Err(Error::NotSupported)
+    }
 }
 
 impl crate::RxStreamer for RxStreamer {
