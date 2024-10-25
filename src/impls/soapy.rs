@@ -294,6 +294,19 @@ impl DeviceTrait for Soapy {
         let range = self.dev.get_sample_rate_range(direction.into(), channel)?;
         Ok(range.into())
     }
+
+    fn bandwidth(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
+        Ok(self.dev.bandwidth(direction.into(), channel)?)
+    }
+
+    fn set_bandwidth(&self, direction: Direction, channel: usize, bw: f64) -> Result<(), Error> {
+        Ok(self.dev.set_bandwidth(direction.into(), channel, bw)?)
+    }
+
+    fn get_bandwidth_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
+        let range = self.dev.bandwidth_range(direction.into(), channel)?;
+        Ok(range.into())
+    }
 }
 
 impl crate::RxStreamer for RxStreamer {

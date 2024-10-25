@@ -540,6 +540,18 @@ impl DeviceTrait for AaroniaHttp {
             _ => Err(Error::ValueError),
         }
     }
+
+    fn bandwidth(&self, _direction: Direction, _channel: usize) -> Result<f64, Error> {
+        Err(Error::NotSupported)
+    }
+
+    fn set_bandwidth(&self, _direction: Direction, _channel: usize, _bw: f64) -> Result<(), Error> {
+        Err(Error::NotSupported)
+    }
+
+    fn get_bandwidth_range(&self, _direction: Direction, _channel: usize) -> Result<Range, Error> {
+        Err(Error::NotSupported)
+    }
 }
 
 impl RxStreamer {
