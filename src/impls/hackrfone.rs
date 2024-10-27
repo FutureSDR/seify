@@ -525,15 +525,15 @@ impl crate::DeviceTrait for HackRfOne {
         }
     }
 
-    fn bandwidth(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
+    fn bandwidth(&self, _direction: Direction, _channel: usize) -> Result<f64, Error> {
         Err(Error::NotSupported)
     }
 
-    fn set_bandwidth(&self, direction: Direction, channel: usize, bw: f64) -> Result<(), Error> {
+    fn set_bandwidth(&self, _direction: Direction, _channel: usize, bw: f64) -> Result<(), Error> {
         Ok(self.inner.dev.set_baseband_filter_bandwidth(bw as _)?)
     }
 
-    fn get_bandwidth_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
+    fn get_bandwidth_range(&self, _direction: Direction, _channel: usize) -> Result<Range, Error> {
         Err(Error::NotSupported)
     }
 }
