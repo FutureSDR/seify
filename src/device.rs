@@ -201,17 +201,17 @@ pub trait DeviceTrait: Any + Send {
     //================================ BANDWIDTH ============================================
 
     /// Get the hardware bandwidth filter, if available.
-    /// 
+    ///
     /// Returns `Err(Error::NotSupported)` if unsupported in underlying driver.
     fn bandwidth(&self, direction: Direction, channel: usize) -> Result<f64, Error>;
 
     /// Set the hardware bandwidth filter, if available.
-    /// 
+    ///
     /// Returns `Err(Error::NotSupported)` if unsupported in underlying driver.
     fn set_bandwidth(&self, direction: Direction, channel: usize, bw: f64) -> Result<(), Error>;
 
     /// Get the range of possible bandwidth filter values, if available.
-    /// 
+    ///
     /// Returns `Err(Error::NotSupported)` if unsupported in underlying driver.
     fn get_bandwidth_range(&self, direction: Direction, channel: usize) -> Result<Range, Error>;
 }
