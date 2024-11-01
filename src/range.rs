@@ -3,19 +3,19 @@ use serde::Serialize;
 
 /// Component of a [Range].
 ///
-/// Can be an interval or an individual value.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// A [RangeItem] can be an interval, a fixed value, or a step interval.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub enum RangeItem {
-    /// Interval (inclusive).
+    /// Min/max interval (inclusive).
     Interval(f64, f64),
-    /// Exact value.
+    /// Exact, fixed value.
     Value(f64),
-    /// Step
+    /// Min/max/skip intervals.
     Step(f64, f64, f64),
 }
 
 /// Range of possible values, comprised of individual values and/or intervals.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub struct Range {
     pub items: Vec<RangeItem>,
 }
