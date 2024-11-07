@@ -9,6 +9,11 @@ pub mod aaronia_http;
 #[cfg(all(feature = "aaronia_http", not(target_arch = "wasm32")))]
 pub use aaronia_http::AaroniaHttp;
 
+#[cfg(feature = "dummy")]
+pub mod dummy;
+#[cfg(feature = "dummy")]
+pub use dummy::Dummy;
+
 #[cfg(all(feature = "rtlsdr", not(target_arch = "wasm32")))]
 pub mod rtlsdr;
 #[cfg(all(feature = "rtlsdr", not(target_arch = "wasm32")))]

@@ -73,6 +73,7 @@ impl From<ureq::Error> for Error {
 pub enum Driver {
     Aaronia,
     AaroniaHttp,
+    Dummy,
     HackRf,
     RtlSdr,
     Soapy,
@@ -97,6 +98,9 @@ impl FromStr for Driver {
         }
         if s == "hackrf" || s == "hackrfone" {
             return Ok(Driver::HackRf);
+        }
+        if s == "dummy" || s == "Dummy" {
+            return Ok(Driver::Dummy);
         }
         Err(Error::ValueError)
     }
@@ -196,6 +200,18 @@ pub fn enumerate_with_args<A: TryInto<Args>>(a: A) -> Result<Vec<Args>, Error> {
     #[cfg(not(all(feature = "hackrfone", not(target_arch = "wasm32"))))]
     {
         if matches!(driver, Some(Driver::HackRf)) {
+            return Err(Error::FeatureNotEnabled);
+        }
+    }
+    #[cfg(feature = "dummy")]
+    {
+        if driver.is_none() || matches!(driver, Some(Driver::Dummy)) {
+            devs.append(&mut impls::Dummy::probe(&args)?)
+        }
+    }
+    #[cfg(not(feature = "dummy"))]
+    {
+        if matches!(driver, Some(Driver::Dummy)) {
             return Err(Error::FeatureNotEnabled);
         }
     }

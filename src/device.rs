@@ -336,6 +336,24 @@ impl Device<GenericDevice> {
                 }
             }
         }
+        #[cfg(feature = "dummy")]
+        {
+            if driver.is_none() || matches!(driver, Some(Driver::Dummy)) {
+                match crate::impls::Dummy::open(&args) {
+                    Ok(d) => {
+                        return Ok(Device {
+                            dev: Arc::new(DeviceWrapper { dev: d }),
+                        })
+                    }
+                    Err(Error::NotFound) => {
+                        if driver.is_some() {
+                            return Err(Error::NotFound);
+                        }
+                    }
+                    Err(e) => return Err(e),
+                }
+            }
+        }
 
         Err(Error::NotFound)
     }
