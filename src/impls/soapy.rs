@@ -320,20 +320,22 @@ impl DeviceTrait for Soapy {
         let range = self.dev.bandwidth_range(direction.into(), channel)?;
         Ok(range.into())
     }
-    
+
     fn has_dc_offset_mode(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
         Ok(self.dev.has_dc_offset_mode(direction.into(), channel)?)
     }
-    
+
     fn set_dc_offset_mode(
         &self,
         direction: Direction,
         channel: usize,
         automatic: bool,
     ) -> Result<(), Error> {
-        Ok(self.dev.set_dc_offset_mode(direction.into(), channel, automatic)?)
+        Ok(self
+            .dev
+            .set_dc_offset_mode(direction.into(), channel, automatic)?)
     }
-    
+
     fn dc_offset_mode(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
         Ok(self.dev.dc_offset_mode(direction.into(), channel)?)
     }
