@@ -414,6 +414,23 @@ impl DeviceTrait for RtlSdr {
     fn get_bandwidth_range(&self, _direction: Direction, _channel: usize) -> Result<Range, Error> {
         Err(Error::NotSupported)
     }
+
+    fn has_dc_offset_mode(&self, _direction: Direction, _channel: usize) -> Result<bool, Error> {
+        Err(Error::NotSupported)
+    }
+
+    fn set_dc_offset_mode(
+        &self,
+        _direction: Direction,
+        _channel: usize,
+        _automatic: bool,
+    ) -> Result<(), Error> {
+        Err(Error::NotSupported)
+    }
+
+    fn dc_offset_mode(&self, _direction: Direction, _channel: usize) -> Result<bool, Error> {
+        Err(Error::NotSupported)
+    }
 }
 
 impl crate::RxStreamer for RxStreamer {
