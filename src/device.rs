@@ -214,6 +214,22 @@ pub trait DeviceTrait: Any + Send {
     ///
     /// Returns `Err(Error::NotSupported)` if unsupported in underlying driver.
     fn get_bandwidth_range(&self, direction: Direction, channel: usize) -> Result<Range, Error>;
+
+    //========================= AUTOMATIC DC OFFSET CORRECTIONS ===============================
+
+    /// Returns true if automatic corrections are supported
+    fn has_dc_offset_mode(&self, direction: Direction, channel: usize) -> Result<bool, Error>;
+
+    /// Enable or disable automatic DC offset corrections mode.
+    fn set_dc_offset_mode(
+        &self,
+        direction: Direction,
+        channel: usize,
+        automatic: bool,
+    ) -> Result<(), Error>;
+
+    /// Returns true if automatic DC offset mode is enabled
+    fn dc_offset_mode(&self, direction: Direction, channel: usize) -> Result<bool, Error>;
 }
 
 /// Wrapps a driver, implementing the [DeviceTrait].
@@ -619,6 +635,23 @@ impl<
     fn get_bandwidth_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
         self.dev.get_bandwidth_range(direction, channel)
     }
+
+    fn has_dc_offset_mode(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+        self.dev.has_dc_offset_mode(direction, channel)
+    }
+
+    fn set_dc_offset_mode(
+        &self,
+        direction: Direction,
+        channel: usize,
+        automatic: bool,
+    ) -> Result<(), Error> {
+        self.dev.set_dc_offset_mode(direction, channel, automatic)
+    }
+
+    fn dc_offset_mode(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+        self.dev.dc_offset_mode(direction, channel)
+    }
 }
 
 #[doc(hidden)]
@@ -811,6 +844,24 @@ impl DeviceTrait for GenericDevice {
 
     fn get_bandwidth_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
         self.as_ref().get_bandwidth_range(direction, channel)
+    }
+
+    fn has_dc_offset_mode(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+        self.as_ref().has_dc_offset_mode(direction, channel)
+    }
+
+    fn set_dc_offset_mode(
+        &self,
+        direction: Direction,
+        channel: usize,
+        automatic: bool,
+    ) -> Result<(), Error> {
+        self.as_ref()
+            .set_dc_offset_mode(direction, channel, automatic)
+    }
+
+    fn dc_offset_mode(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+        self.as_ref().dc_offset_mode(direction, channel)
     }
 }
 
