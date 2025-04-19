@@ -4,3 +4,6 @@
 [submodule "crates/seify-hackrfone"]
 	path = crates/seify-hackrfone
 	url = https://github.com/MerchGuardian/seify-hackrfone.git
+[submodule "crates/seify-bladerf"]
+	path = crates/seify-bladerf
+	url = https://github.com/MerchGuardian/seify-bladerf.git
