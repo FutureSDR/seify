@@ -1172,4 +1172,25 @@ impl<
     ) -> Result<Range, Error> {
         self.dev.get_bandwidth_range(direction, channel)
     }
+
+    //========================= AUTOMATIC DC OFFSET CORRECTIONS ===============================
+    /// Returns true if automatic corrections are supported
+    pub fn has_dc_offset_mode(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+        self.dev.has_dc_offset_mode(direction, channel)
+    }
+
+    /// Set the automatic DC offset correction mode
+    pub fn set_dc_offset_mode(
+        &self,
+        direction: Direction,
+        channel: usize,
+        automatic: bool,
+    ) -> Result<(), Error> {
+        self.dev.set_dc_offset_mode(direction, channel, automatic)
+    }
+
+    /// Returns true if automatic DC offset mode is enabled
+    pub fn dc_offset_mode(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+        self.dev.dc_offset_mode(direction, channel)
+    }
 }
