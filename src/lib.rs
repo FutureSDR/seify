@@ -77,6 +77,7 @@ pub enum Driver {
     HackRf,
     RtlSdr,
     Soapy,
+    Bladerf,
 }
 
 impl FromStr for Driver {
@@ -98,6 +99,9 @@ impl FromStr for Driver {
         }
         if s == "hackrf" || s == "hackrfone" {
             return Ok(Driver::HackRf);
+        }
+        if s == "bladerf" {
+            return Ok(Driver::Bladerf);
         }
         if s == "dummy" || s == "Dummy" {
             return Ok(Driver::Dummy);
@@ -200,6 +204,18 @@ pub fn enumerate_with_args<A: TryInto<Args>>(a: A) -> Result<Vec<Args>, Error> {
     #[cfg(not(all(feature = "hackrfone", not(target_arch = "wasm32"))))]
     {
         if matches!(driver, Some(Driver::HackRf)) {
+            return Err(Error::FeatureNotEnabled);
+        }
+    }
+    #[cfg(all(feature = "bladerf", not(target_arch = "wasm32")))]
+    {
+        if driver.is_none() || matches!(driver, Some(Driver::HackRf)) {
+            devs.append(&mut impls::bladerf::seify_bladerf_probe(&args)?)
+        }
+    }
+    #[cfg(not(all(feature = "bladerf", not(target_arch = "wasm32"))))]
+    {
+        if matches!(driver, Some(Driver::Bladerf)) {
             return Err(Error::FeatureNotEnabled);
         }
     }

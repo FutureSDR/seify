@@ -256,12 +256,14 @@ impl Device<GenericDevice> {
     /// the `args` or the first device discovered through [`enumerate`](crate::enumerate) that
     /// matches the args.
     pub fn from_args<A: TryInto<Args>>(args: A) -> Result<Self, Error> {
-        let args = args.try_into().map_err(|_| Error::ValueError)?;
+        let args: Args = args.try_into().map_err(|_| Error::ValueError)?;
+
         let driver = match args.get::<Driver>("driver") {
             Ok(d) => Some(d),
             Err(Error::NotFound) => None,
             Err(e) => return Err(e),
         };
+
         #[cfg(all(feature = "aaronia", any(target_os = "linux", target_os = "windows")))]
         {
             if driver.is_none() || matches!(driver, Some(Driver::Aaronia)) {
@@ -338,6 +340,24 @@ impl Device<GenericDevice> {
         {
             if driver.is_none() || matches!(driver, Some(Driver::HackRf)) {
                 match crate::impls::HackRfOne::open(&args) {
+                    Ok(d) => {
+                        return Ok(Device {
+                            dev: Arc::new(DeviceWrapper { dev: d }),
+                        })
+                    }
+                    Err(Error::NotFound) => {
+                        if driver.is_some() {
+                            return Err(Error::NotFound);
+                        }
+                    }
+                    Err(e) => return Err(e),
+                }
+            }
+        }
+        #[cfg(all(feature = "bladerf", not(target_arch = "wasm32")))]
+        {
+            if driver.is_none() || matches!(driver, Some(Driver::Bladerf)) {
+                match crate::impls::bladerf::seify_bladerf_open(&args) {
                     Ok(d) => {
                         return Ok(Device {
                             dev: Arc::new(DeviceWrapper { dev: d }),
