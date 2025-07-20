@@ -12,6 +12,7 @@ struct Args {
 }
 
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // cargo run --features=bladerf1 --no-default-features --example probe
     env_logger::init();
     let cli = Args::parse();
 

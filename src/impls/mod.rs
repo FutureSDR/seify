@@ -5,6 +5,11 @@ pub mod aaronia_http;
 #[cfg(all(feature = "aaronia_http", not(target_arch = "wasm32")))]
 pub use aaronia_http::AaroniaHttp;
 
+#[cfg(all(feature = "bladerf1", not(target_arch = "wasm32")))]
+pub mod bladerf1;
+#[cfg(all(feature = "bladerf1", not(target_arch = "wasm32")))]
+pub use bladerf1::BladeRf;
+
 #[cfg(feature = "dummy")]
 pub mod dummy;
 #[cfg(feature = "dummy")]

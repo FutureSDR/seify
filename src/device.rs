@@ -76,7 +76,7 @@ pub trait DeviceTrait: Any + Send {
     /// Get the overall [`Range`] of possible gain values.
     fn gain_range(&self, direction: Direction, channel: usize) -> Result<Range, Error>;
 
-    /// Set the value of a amplification element in a chain.
+    /// Set the value of an amplification element in a chain.
     ///
     /// ## Arguments
     /// * `name`: the name of an amplification element from `Device::list_gains`
@@ -273,6 +273,42 @@ impl Device<GenericDevice> {
         {
             if driver.is_none() || matches!(driver, Some(Driver::AaroniaHttp)) {
                 match crate::impls::AaroniaHttp::open(&args) {
+                    Ok(d) => {
+                        return Ok(Device {
+                            dev: Arc::new(DeviceWrapper { dev: d }),
+                        })
+                    }
+                    Err(Error::NotFound) => {
+                        if driver.is_some() {
+                            return Err(Error::NotFound);
+                        }
+                    }
+                    Err(e) => return Err(e),
+                }
+            }
+        }
+        #[cfg(all(feature = "bladerf1", not(target_arch = "wasm32")))]
+        {
+            if driver.is_none() || matches!(driver, Some(Driver::BladeRf)) {
+                match crate::impls::BladeRf::open(&args) {
+                    Ok(d) => {
+                        return Ok(Device {
+                            dev: Arc::new(DeviceWrapper { dev: d }),
+                        })
+                    }
+                    Err(Error::NotFound) => {
+                        if driver.is_some() {
+                            return Err(Error::NotFound);
+                        }
+                    }
+                    Err(e) => return Err(e),
+                }
+            }
+        }
+        #[cfg(all(feature = "bladerf1", not(target_arch = "wasm32")))]
+        {
+            if driver.is_none() || matches!(driver, Some(Driver::BladeRf)) {
+                match crate::impls::BladeRf::open(&args) {
                     Ok(d) => {
                         return Ok(Device {
                             dev: Arc::new(DeviceWrapper { dev: d }),
@@ -485,10 +521,6 @@ impl<
         self.dev.set_antenna(direction, channel, name)
     }
 
-    fn gain_elements(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
-        self.dev.gain_elements(direction, channel)
-    }
-
     fn supports_agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
         self.dev.supports_agc(direction, channel)
     }
@@ -499,6 +531,10 @@ impl<
 
     fn agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
         self.dev.agc(direction, channel)
+    }
+
+    fn gain_elements(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
+        self.dev.gain_elements(direction, channel)
     }
 
     fn set_gain(&self, direction: Direction, channel: usize, gain: f64) -> Result<(), Error> {
@@ -692,10 +728,6 @@ impl DeviceTrait for GenericDevice {
         self.as_ref().set_antenna(direction, channel, name)
     }
 
-    fn gain_elements(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
-        self.as_ref().gain_elements(direction, channel)
-    }
-
     fn supports_agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
         self.as_ref().supports_agc(direction, channel)
     }
@@ -706,6 +738,10 @@ impl DeviceTrait for GenericDevice {
 
     fn agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
         self.as_ref().agc(direction, channel)
+    }
+
+    fn gain_elements(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
+        self.as_ref().gain_elements(direction, channel)
     }
 
     fn set_gain(&self, direction: Direction, channel: usize, gain: f64) -> Result<(), Error> {
@@ -963,7 +999,7 @@ impl<
         self.dev.gain_range(direction, channel)
     }
 
-    /// Set the value of a amplification element in a chain.
+    /// Set the value of an amplification element in a chain.
     ///
     /// ## Arguments
     /// * `name`: the name of an amplification element from `Device::list_gains`

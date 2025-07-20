@@ -73,6 +73,7 @@ impl From<ureq::Error> for Error {
 pub enum Driver {
     Aaronia,
     AaroniaHttp,
+    BladeRf,
     Dummy,
     HackRf,
     RtlSdr,
@@ -89,6 +90,9 @@ impl FromStr for Driver {
         }
         if s == "aaronia_http" || s == "aaronia-http" || s == "aaroniahttp" {
             return Ok(Driver::AaroniaHttp);
+        }
+        if s == "bladerf" || s == "bladerf1" || s == "BladeRf" {
+            return Ok(Driver::BladeRf);
         }
         if s == "rtlsdr" || s == "rtl-sdr" || s == "rtl" {
             return Ok(Driver::RtlSdr);
@@ -148,6 +152,19 @@ pub fn enumerate_with_args<A: TryInto<Args>>(a: A) -> Result<Vec<Args>, Error> {
     #[cfg(not(all(feature = "aaronia_http", not(target_arch = "wasm32"))))]
     {
         if matches!(driver, Some(Driver::AaroniaHttp)) {
+            return Err(Error::FeatureNotEnabled);
+        }
+    }
+
+    #[cfg(all(feature = "bladerf1", not(target_arch = "wasm32")))]
+    {
+        if driver.is_none() || matches!(driver, Some(Driver::BladeRf)) {
+            devs.append(&mut impls::BladeRf::probe(&args)?)
+        }
+    }
+    #[cfg(not(all(feature = "bladerf1", not(target_arch = "wasm32"))))]
+    {
+        if matches!(driver, Some(Driver::BladeRf)) {
             return Err(Error::FeatureNotEnabled);
         }
     }
