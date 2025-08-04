@@ -441,7 +441,7 @@ impl<T: DeviceTrait + Clone + Any> Device<T> {
     }
 }
 
-struct DeviceWrapper<D: DeviceTrait> {
+pub struct DeviceWrapper<D: DeviceTrait> {
     dev: D,
 }
 
