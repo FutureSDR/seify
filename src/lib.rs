@@ -139,19 +139,6 @@ pub fn enumerate_with_args<A: TryInto<Args>>(a: A) -> Result<Vec<Args>, Error> {
         Err(_) => None,
     };
 
-    #[cfg(all(feature = "aaronia", any(target_os = "linux", target_os = "windows")))]
-    {
-        if driver.is_none() || matches!(driver, Some(Driver::Aaronia)) {
-            devs.append(&mut impls::Aaronia::probe(&args)?)
-        }
-    }
-    #[cfg(not(all(feature = "aaronia", any(target_os = "linux", target_os = "windows"))))]
-    {
-        if matches!(driver, Some(Driver::Aaronia)) {
-            return Err(Error::FeatureNotEnabled);
-        }
-    }
-
     #[cfg(all(feature = "aaronia_http", not(target_arch = "wasm32")))]
     {
         if driver.is_none() || matches!(driver, Some(Driver::AaroniaHttp)) {

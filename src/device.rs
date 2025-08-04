@@ -262,24 +262,6 @@ impl Device<GenericDevice> {
             Err(Error::NotFound) => None,
             Err(e) => return Err(e),
         };
-        #[cfg(all(feature = "aaronia", any(target_os = "linux", target_os = "windows")))]
-        {
-            if driver.is_none() || matches!(driver, Some(Driver::Aaronia)) {
-                match crate::impls::Aaronia::open(&args) {
-                    Ok(d) => {
-                        return Ok(Device {
-                            dev: Arc::new(DeviceWrapper { dev: d }),
-                        })
-                    }
-                    Err(Error::NotFound) => {
-                        if driver.is_some() {
-                            return Err(Error::NotFound);
-                        }
-                    }
-                    Err(e) => return Err(e),
-                }
-            }
-        }
         #[cfg(all(feature = "aaronia_http", not(target_arch = "wasm32")))]
         {
             if driver.is_none() || matches!(driver, Some(Driver::AaroniaHttp)) {
