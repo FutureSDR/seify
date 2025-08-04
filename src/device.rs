@@ -383,10 +383,10 @@ impl<T: DeviceTrait + Clone + Any> Device<T> {
             .as_any()
             .downcast_ref::<Arc<
                 dyn DeviceTrait<
-                    RxStreamer = Box<dyn RxStreamer + 'static>,
-                    TxStreamer = Box<dyn TxStreamer + 'static>,
-                > + Sync
-                     + 'static,
+                        RxStreamer = Box<dyn RxStreamer + 'static>,
+                        TxStreamer = Box<dyn TxStreamer + 'static>,
+                    > + Sync
+                    + 'static,
             >>()
             .ok_or(Error::ValueError)?;
 
@@ -408,9 +408,9 @@ impl<T: DeviceTrait + Clone + Any> Device<T> {
                 .as_any_mut()
                 .downcast_mut::<Box<
                     dyn DeviceTrait<
-                        RxStreamer = Box<dyn RxStreamer + 'static>,
-                        TxStreamer = Box<dyn TxStreamer + 'static>,
-                    > + 'static,
+                            RxStreamer = Box<dyn RxStreamer + 'static>,
+                            TxStreamer = Box<dyn TxStreamer + 'static>,
+                        > + 'static,
                 >>()
                 .ok_or(Error::ValueError)?;
 
