@@ -57,7 +57,7 @@ fn plot(s: &mut [num_complex::Complex32]) {
     fg.axes2d().set_title("Spectrum", &[]).lines(
         0..s.len(),
         abs,
-        &[LineWidth(3.0), Color("blue"), LineStyle(DotDash)],
+        &[LineWidth(3.0), Color("blue".into()), LineStyle(DotDash)],
     );
     fg.show().unwrap();
 }

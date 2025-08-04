@@ -9,6 +9,7 @@ use nom::multi::separated_list0;
 use nom::sequence::delimited;
 use nom::sequence::separated_pair;
 use nom::IResult;
+use nom::Parser;
 use serde::Deserialize;
 use serde::Serialize;
 use serde_with::serde_as;
@@ -118,7 +119,8 @@ where
             take_while1(filter),
         )),
         multispace0,
-    )(input)
+    )
+    .parse(input)
 }
 
 impl FromStr for Args {
@@ -132,7 +134,8 @@ impl FromStr for Args {
                 delimited(multispace0, tag("="), multispace0),
                 parse_string,
             ),
-        )(s)
+        )
+        .parse(s)
         .or(Err(Error::ValueError))?;
         Ok(Args {
             map: HashMap::from_iter(v.1.iter().cloned().map(|(a, b)| (a.into(), b.into()))),

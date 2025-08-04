@@ -1,5 +1,7 @@
 //! Aaronia Spectran HTTP Client
 use num_complex::Complex32;
+use serde_json::json;
+use serde_json::Value;
 use std::io::BufRead;
 use std::io::BufReader;
 use std::io::Read;
@@ -7,8 +9,6 @@ use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::SystemTime;
-use ureq::serde_json::json;
-use ureq::serde_json::Value;
 use ureq::Agent;
 
 use crate::Args;
@@ -61,11 +61,11 @@ impl AaroniaHttp {
             .unwrap_or_else(|_| String::from("http://localhost:54664"));
         let test_path = format!("{url}/info");
 
-        let agent = Agent::new();
+        let agent = Agent::new_with_defaults();
         let resp = match agent.get(&test_path).call() {
             Ok(r) => r,
             Err(e) => {
-                if e.kind() == ureq::ErrorKind::ConnectionFailed
+                if matches!(e, ureq::Error::ConnectionFailed)
                     && args.get::<String>("driver").is_ok()
                 {
                     return Err(e.into());
@@ -98,7 +98,7 @@ impl AaroniaHttp {
             let tx_url = a.get::<String>("tx_url").unwrap_or_else(|_| url.clone());
 
             Ok(Self {
-                agent: Agent::new(),
+                agent: Agent::new_with_defaults(),
                 url,
                 tx_url,
                 f_offset,
@@ -112,8 +112,8 @@ impl AaroniaHttp {
 impl AaroniaHttp {
     fn config(&self) -> Result<Value, Error> {
         let url = format!("{}/remoteconfig", self.url);
-        let s = self.agent.get(&url).call()?.into_string()?;
-        Ok(ureq::serde_json::from_str(&s)?)
+        let s = self.agent.get(&url).call()?.body_mut().read_to_string()?;
+        Ok(serde_json::from_str(&s)?)
     }
 
     fn get_element(&self, path: Vec<&str>) -> Result<Value, Error> {
@@ -600,8 +600,9 @@ impl crate::RxStreamer for RxStreamer {
             .agent
             .get(&format!("{}/stream?format=float32", self.url))
             .call()?
+            .into_body()
             .into_reader();
-        self.reader = Some(BufReader::new(r));
+        self.reader = Some(BufReader::new(Box::new(r)));
         Ok(())
     }
 
