@@ -428,8 +428,12 @@ impl DeviceTrait for Dummy {
         }
     }
 
-    fn has_dc_offset_mode(&self, _direction: Direction, _channel: usize) -> Result<bool, Error> {
-        Err(Error::NotSupported)
+    fn has_dc_offset_mode(&self, _direction: Direction, channel: usize) -> Result<bool, Error> {
+        if channel == 0 {
+            Ok(false)
+        } else {
+            Err(Error::ValueError)
+        }
     }
 
     fn set_dc_offset_mode(
@@ -441,8 +445,12 @@ impl DeviceTrait for Dummy {
         Err(Error::NotSupported)
     }
 
-    fn dc_offset_mode(&self, _direction: Direction, _channel: usize) -> Result<bool, Error> {
-        Err(Error::NotSupported)
+    fn dc_offset_mode(&self, _direction: Direction, channel: usize) -> Result<bool, Error> {
+        if channel == 0 {
+            Ok(false)
+        } else {
+            Err(Error::ValueError)
+        }
     }
 }
 
