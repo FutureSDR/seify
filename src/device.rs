@@ -237,7 +237,7 @@ pub trait DeviceTrait: Any + Send {
 /// Implements a more ergonomic version of the [`DeviceTrait`], e.g., using `Into<Args>`, which
 /// would not be possible in traits.
 #[derive(Clone)]
-pub struct Device<T: DeviceTrait + Clone + Any> {
+pub struct Device<T: DeviceTrait + Clone> {
     dev: T,
 }
 
@@ -253,7 +253,7 @@ impl Device<GenericDevice> {
     }
 
     /// Create a generic device from a device implementation.
-    pub fn generic_from_impl<T: DeviceTrait + Clone + Any + Sync>(dev: T) -> Self {
+    pub fn generic_from_impl<T: DeviceTrait + Clone + Sync>(dev: T) -> Self {
         Self {
             dev: Arc::new(DeviceWrapper { dev }),
         }
@@ -373,14 +373,14 @@ impl Device<GenericDevice> {
 pub type GenericDevice =
     Arc<dyn DeviceTrait<RxStreamer = Box<dyn RxStreamer>, TxStreamer = Box<dyn TxStreamer>> + Sync>;
 
-impl<T: DeviceTrait + Clone + Any> Device<T> {
+impl<T: DeviceTrait + Clone> Device<T> {
     /// Create a device from the device implementation.
     pub fn from_impl(dev: T) -> Self {
         Self { dev }
     }
     /// Try to downcast to a given device implementation `D`, either directly (from `Device<D>`)
     /// or indirectly (from a `Device<GenericDevice>` that wraps a `D`).
-    pub fn impl_ref<D: DeviceTrait + Any>(&self) -> Result<&D, Error> {
+    pub fn impl_ref<D: DeviceTrait>(&self) -> Result<&D, Error> {
         if let Some(d) = self.dev.as_any().downcast_ref::<D>() {
             return Ok(d);
         }
@@ -405,7 +405,7 @@ impl<T: DeviceTrait + Clone + Any> Device<T> {
     }
     /// Try to downcast mutably to a given device implementation `D`, either directly
     /// (from `Device<D>`) or indirectly (from a `Device<GenericDevice>` that wraps a `D`).
-    pub fn impl_mut<D: DeviceTrait + Any>(&mut self) -> Result<&mut D, Error> {
+    pub fn impl_mut<D: DeviceTrait>(&mut self) -> Result<&mut D, Error> {
         // work around borrow checker limitation
         if let Some(d) = self.dev.as_any().downcast_ref::<D>() {
             Ok(self.dev.as_any_mut().downcast_mut::<D>().unwrap())
