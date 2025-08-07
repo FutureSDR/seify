@@ -252,6 +252,13 @@ impl Device<GenericDevice> {
         Self::from_args(devs.remove(0))
     }
 
+    /// Create a generic device from a device implementation.
+    pub fn generic_from_impl<T: DeviceTrait + Clone + Any + Sync>(dev: T) -> Self {
+        Self {
+            dev: Arc::new(DeviceWrapper { dev }),
+        }
+    }
+
     /// Creates a [`GenericDevice`] opening the first device with a given `driver`, specified in
     /// the `args` or the first device discovered through [`enumerate`](crate::enumerate) that
     /// matches the args.
@@ -423,7 +430,7 @@ impl<T: DeviceTrait + Clone + Any> Device<T> {
     }
 }
 
-pub struct DeviceWrapper<D: DeviceTrait> {
+struct DeviceWrapper<D: DeviceTrait> {
     dev: D,
 }
 
