@@ -454,6 +454,7 @@ impl crate::RxStreamer for RxStreamer {
         let n = self.dev.read_sync(&mut self.buf[0..len * 2])?;
         debug_assert_eq!(n % 2, 0);
 
+        #[allow(clippy::needless_range_loop)]
         for i in 0..n / 2 {
             buffers[0][i] = Complex32::new(
                 (self.buf[i * 2] as f32 - 127.0) / 128.0,
