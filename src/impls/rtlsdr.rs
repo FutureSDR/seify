@@ -60,7 +60,7 @@ impl RtlSdr {
         let rtls = enumerate().or(Err(Error::DeviceError))?;
         let mut devs = Vec::new();
         for r in rtls {
-            devs.push(format!("driver=rtlsdr, index={}", r.index).try_into()?);
+            devs.push(format!("driver=rtlsdr, index={}, serial={}", r.index, r.serial).try_into()?);
         }
         Ok(devs)
     }
@@ -70,8 +70,19 @@ impl RtlSdr {
     /// devices in the list returned by the driver.
     pub fn open<A: TryInto<Args>>(args: A) -> Result<Self, Error> {
         let args = args.try_into().or(Err(Error::ValueError))?;
-        let index = args.get::<usize>("index").unwrap_or(0);
         let rtls = enumerate().or(Err(Error::DeviceError))?;
+
+        let index = match args
+            .get::<usize>("index")
+            .map_err(|_| args.get::<String>("serial"))
+        {
+            Ok(index) => index,
+            Err(Ok(serial)) => rtls
+                .iter()
+                .position(|rtl| rtl.serial == serial)
+                .ok_or(Error::NotFound)?,
+            Err(Err(_)) => 0,
+        };
         if index >= rtls.len() {
             return Err(Error::NotFound);
         }
