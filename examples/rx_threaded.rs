@@ -1,14 +1,13 @@
 use clap::Parser;
 use num_complex::Complex32;
+use seify::Device;
+use seify::Direction::Rx;
+use seify::RxStreamer;
 use std::error::Error;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use vmcircbuffer::sync;
-
-use seify::Device;
-use seify::Direction::Rx;
-use seify::RxStreamer;
+use vmcircbuffer::sync::Circular;
 
 #[derive(Parser, Debug)]
 #[clap(version)]
@@ -31,7 +30,7 @@ pub fn main() -> Result<(), Box<dyn Error>> {
     println!("frequency:   {:?}", dev.frequency(Rx, 0)?);
     println!("gain:        {:?}", dev.gain(Rx, 0)?);
 
-    let mut w = sync::Circular::with_capacity::<Complex32>(8192)?;
+    let mut w = Circular::with_capacity::<Complex32>(8192)?;
     let mut r = w.add_reader();
 
     // producer thread
