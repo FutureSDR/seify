@@ -163,7 +163,7 @@ impl BladeRf {
         }
 
         let bus_id: Result<String, Error> = args.get("bus_id");
-        let address = args.get("address");
+        let address: Result<u8, Error> = args.get("address");
         match (bus_id, address) {
             (Ok(bus_id), Ok(address)) => {
                 let bladerf =
@@ -195,7 +195,6 @@ impl BladeRf {
 
 pub struct RxStreamer {
     streamer: RxStream,
-    dev: Arc<Mutex<BladeRf1>>,
     format: SampleFormat,
     buffer_size: usize,
     active: bool,
@@ -203,7 +202,6 @@ pub struct RxStreamer {
 
 pub struct TxStreamer {
     streamer: TxStream,
-    dev: Arc<Mutex<BladeRf1>>,
     format: SampleFormat,
     buffer_size: usize,
     active: bool,
@@ -228,9 +226,7 @@ macro_rules! impl_streamer_common {
                 sleep(Duration::from_nanos(t as u64));
             }
             if self.active {
-                self.streamer
-                    .close(&mut *self.dev.lock().unwrap())
-                    .map_err(bladerf_err)?;
+                self.streamer.close().map_err(bladerf_err)?;
                 self.active = false;
             }
             Ok(())
@@ -339,7 +335,6 @@ impl BladeRf {
             .expect("Failed to create RX streamer");
         RxStreamer {
             streamer,
-            dev: self.inner.clone(),
             format,
             buffer_size: BUFFER_SIZE,
             active: true,
@@ -356,7 +351,6 @@ impl BladeRf {
             .expect("Failed to create TX streamer");
         TxStreamer {
             streamer,
-            dev: self.inner.clone(),
             format,
             buffer_size: BUFFER_SIZE,
             active: true,
