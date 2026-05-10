@@ -1,11 +1,13 @@
 use crate::{Args, Direction, Error, Range, RangeItem};
 use libbladerf_rs::bladerf1::board::stream::SampleFormat;
+use libbladerf_rs::bladerf1::hardware::lms6002d::dc_calibration::DcCalModule;
 use libbladerf_rs::bladerf1::hardware::lms6002d::gain::GainStage;
 use libbladerf_rs::bladerf1::{
     BladeRf1, ExpansionBoard, GainDb, GainMode, RxStream, TuningMode, TxStream,
 };
 use libbladerf_rs::channel::Channel;
 use libbladerf_rs::range::{Range as BladeRfRange, RangeItem as BladeRfRangeItem};
+use libbladerf_rs::Buffer;
 use num_complex::Complex32;
 #[cfg(target_os = "linux")]
 use std::os::fd::{FromRawFd, OwnedFd};
@@ -191,6 +193,14 @@ impl BladeRf {
             .expansion_attach(board_type)
             .map_err(bladerf_err)
     }
+
+    pub fn calibrate_dc(&mut self, module: DcCalModule) -> Result<(), Error> {
+        self.inner
+            .lock()
+            .unwrap()
+            .calibrate_dc(module)
+            .map_err(bladerf_err)
+    }
 }
 
 pub struct RxStreamer {
@@ -198,6 +208,7 @@ pub struct RxStreamer {
     format: SampleFormat,
     buffer_size: usize,
     active: bool,
+    pending: Option<(Buffer, usize)>,
 }
 
 pub struct TxStreamer {
@@ -241,6 +252,31 @@ impl crate::RxStreamer for RxStreamer {
         debug_assert_eq!(buffers.len(), 1);
 
         let bytes_per_sample = self.format.sample_size();
+        let output = &mut buffers[0];
+        let mut written = 0;
+
+        if let Some((buf, mut offset)) = self.pending.take() {
+            let samples_available = (buf.len() - offset) / bytes_per_sample;
+            let samples_to_produce = output.len().min(samples_available);
+            convert_bytes_to_complex32(
+                self.format,
+                &buf[offset..offset + samples_to_produce * bytes_per_sample],
+                &mut output[..samples_to_produce],
+            );
+            offset += samples_to_produce * bytes_per_sample;
+            written += samples_to_produce;
+            if offset < buf.len() {
+                self.pending = Some((buf, offset));
+            } else {
+                self.streamer.recycle(buf);
+            }
+        }
+
+        if written >= output.len() {
+            return Ok(written);
+        }
+
+        let remaining = &mut output[written..];
 
         let dma_buffer = self
             .streamer
@@ -248,17 +284,23 @@ impl crate::RxStreamer for RxStreamer {
             .map_err(bladerf_err)?;
 
         let samples_available = dma_buffer.len() / bytes_per_sample;
-        let samples_to_produce = buffers[0].len().min(samples_available);
+        let samples_to_produce = remaining.len().min(samples_available);
 
         convert_bytes_to_complex32(
             self.format,
             &dma_buffer[..samples_to_produce * bytes_per_sample],
-            &mut buffers[0][..samples_to_produce],
+            &mut remaining[..samples_to_produce],
         );
 
-        self.streamer.recycle(dma_buffer);
+        if samples_available > samples_to_produce {
+            let offset = samples_to_produce * bytes_per_sample;
+            self.pending = Some((dma_buffer, offset));
+        } else {
+            self.streamer.recycle(dma_buffer);
+        }
 
-        Ok(samples_to_produce)
+        written += samples_to_produce;
+        Ok(written)
     }
 }
 
@@ -275,7 +317,8 @@ impl crate::TxStreamer for TxStreamer {
         debug_assert_eq!(buffers.len(), 1);
 
         let bytes_per_sample = self.format.sample_size();
-        let samples_to_write = buffers[0].len();
+        let max_samples = self.buffer_size / bytes_per_sample;
+        let samples_to_write = buffers[0].len().min(max_samples);
         let bytes_needed = samples_to_write * bytes_per_sample;
 
         let mut dma_buffer = self
@@ -291,9 +334,6 @@ impl crate::TxStreamer for TxStreamer {
 
         self.streamer
             .submit(dma_buffer, bytes_needed)
-            .map_err(bladerf_err)?;
-        self.streamer
-            .wait_completion(Some(Duration::from_micros(timeout_us as u64)))
             .map_err(bladerf_err)?;
 
         Ok(samples_to_write)
@@ -338,6 +378,7 @@ impl BladeRf {
             format,
             buffer_size: BUFFER_SIZE,
             active: true,
+            pending: None,
         }
     }
 
@@ -567,8 +608,15 @@ impl crate::DeviceTrait for BladeRf {
             }
         }
         log::trace!("Setting frequency to {frequency}");
-        dev.set_frequency(ch(channel), frequency as u64, TuningMode::Fpga)
-            .map_err(bladerf_err)
+        if dev
+            .set_frequency(ch(channel), frequency as u64, TuningMode::Fpga)
+            .is_err()
+        {
+            log::warn!("FPGA retune failed, falling back to host tuning");
+            dev.set_frequency(ch(channel), frequency as u64, TuningMode::Host)
+                .map_err(bladerf_err)?;
+        }
+        Ok(())
     }
 
     fn frequency_components(
@@ -622,15 +670,20 @@ impl crate::DeviceTrait for BladeRf {
         channel: usize,
         rate: f64,
     ) -> Result<(), Error> {
-        let actual = self
-            .inner
-            .lock()
-            .unwrap()
+        let mut dev = self.inner.lock().unwrap();
+        let actual = dev
             .set_sample_rate(ch(channel), rate as u32)
             .map_err(bladerf_err)?;
         if actual != rate as u32 {
             log::debug!("Requested sample rate {rate}, actual {actual}");
         }
+        let bw_actual = dev
+            .set_bandwidth(ch(channel), actual)
+            .map_err(bladerf_err)?;
+        if bw_actual != actual {
+            log::debug!("Auto-set bandwidth to {bw_actual} (requested {actual})");
+        }
+        drop(dev);
         Ok(())
     }
 
