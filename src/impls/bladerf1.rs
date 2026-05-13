@@ -15,57 +15,69 @@ use std::sync::{Arc, Mutex};
 use std::thread::sleep;
 use std::time::Duration;
 
-fn convert_bytes_to_complex32(format: SampleFormat, src: &[u8], dst: &mut [Complex32]) -> usize {
-    match format {
-        SampleFormat::Sc16Q11 => {
-            let len = src.len() / 4;
-            let len = len.min(dst.len());
-            for (chunk, out) in src.chunks_exact(4).take(len).zip(dst.iter_mut()) {
-                let i_val = i16::from_le_bytes([chunk[0], chunk[1]]) as f32 / 2048.0;
-                let q_val = i16::from_le_bytes([chunk[2], chunk[3]]) as f32 / 2048.0;
-                *out = Complex32::new(i_val, q_val);
-            }
-            len
-        }
-        SampleFormat::Sc8Q7 => {
-            let len = src.len() / 2;
-            let len = len.min(dst.len());
-            for (chunk, out) in src.chunks_exact(2).take(len).zip(dst.iter_mut()) {
-                let i_val = (chunk[0] as i8) as f32 / 128.0;
-                let q_val = (chunk[1] as i8) as f32 / 128.0;
-                *out = Complex32::new(i_val, q_val);
-            }
-            len
-        }
-        SampleFormat::Sc16Q11Packed => {
-            let groups = src.len() / 6;
-            let len = (groups * 2).min(dst.len());
-            for (group_idx, chunk) in src.chunks_exact(6).enumerate() {
-                let out_idx = group_idx * 2;
-                if out_idx + 1 >= len {
-                    break;
-                }
-                let w0 = u16::from_le_bytes([chunk[0], chunk[1]]);
-                let w1 = u16::from_le_bytes([chunk[2], chunk[3]]);
-                let w2 = u16::from_le_bytes([chunk[4], chunk[5]]);
-                let i0 = (((w0 & 0x0FFF) as i16) << 4) >> 4;
-                let q0 = ((((w1 & 0x00FF) as i16) << 8) >> 4) | (((w0 & 0xF000) as i16) >> 12);
-                dst[out_idx] = Complex32::new(i0 as f32 / 2048.0, q0 as f32 / 2048.0);
-                let i1 = ((((w2 & 0x000F) as i16) << 12) >> 4) | (((w1 & 0xFF00) as i16) >> 8);
-                let q1 = ((w2 & 0xFFF0) as i16) >> 4;
-                dst[out_idx + 1] = Complex32::new(i1 as f32 / 2048.0, q1 as f32 / 2048.0);
-            }
-            len
-        }
-        _ => unimplemented!("unsupported sample format: {format:?}"),
+const BUFFER_SIZE: usize = 65536;
+const BUFFER_COUNT: usize = 8;
+
+fn ch(channel: usize) -> Result<Channel, Error> {
+    Channel::try_from(channel as u8).map_err(|_| Error::ValueError)
+}
+
+fn bladerf_err(e: libbladerf_rs::Error) -> Error {
+    match e {
+        libbladerf_rs::Error::NotFound => Error::NotFound,
+        libbladerf_rs::Error::Timeout => Error::DeviceError,
+        libbladerf_rs::Error::Io(io) => Error::Io(io),
+        libbladerf_rs::Error::Argument(_) => Error::ValueError,
+        libbladerf_rs::Error::Unsupported(_) => Error::NotSupported,
+        libbladerf_rs::Error::StreamClosed => Error::DeviceError,
+        e => Error::Misc(e.to_string()),
     }
 }
 
-fn convert_complex32_to_bytes(format: SampleFormat, src: &[Complex32], dst: &mut [u8]) -> usize {
+fn convert_sc16q11_to_complex32(src: &[u8], dst: &mut [Complex32]) -> usize {
+    let len = (src.len() / 4).min(dst.len());
+    for (chunk, out) in src.chunks_exact(4).take(len).zip(dst.iter_mut()) {
+        let i_val = i16::from_le_bytes([chunk[0], chunk[1]]) as f32 / 2048.0;
+        let q_val = i16::from_le_bytes([chunk[2], chunk[3]]) as f32 / 2048.0;
+        *out = Complex32::new(i_val, q_val);
+    }
+    len
+}
+
+fn convert_sc8q7_to_complex32(src: &[u8], dst: &mut [Complex32]) -> usize {
+    let len = (src.len() / 2).min(dst.len());
+    for (chunk, out) in src.chunks_exact(2).take(len).zip(dst.iter_mut()) {
+        let i_val = (chunk[0] as i8) as f32 / 128.0;
+        let q_val = (chunk[1] as i8) as f32 / 128.0;
+        *out = Complex32::new(i_val, q_val);
+    }
+    len
+}
+
+fn convert_sc16q11_packed_to_complex32(src: &[u8], dst: &mut [Complex32]) -> usize {
+    let groups = src.len() / 6;
+    let num_samples = (groups * 2).min(dst.len());
+    let bytes_needed = num_samples * 4;
+    let dst_bytes =
+        unsafe { std::slice::from_raw_parts_mut(dst.as_mut_ptr() as *mut u8, bytes_needed) };
+    SampleFormat::unpack_sc16q11_packed(src, dst_bytes, num_samples).unwrap();
+    for i in (0..num_samples).rev() {
+        let byte_off = i * 4;
+        let i_val =
+            i16::from_le_bytes([dst_bytes[byte_off], dst_bytes[byte_off + 1]]) as f32 / 2048.0;
+        let q_val =
+            i16::from_le_bytes([dst_bytes[byte_off + 2], dst_bytes[byte_off + 3]]) as f32 / 2048.0;
+        dst[i] = Complex32::new(i_val, q_val);
+    }
+    num_samples
+}
+
+fn convert_bytes_to_complex32(format: SampleFormat, src: &[u8], dst: &mut [Complex32]) -> usize {
     match format {
-        SampleFormat::Sc16Q11 => convert_complex32_to_sc16q11(src, dst),
-        SampleFormat::Sc8Q7 => convert_complex32_to_sc8q7(src, dst),
-        _ => unimplemented!("unsupported TX sample format: {format:?}"),
+        SampleFormat::Sc16Q11 => convert_sc16q11_to_complex32(src, dst),
+        SampleFormat::Sc8Q7 => convert_sc8q7_to_complex32(src, dst),
+        SampleFormat::Sc16Q11Packed => convert_sc16q11_packed_to_complex32(src, dst),
+        _ => unimplemented!("unsupported sample format: {format:?}"),
     }
 }
 
@@ -91,6 +103,14 @@ fn convert_complex32_to_sc8q7(src: &[Complex32], dst: &mut [u8]) -> usize {
     len
 }
 
+fn convert_complex32_to_bytes(format: SampleFormat, src: &[Complex32], dst: &mut [u8]) -> usize {
+    match format {
+        SampleFormat::Sc16Q11 => convert_complex32_to_sc16q11(src, dst),
+        SampleFormat::Sc8Q7 => convert_complex32_to_sc8q7(src, dst),
+        _ => unimplemented!("unsupported TX sample format: {format:?}"),
+    }
+}
+
 impl From<BladeRfRangeItem> for RangeItem {
     fn from(val: BladeRfRangeItem) -> Self {
         match val {
@@ -106,20 +126,6 @@ impl From<BladeRfRange> for Range {
         Range {
             items: val.items.into_iter().map(Into::into).collect(),
         }
-    }
-}
-
-fn ch(channel: usize) -> Channel {
-    Channel::try_from(channel as u8).unwrap()
-}
-
-fn bladerf_err(e: libbladerf_rs::Error) -> Error {
-    match e {
-        libbladerf_rs::Error::NotFound => Error::NotFound,
-        libbladerf_rs::Error::Timeout => Error::DeviceError,
-        libbladerf_rs::Error::Io(io) => Error::Io(io),
-        libbladerf_rs::Error::Argument(_) => Error::ValueError,
-        e => Error::Misc(e.to_string()),
     }
 }
 
@@ -204,53 +210,57 @@ impl BladeRf {
 }
 
 pub struct RxStreamer {
-    streamer: RxStream,
+    streamer: Option<RxStream>,
+    dev: Arc<Mutex<BladeRf1>>,
     format: SampleFormat,
-    buffer_size: usize,
-    active: bool,
     pending: Option<(Buffer, usize)>,
 }
 
 pub struct TxStreamer {
-    streamer: TxStream,
+    streamer: Option<TxStream>,
+    dev: Arc<Mutex<BladeRf1>>,
     format: SampleFormat,
-    buffer_size: usize,
-    active: bool,
-}
-
-macro_rules! impl_streamer_common {
-    () => {
-        fn mtu(&self) -> Result<usize, Error> {
-            Ok(self.buffer_size)
-        }
-
-        fn activate_at(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
-            if let Some(t) = time_ns {
-                sleep(Duration::from_nanos(t as u64));
-            }
-            self.active = true;
-            Ok(())
-        }
-
-        fn deactivate_at(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
-            if let Some(t) = time_ns {
-                sleep(Duration::from_nanos(t as u64));
-            }
-            if self.active {
-                self.streamer.close().map_err(bladerf_err)?;
-                self.active = false;
-            }
-            Ok(())
-        }
-    };
 }
 
 impl crate::RxStreamer for RxStreamer {
-    impl_streamer_common!();
+    fn mtu(&self) -> Result<usize, Error> {
+        self.streamer
+            .as_ref()
+            .ok_or(Error::Inactive)?
+            .buffer_size()
+            .map_err(bladerf_err)
+    }
+
+    fn activate_at(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
+        if let Some(t) = time_ns {
+            sleep(Duration::from_nanos(t as u64));
+        }
+        let mut dev = self.dev.lock().unwrap();
+        let streamer = RxStream::builder(&mut *dev)
+            .buffer_size(BUFFER_SIZE)
+            .buffer_count(BUFFER_COUNT)
+            .format(self.format)
+            .build()
+            .map_err(bladerf_err)?;
+        self.streamer = Some(streamer);
+        Ok(())
+    }
+
+    fn deactivate_at(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
+        if let Some(t) = time_ns {
+            sleep(Duration::from_nanos(t as u64));
+        }
+        if let Some(mut streamer) = self.streamer.take() {
+            streamer
+                .close(&mut *self.dev.lock().unwrap())
+                .map_err(bladerf_err)?;
+        }
+        Ok(())
+    }
 
     fn read(&mut self, buffers: &mut [&mut [Complex32]], timeout_us: i64) -> Result<usize, Error> {
         debug_assert_eq!(buffers.len(), 1);
-
+        let streamer = self.streamer.as_mut().ok_or(Error::Inactive)?;
         let bytes_per_sample = self.format.sample_size();
         let output = &mut buffers[0];
         let mut written = 0;
@@ -268,7 +278,7 @@ impl crate::RxStreamer for RxStreamer {
             if offset < buf.len() {
                 self.pending = Some((buf, offset));
             } else {
-                self.streamer.recycle(buf);
+                streamer.recycle(buf);
             }
         }
 
@@ -278,8 +288,7 @@ impl crate::RxStreamer for RxStreamer {
 
         let remaining = &mut output[written..];
 
-        let dma_buffer = self
-            .streamer
+        let dma_buffer = streamer
             .read(Some(Duration::from_micros(timeout_us as u64)))
             .map_err(bladerf_err)?;
 
@@ -296,7 +305,7 @@ impl crate::RxStreamer for RxStreamer {
             let offset = samples_to_produce * bytes_per_sample;
             self.pending = Some((dma_buffer, offset));
         } else {
-            self.streamer.recycle(dma_buffer);
+            streamer.recycle(dma_buffer);
         }
 
         written += samples_to_produce;
@@ -305,7 +314,40 @@ impl crate::RxStreamer for RxStreamer {
 }
 
 impl crate::TxStreamer for TxStreamer {
-    impl_streamer_common!();
+    fn mtu(&self) -> Result<usize, Error> {
+        self.streamer
+            .as_ref()
+            .ok_or(Error::Inactive)?
+            .buffer_size()
+            .map_err(bladerf_err)
+    }
+
+    fn activate_at(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
+        if let Some(t) = time_ns {
+            sleep(Duration::from_nanos(t as u64));
+        }
+        let mut dev = self.dev.lock().unwrap();
+        let streamer = TxStream::builder(&mut *dev)
+            .buffer_size(BUFFER_SIZE)
+            .buffer_count(BUFFER_COUNT)
+            .format(self.format)
+            .build()
+            .map_err(bladerf_err)?;
+        self.streamer = Some(streamer);
+        Ok(())
+    }
+
+    fn deactivate_at(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
+        if let Some(t) = time_ns {
+            sleep(Duration::from_nanos(t as u64));
+        }
+        if let Some(mut streamer) = self.streamer.take() {
+            streamer
+                .close(&mut *self.dev.lock().unwrap())
+                .map_err(bladerf_err)?;
+        }
+        Ok(())
+    }
 
     fn write(
         &mut self,
@@ -315,14 +357,14 @@ impl crate::TxStreamer for TxStreamer {
         timeout_us: i64,
     ) -> Result<usize, Error> {
         debug_assert_eq!(buffers.len(), 1);
-
+        let streamer = self.streamer.as_mut().ok_or(Error::Inactive)?;
+        let buffer_size = streamer.buffer_size().map_err(bladerf_err)?;
         let bytes_per_sample = self.format.sample_size();
-        let max_samples = self.buffer_size / bytes_per_sample;
+        let max_samples = buffer_size / bytes_per_sample;
         let samples_to_write = buffers[0].len().min(max_samples);
         let bytes_needed = samples_to_write * bytes_per_sample;
 
-        let mut dma_buffer = self
-            .streamer
+        let mut dma_buffer = streamer
             .get_buffer(Some(Duration::from_micros(timeout_us as u64)))
             .map_err(bladerf_err)?;
 
@@ -332,7 +374,7 @@ impl crate::TxStreamer for TxStreamer {
             &mut dma_buffer[..bytes_needed],
         );
 
-        self.streamer
+        streamer
             .submit(dma_buffer, bytes_needed)
             .map_err(bladerf_err)?;
 
@@ -358,44 +400,6 @@ impl crate::TxStreamer for TxStreamer {
             offset += written;
         }
         Ok(())
-    }
-}
-
-const BUFFER_SIZE: usize = 65536;
-const BUFFER_COUNT: usize = 8;
-
-impl BladeRf {
-    fn create_rx_streamer(&self, format: SampleFormat) -> RxStreamer {
-        let mut dev = self.inner.lock().unwrap();
-        let streamer = RxStream::builder(&mut *dev)
-            .buffer_size(BUFFER_SIZE)
-            .buffer_count(BUFFER_COUNT)
-            .format(format)
-            .build()
-            .expect("Failed to create RX streamer");
-        RxStreamer {
-            streamer,
-            format,
-            buffer_size: BUFFER_SIZE,
-            active: true,
-            pending: None,
-        }
-    }
-
-    fn create_tx_streamer(&self, format: SampleFormat) -> TxStreamer {
-        let mut dev = self.inner.lock().unwrap();
-        let streamer = TxStream::builder(&mut *dev)
-            .buffer_size(BUFFER_SIZE)
-            .buffer_count(BUFFER_COUNT)
-            .format(format)
-            .build()
-            .expect("Failed to create TX streamer");
-        TxStreamer {
-            streamer,
-            format,
-            buffer_size: BUFFER_SIZE,
-            active: true,
-        }
     }
 }
 
@@ -445,7 +449,12 @@ impl crate::DeviceTrait for BladeRf {
             log::error!("BladeRF1 only supports one RX channel!");
             return Err(Error::ValueError);
         }
-        Ok(self.create_rx_streamer(SampleFormat::Sc16Q11))
+        Ok(RxStreamer {
+            streamer: None,
+            dev: Arc::clone(&self.inner),
+            format: SampleFormat::Sc16Q11,
+            pending: None,
+        })
     }
 
     fn tx_streamer(&self, channels: &[usize], _args: Args) -> Result<Self::TxStreamer, Error> {
@@ -453,7 +462,11 @@ impl crate::DeviceTrait for BladeRf {
             log::error!("BladeRF1 only supports one TX channel!");
             return Err(Error::ValueError);
         }
-        Ok(self.create_tx_streamer(SampleFormat::Sc16Q11))
+        Ok(TxStreamer {
+            streamer: None,
+            dev: Arc::clone(&self.inner),
+            format: SampleFormat::Sc16Q11,
+        })
     }
 
     fn antennas(&self, _direction: Direction, _channel: usize) -> Result<Vec<String>, Error> {
@@ -478,7 +491,7 @@ impl crate::DeviceTrait for BladeRf {
             .inner
             .lock()
             .unwrap()
-            .get_gain_modes(ch(channel))
+            .get_gain_modes(ch(channel)?)
             .is_ok())
     }
 
@@ -491,7 +504,7 @@ impl crate::DeviceTrait for BladeRf {
         self.inner
             .lock()
             .unwrap()
-            .set_gain_mode(ch(channel), mode)
+            .set_gain_mode(ch(channel)?, mode)
             .map_err(bladerf_err)
     }
 
@@ -500,17 +513,21 @@ impl crate::DeviceTrait for BladeRf {
     }
 
     fn gain_elements(&self, _direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
-        Ok(BladeRf1::get_gain_stages(ch(channel))
+        Ok(BladeRf1::get_gain_stages(ch(channel)?)
             .iter()
             .map(|s| <&str>::from(*s).to_string())
             .collect())
     }
 
     fn set_gain(&self, _direction: Direction, channel: usize, gain: f64) -> Result<(), Error> {
+        let range = BladeRf1::get_gain_range(ch(channel)?);
+        let min = range.min().unwrap_or(f64::MIN);
+        let max = range.max().unwrap_or(f64::MAX);
+        let clamped = gain.clamp(min, max);
         self.inner
             .lock()
             .unwrap()
-            .set_gain(ch(channel), GainDb::from(gain as i8))
+            .set_gain(ch(channel)?, GainDb::from(clamped as i8))
             .map_err(bladerf_err)
     }
 
@@ -519,14 +536,14 @@ impl crate::DeviceTrait for BladeRf {
             self.inner
                 .lock()
                 .unwrap()
-                .get_gain(ch(channel))
+                .get_gain(ch(channel)?)
                 .map_err(bladerf_err)?
                 .db as f64,
         ))
     }
 
     fn gain_range(&self, _direction: Direction, channel: usize) -> Result<Range, Error> {
-        Ok(BladeRf1::get_gain_range(ch(channel)).into())
+        Ok(BladeRf1::get_gain_range(ch(channel)?).into())
     }
 
     fn set_gain_element(
@@ -537,10 +554,14 @@ impl crate::DeviceTrait for BladeRf {
         gain: f64,
     ) -> Result<(), Error> {
         let stage = GainStage::try_from(name).map_err(|_| Error::ValueError)?;
+        let range = BladeRf1::get_gain_stage_range(stage);
+        let min = range.min().unwrap_or(f64::MIN);
+        let max = range.max().unwrap_or(f64::MAX);
+        let clamped = gain.clamp(min, max);
         self.inner
             .lock()
             .unwrap()
-            .set_gain_stage(stage, GainDb::from(gain as i8))
+            .set_gain_stage(stage, GainDb::from(clamped as i8))
             .map_err(bladerf_err)
     }
 
@@ -586,7 +607,7 @@ impl crate::DeviceTrait for BladeRf {
             .inner
             .lock()
             .unwrap()
-            .get_frequency(ch(channel))
+            .get_frequency(ch(channel)?)
             .map_err(bladerf_err)? as f64)
     }
 
@@ -608,12 +629,13 @@ impl crate::DeviceTrait for BladeRf {
             }
         }
         log::trace!("Setting frequency to {frequency}");
+        let ch = ch(channel)?;
         if dev
-            .set_frequency(ch(channel), frequency as u64, TuningMode::Fpga)
+            .set_frequency(ch, frequency as u64, TuningMode::Fpga)
             .is_err()
         {
             log::warn!("FPGA retune failed, falling back to host tuning");
-            dev.set_frequency(ch(channel), frequency as u64, TuningMode::Host)
+            dev.set_frequency(ch, frequency as u64, TuningMode::Host)
                 .map_err(bladerf_err)?;
         }
         Ok(())
@@ -660,7 +682,7 @@ impl crate::DeviceTrait for BladeRf {
             .inner
             .lock()
             .unwrap()
-            .get_sample_rate(ch(channel))
+            .get_sample_rate(ch(channel)?)
             .map_err(bladerf_err)? as f64)
     }
 
@@ -671,15 +693,12 @@ impl crate::DeviceTrait for BladeRf {
         rate: f64,
     ) -> Result<(), Error> {
         let mut dev = self.inner.lock().unwrap();
-        let actual = dev
-            .set_sample_rate(ch(channel), rate as u32)
-            .map_err(bladerf_err)?;
+        let ch = ch(channel)?;
+        let actual = dev.set_sample_rate(ch, rate as u32).map_err(bladerf_err)?;
         if actual != rate as u32 {
             log::debug!("Requested sample rate {rate}, actual {actual}");
         }
-        let bw_actual = dev
-            .set_bandwidth(ch(channel), actual)
-            .map_err(bladerf_err)?;
+        let bw_actual = dev.set_bandwidth(ch, actual).map_err(bladerf_err)?;
         if bw_actual != actual {
             log::debug!("Auto-set bandwidth to {bw_actual} (requested {actual})");
         }
@@ -700,7 +719,7 @@ impl crate::DeviceTrait for BladeRf {
             .inner
             .lock()
             .unwrap()
-            .get_bandwidth(ch(channel))
+            .get_bandwidth(ch(channel)?)
             .map_err(bladerf_err)? as f64)
     }
 
@@ -709,7 +728,7 @@ impl crate::DeviceTrait for BladeRf {
             .inner
             .lock()
             .unwrap()
-            .set_bandwidth(ch(channel), bw as u32)
+            .set_bandwidth(ch(channel)?, bw as u32)
             .map_err(bladerf_err)?;
         if actual != bw as u32 {
             log::debug!("Requested bandwidth {bw}, actual {actual}");
