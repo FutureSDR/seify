@@ -1,9 +1,8 @@
 use crate::{Args, Direction, Error, Range, RangeItem};
-use libbladerf_rs::bladerf1::board::stream::SampleFormat;
 use libbladerf_rs::bladerf1::hardware::lms6002d::dc_calibration::DcCalModule;
 use libbladerf_rs::bladerf1::hardware::lms6002d::gain::GainStage;
 use libbladerf_rs::bladerf1::{
-    BladeRf1, ExpansionBoard, GainDb, GainMode, RxStream, TuningMode, TxStream,
+    BladeRf1, ExpansionBoard, GainDb, GainMode, RxStream, SampleFormat, TuningMode, TxStream,
 };
 use libbladerf_rs::channel::Channel;
 use libbladerf_rs::range::{Range as BladeRfRange, RangeItem as BladeRfRangeItem};
@@ -17,6 +16,8 @@ use std::time::Duration;
 
 const BUFFER_SIZE: usize = 65536;
 const BUFFER_COUNT: usize = 8;
+const INV_2048: f32 = 1.0 / 2048.0;
+const INV_128: f32 = 1.0 / 128.0;
 
 fn ch(channel: usize) -> Result<Channel, Error> {
     Channel::try_from(channel as u8).map_err(|_| Error::ValueError)
@@ -37,8 +38,8 @@ fn bladerf_err(e: libbladerf_rs::Error) -> Error {
 fn convert_sc16q11_to_complex32(src: &[u8], dst: &mut [Complex32]) -> usize {
     let len = (src.len() / 4).min(dst.len());
     for (chunk, out) in src.chunks_exact(4).take(len).zip(dst.iter_mut()) {
-        let i_val = i16::from_le_bytes([chunk[0], chunk[1]]) as f32 / 2048.0;
-        let q_val = i16::from_le_bytes([chunk[2], chunk[3]]) as f32 / 2048.0;
+        let i_val = i16::from_le_bytes([chunk[0], chunk[1]]) as f32 * INV_2048;
+        let q_val = i16::from_le_bytes([chunk[2], chunk[3]]) as f32 * INV_2048;
         *out = Complex32::new(i_val, q_val);
     }
     len
@@ -47,8 +48,8 @@ fn convert_sc16q11_to_complex32(src: &[u8], dst: &mut [Complex32]) -> usize {
 fn convert_sc8q7_to_complex32(src: &[u8], dst: &mut [Complex32]) -> usize {
     let len = (src.len() / 2).min(dst.len());
     for (chunk, out) in src.chunks_exact(2).take(len).zip(dst.iter_mut()) {
-        let i_val = (chunk[0] as i8) as f32 / 128.0;
-        let q_val = (chunk[1] as i8) as f32 / 128.0;
+        let i_val = (chunk[0] as i8) as f32 * INV_128;
+        let q_val = (chunk[1] as i8) as f32 * INV_128;
         *out = Complex32::new(i_val, q_val);
     }
     len
@@ -57,19 +58,24 @@ fn convert_sc8q7_to_complex32(src: &[u8], dst: &mut [Complex32]) -> usize {
 fn convert_sc16q11_packed_to_complex32(src: &[u8], dst: &mut [Complex32]) -> usize {
     let groups = src.len() / 6;
     let num_samples = (groups * 2).min(dst.len());
-    let bytes_needed = num_samples * 4;
-    let dst_bytes =
-        unsafe { std::slice::from_raw_parts_mut(dst.as_mut_ptr() as *mut u8, bytes_needed) };
-    SampleFormat::unpack_sc16q11_packed(src, dst_bytes, num_samples).unwrap();
-    for i in (0..num_samples).rev() {
-        let byte_off = i * 4;
-        let i_val =
-            i16::from_le_bytes([dst_bytes[byte_off], dst_bytes[byte_off + 1]]) as f32 / 2048.0;
-        let q_val =
-            i16::from_le_bytes([dst_bytes[byte_off + 2], dst_bytes[byte_off + 3]]) as f32 / 2048.0;
-        dst[i] = Complex32::new(i_val, q_val);
+    for i in 0..num_samples / 2 {
+        let si = 6 * i;
+        let w0 = u16::from_le_bytes([src[si], src[si + 1]]);
+        let w1 = u16::from_le_bytes([src[si + 2], src[si + 3]]);
+        let w2 = u16::from_le_bytes([src[si + 4], src[si + 5]]);
+        let i0 = sign_extend_12(w0 & 0x0FFF) * INV_2048;
+        let q0 = sign_extend_12((w0 >> 12) | ((w1 & 0x00FF) << 4)) * INV_2048;
+        let i1 = sign_extend_12((w1 >> 8) | ((w2 & 0x000F) << 8)) * INV_2048;
+        let q1 = sign_extend_12(w2 >> 4) * INV_2048;
+        dst[i * 2] = Complex32::new(i0, q0);
+        dst[i * 2 + 1] = Complex32::new(i1, q1);
     }
     num_samples
+}
+
+#[inline(always)]
+const fn sign_extend_12(val: u16) -> f32 {
+    ((val << 4) as i16 >> 4) as f32
 }
 
 fn convert_bytes_to_complex32(format: SampleFormat, src: &[u8], dst: &mut [Complex32]) -> usize {
@@ -236,7 +242,7 @@ impl crate::RxStreamer for RxStreamer {
             sleep(Duration::from_nanos(t as u64));
         }
         let mut dev = self.dev.lock().unwrap();
-        let streamer = RxStream::builder(&mut *dev)
+        let streamer = RxStream::builder(&mut dev)
             .buffer_size(BUFFER_SIZE)
             .buffer_count(BUFFER_COUNT)
             .format(self.format)
@@ -252,8 +258,8 @@ impl crate::RxStreamer for RxStreamer {
         }
         if let Some(mut streamer) = self.streamer.take() {
             streamer
-                .close(&mut *self.dev.lock().unwrap())
-                .map_err(bladerf_err)?;
+                .close(&mut self.dev.lock().unwrap())
+                    .map_err(bladerf_err)?;
         }
         Ok(())
     }
@@ -327,7 +333,7 @@ impl crate::TxStreamer for TxStreamer {
             sleep(Duration::from_nanos(t as u64));
         }
         let mut dev = self.dev.lock().unwrap();
-        let streamer = TxStream::builder(&mut *dev)
+        let streamer = TxStream::builder(&mut dev)
             .buffer_size(BUFFER_SIZE)
             .buffer_count(BUFFER_COUNT)
             .format(self.format)
@@ -343,7 +349,7 @@ impl crate::TxStreamer for TxStreamer {
         }
         if let Some(mut streamer) = self.streamer.take() {
             streamer
-                .close(&mut *self.dev.lock().unwrap())
+                .close(&mut self.dev.lock().unwrap())
                 .map_err(bladerf_err)?;
         }
         Ok(())
