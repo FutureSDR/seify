@@ -68,7 +68,13 @@ pub fn main() -> Result<(), Box<dyn Error>> {
         if terminate.load(Ordering::Relaxed) {
             break;
         }
-        let r_buff = r.slice().unwrap();
+        let r_buff = match r.slice() {
+            Some(b) => b,
+            None => {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+                continue;
+            }
+        };
         let l = r_buff.len();
         println!("received {l} samples");
         r.consume(l);

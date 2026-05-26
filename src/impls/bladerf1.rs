@@ -2,7 +2,8 @@ use crate::{Args, Direction, Error, Range, RangeItem};
 use libbladerf_rs::bladerf1::hardware::lms6002d::dc_calibration::DcCalModule;
 use libbladerf_rs::bladerf1::hardware::lms6002d::gain::GainStage;
 use libbladerf_rs::bladerf1::{
-    BladeRf1, ExpansionBoard, GainDb, GainMode, RxStream, SampleFormat, TuningMode, TxStream,
+    BladeRf1, ExpansionBoard, GainDb, GainMode, RfLinkSession, RxStream, SampleFormat, TuningMode,
+    TxStream,
 };
 use libbladerf_rs::channel::Channel;
 use libbladerf_rs::range::{Range as BladeRfRange, RangeItem as BladeRfRangeItem};
@@ -141,7 +142,8 @@ pub struct BladeRf {
 
 impl BladeRf {
     fn init_and_wrap(mut bladerf: BladeRf1) -> Result<Self, Error> {
-        bladerf.initialize(false).map_err(bladerf_err)?;
+        let mut session = bladerf.rf_link_session().map_err(bladerf_err)?;
+        session.initialize(false).map_err(bladerf_err)?;
         Ok(Self {
             inner: Arc::new(Mutex::new(bladerf)),
         })
@@ -199,19 +201,15 @@ impl BladeRf {
     }
 
     pub fn enable_expansion_board(&mut self, board_type: ExpansionBoard) -> Result<(), Error> {
-        self.inner
-            .lock()
-            .unwrap()
-            .expansion_attach(board_type)
-            .map_err(bladerf_err)
+        let mut dev = self.inner.lock().unwrap();
+        let mut session = dev.rf_link_session().map_err(bladerf_err)?;
+        session.expansion_attach(board_type).map_err(bladerf_err)
     }
 
     pub fn calibrate_dc(&mut self, module: DcCalModule) -> Result<(), Error> {
-        self.inner
-            .lock()
-            .unwrap()
-            .calibrate_dc(module)
-            .map_err(bladerf_err)
+        let mut dev = self.inner.lock().unwrap();
+        let mut session = dev.rf_link_session().map_err(bladerf_err)?;
+        session.calibrate_dc(module).map_err(bladerf_err)
     }
 }
 
@@ -242,24 +240,22 @@ impl crate::RxStreamer for RxStreamer {
             sleep(Duration::from_nanos(t as u64));
         }
         let mut dev = self.dev.lock().unwrap();
-        let streamer = RxStream::builder(&mut dev)
-            .buffer_size(BUFFER_SIZE)
-            .buffer_count(BUFFER_COUNT)
-            .format(self.format)
-            .build()
-            .map_err(bladerf_err)?;
-        self.streamer = Some(streamer);
-        Ok(())
+        let mut session = dev.rf_link_session().map_err(bladerf_err)?;
+        self.streamer
+            .as_mut()
+            .ok_or(Error::Inactive)?
+            .start(&mut session)
+            .map_err(bladerf_err)
     }
 
     fn deactivate_at(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
         if let Some(t) = time_ns {
             sleep(Duration::from_nanos(t as u64));
         }
-        if let Some(mut streamer) = self.streamer.take() {
-            streamer
-                .close(&mut self.dev.lock().unwrap())
-                    .map_err(bladerf_err)?;
+        if let Some(streamer) = self.streamer.as_mut() {
+            let mut dev = self.dev.lock().unwrap();
+            let mut session = dev.rf_link_session().map_err(bladerf_err)?;
+            streamer.stop(&mut session).map_err(bladerf_err)?;
         }
         Ok(())
     }
@@ -333,24 +329,22 @@ impl crate::TxStreamer for TxStreamer {
             sleep(Duration::from_nanos(t as u64));
         }
         let mut dev = self.dev.lock().unwrap();
-        let streamer = TxStream::builder(&mut dev)
-            .buffer_size(BUFFER_SIZE)
-            .buffer_count(BUFFER_COUNT)
-            .format(self.format)
-            .build()
-            .map_err(bladerf_err)?;
-        self.streamer = Some(streamer);
-        Ok(())
+        let mut session = dev.rf_link_session().map_err(bladerf_err)?;
+        self.streamer
+            .as_mut()
+            .ok_or(Error::Inactive)?
+            .start(&mut session)
+            .map_err(bladerf_err)
     }
 
     fn deactivate_at(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
         if let Some(t) = time_ns {
             sleep(Duration::from_nanos(t as u64));
         }
-        if let Some(mut streamer) = self.streamer.take() {
-            streamer
-                .close(&mut self.dev.lock().unwrap())
-                .map_err(bladerf_err)?;
+        if let Some(streamer) = self.streamer.as_mut() {
+            let mut dev = self.dev.lock().unwrap();
+            let mut session = dev.rf_link_session().map_err(bladerf_err)?;
+            streamer.stop(&mut session).map_err(bladerf_err)?;
         }
         Ok(())
     }
@@ -455,8 +449,16 @@ impl crate::DeviceTrait for BladeRf {
             log::error!("BladeRF1 only supports one RX channel!");
             return Err(Error::ValueError);
         }
+        let mut dev = self.inner.lock().unwrap();
+        let mut session = dev.rf_link_session().map_err(bladerf_err)?;
+        let streamer = RxStream::builder(&mut session)
+            .buffer_size(BUFFER_SIZE)
+            .buffer_count(BUFFER_COUNT)
+            .format(SampleFormat::Sc16Q11)
+            .build()
+            .map_err(bladerf_err)?;
         Ok(RxStreamer {
-            streamer: None,
+            streamer: Some(streamer),
             dev: Arc::clone(&self.inner),
             format: SampleFormat::Sc16Q11,
             pending: None,
@@ -468,8 +470,16 @@ impl crate::DeviceTrait for BladeRf {
             log::error!("BladeRF1 only supports one TX channel!");
             return Err(Error::ValueError);
         }
+        let mut dev = self.inner.lock().unwrap();
+        let mut session = dev.rf_link_session().map_err(bladerf_err)?;
+        let streamer = TxStream::builder(&mut session)
+            .buffer_size(BUFFER_SIZE)
+            .buffer_count(BUFFER_COUNT)
+            .format(SampleFormat::Sc16Q11)
+            .build()
+            .map_err(bladerf_err)?;
         Ok(TxStreamer {
-            streamer: None,
+            streamer: Some(streamer),
             dev: Arc::clone(&self.inner),
             format: SampleFormat::Sc16Q11,
         })
@@ -493,12 +503,9 @@ impl crate::DeviceTrait for BladeRf {
     }
 
     fn supports_agc(&self, _direction: Direction, channel: usize) -> Result<bool, Error> {
-        Ok(self
-            .inner
-            .lock()
-            .unwrap()
-            .get_gain_modes(ch(channel)?)
-            .is_ok())
+        let mut dev = self.inner.lock().unwrap();
+        let session = dev.rf_link_session().map_err(bladerf_err)?;
+        Ok(session.get_gain_modes(ch(channel)?).is_ok())
     }
 
     fn enable_agc(&self, _direction: Direction, channel: usize, agc: bool) -> Result<(), Error> {
@@ -507,49 +514,48 @@ impl crate::DeviceTrait for BladeRf {
         } else {
             GainMode::Mgc
         };
-        self.inner
-            .lock()
-            .unwrap()
+        let mut dev = self.inner.lock().unwrap();
+        let mut session = dev.rf_link_session().map_err(bladerf_err)?;
+        session
             .set_gain_mode(ch(channel)?, mode)
             .map_err(bladerf_err)
     }
 
     fn agc(&self, _direction: Direction, _channel: usize) -> Result<bool, Error> {
-        Ok(self.inner.lock().unwrap().get_gain_mode().is_ok())
+        let mut dev = self.inner.lock().unwrap();
+        let mut session = dev.rf_link_session().map_err(bladerf_err)?;
+        Ok(session.get_gain_mode().is_ok())
     }
 
     fn gain_elements(&self, _direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
-        Ok(BladeRf1::get_gain_stages(ch(channel)?)
+        Ok(RfLinkSession::get_gain_stages(ch(channel)?)
             .iter()
             .map(|s| <&str>::from(*s).to_string())
             .collect())
     }
 
     fn set_gain(&self, _direction: Direction, channel: usize, gain: f64) -> Result<(), Error> {
-        let range = BladeRf1::get_gain_range(ch(channel)?);
+        let range = RfLinkSession::get_gain_range(ch(channel)?);
         let min = range.min().unwrap_or(f64::MIN);
         let max = range.max().unwrap_or(f64::MAX);
         let clamped = gain.clamp(min, max);
-        self.inner
-            .lock()
-            .unwrap()
+        let mut dev = self.inner.lock().unwrap();
+        let mut session = dev.rf_link_session().map_err(bladerf_err)?;
+        session
             .set_gain(ch(channel)?, GainDb::from(clamped as i8))
             .map_err(bladerf_err)
     }
 
     fn gain(&self, _direction: Direction, channel: usize) -> Result<Option<f64>, Error> {
+        let mut dev = self.inner.lock().unwrap();
+        let mut session = dev.rf_link_session().map_err(bladerf_err)?;
         Ok(Some(
-            self.inner
-                .lock()
-                .unwrap()
-                .get_gain(ch(channel)?)
-                .map_err(bladerf_err)?
-                .db as f64,
+            session.get_gain(ch(channel)?).map_err(bladerf_err)?.db as f64,
         ))
     }
 
     fn gain_range(&self, _direction: Direction, channel: usize) -> Result<Range, Error> {
-        Ok(BladeRf1::get_gain_range(ch(channel)?).into())
+        Ok(RfLinkSession::get_gain_range(ch(channel)?).into())
     }
 
     fn set_gain_element(
@@ -560,13 +566,13 @@ impl crate::DeviceTrait for BladeRf {
         gain: f64,
     ) -> Result<(), Error> {
         let stage = GainStage::try_from(name).map_err(|_| Error::ValueError)?;
-        let range = BladeRf1::get_gain_stage_range(stage);
+        let range = RfLinkSession::get_gain_stage_range(stage);
         let min = range.min().unwrap_or(f64::MIN);
         let max = range.max().unwrap_or(f64::MAX);
         let clamped = gain.clamp(min, max);
-        self.inner
-            .lock()
-            .unwrap()
+        let mut dev = self.inner.lock().unwrap();
+        let mut session = dev.rf_link_session().map_err(bladerf_err)?;
+        session
             .set_gain_stage(stage, GainDb::from(clamped as i8))
             .map_err(bladerf_err)
     }
@@ -578,13 +584,10 @@ impl crate::DeviceTrait for BladeRf {
         name: &str,
     ) -> Result<Option<f64>, Error> {
         let stage = GainStage::try_from(name).map_err(|_| Error::ValueError)?;
+        let mut dev = self.inner.lock().unwrap();
+        let mut session = dev.rf_link_session().map_err(bladerf_err)?;
         Ok(Some(
-            self.inner
-                .lock()
-                .unwrap()
-                .get_gain_stage(stage)
-                .map_err(bladerf_err)?
-                .db as f64,
+            session.get_gain_stage(stage).map_err(bladerf_err)?.db as f64,
         ))
     }
 
@@ -595,26 +598,19 @@ impl crate::DeviceTrait for BladeRf {
         name: &str,
     ) -> Result<Range, Error> {
         let stage = GainStage::try_from(name).map_err(|_| Error::ValueError)?;
-        Ok(BladeRf1::get_gain_stage_range(stage).into())
+        Ok(RfLinkSession::get_gain_stage_range(stage).into())
     }
 
     fn frequency_range(&self, _direction: Direction, _channel: usize) -> Result<Range, Error> {
-        Ok(self
-            .inner
-            .lock()
-            .unwrap()
-            .get_frequency_range()
-            .map_err(bladerf_err)?
-            .into())
+        let mut dev = self.inner.lock().unwrap();
+        let mut session = dev.rf_link_session().map_err(bladerf_err)?;
+        Ok(session.get_frequency_range().map_err(bladerf_err)?.into())
     }
 
     fn frequency(&self, _direction: Direction, channel: usize) -> Result<f64, Error> {
-        Ok(self
-            .inner
-            .lock()
-            .unwrap()
-            .get_frequency(ch(channel)?)
-            .map_err(bladerf_err)? as f64)
+        let mut dev = self.inner.lock().unwrap();
+        let mut session = dev.rf_link_session().map_err(bladerf_err)?;
+        Ok(session.get_frequency(ch(channel)?).map_err(bladerf_err)? as f64)
     }
 
     fn set_frequency(
@@ -625,23 +621,26 @@ impl crate::DeviceTrait for BladeRf {
         _args: Args,
     ) -> Result<(), Error> {
         let mut dev = self.inner.lock().unwrap();
-        let f_range = dev.get_frequency_range().map_err(bladerf_err)?;
+        let mut session = dev.rf_link_session().map_err(bladerf_err)?;
+        let f_range = session.get_frequency_range().map_err(bladerf_err)?;
         if frequency < f_range.min().unwrap() {
             log::trace!("Frequency {frequency} requires XB200 expansion board");
-            if dev.expansion_get_attached().map_err(bladerf_err)? != ExpansionBoard::Xb200 {
+            if session.expansion_get_attached().map_err(bladerf_err)? != ExpansionBoard::Xb200 {
                 log::debug!("Automatically attaching XB200 expansion board");
-                dev.expansion_attach(ExpansionBoard::Xb200)
+                session
+                    .expansion_attach(ExpansionBoard::Xb200)
                     .map_err(bladerf_err)?;
             }
         }
         log::trace!("Setting frequency to {frequency}");
         let ch = ch(channel)?;
-        if dev
+        if session
             .set_frequency(ch, frequency as u64, TuningMode::Fpga)
             .is_err()
         {
             log::warn!("FPGA retune failed, falling back to host tuning");
-            dev.set_frequency(ch, frequency as u64, TuningMode::Host)
+            session
+                .set_frequency(ch, frequency as u64, TuningMode::Host)
                 .map_err(bladerf_err)?;
         }
         Ok(())
@@ -684,12 +683,9 @@ impl crate::DeviceTrait for BladeRf {
     }
 
     fn sample_rate(&self, _direction: Direction, channel: usize) -> Result<f64, Error> {
-        Ok(self
-            .inner
-            .lock()
-            .unwrap()
-            .get_sample_rate(ch(channel)?)
-            .map_err(bladerf_err)? as f64)
+        let mut dev = self.inner.lock().unwrap();
+        let mut session = dev.rf_link_session().map_err(bladerf_err)?;
+        Ok(session.get_sample_rate(ch(channel)?).map_err(bladerf_err)? as f64)
     }
 
     fn set_sample_rate(
@@ -699,12 +695,15 @@ impl crate::DeviceTrait for BladeRf {
         rate: f64,
     ) -> Result<(), Error> {
         let mut dev = self.inner.lock().unwrap();
+        let mut session = dev.rf_link_session().map_err(bladerf_err)?;
         let ch = ch(channel)?;
-        let actual = dev.set_sample_rate(ch, rate as u32).map_err(bladerf_err)?;
+        let actual = session
+            .set_sample_rate(ch, rate as u32)
+            .map_err(bladerf_err)?;
         if actual != rate as u32 {
             log::debug!("Requested sample rate {rate}, actual {actual}");
         }
-        let bw_actual = dev.set_bandwidth(ch, actual).map_err(bladerf_err)?;
+        let bw_actual = session.set_bandwidth(ch, actual).map_err(bladerf_err)?;
         if bw_actual != actual {
             log::debug!("Auto-set bandwidth to {bw_actual} (requested {actual})");
         }
@@ -717,23 +716,19 @@ impl crate::DeviceTrait for BladeRf {
         _direction: Direction,
         _channel: usize,
     ) -> Result<Range, Error> {
-        Ok(BladeRf1::get_sample_rate_range().into())
+        Ok(RfLinkSession::get_sample_rate_range().into())
     }
 
     fn bandwidth(&self, _direction: Direction, channel: usize) -> Result<f64, Error> {
-        Ok(self
-            .inner
-            .lock()
-            .unwrap()
-            .get_bandwidth(ch(channel)?)
-            .map_err(bladerf_err)? as f64)
+        let mut dev = self.inner.lock().unwrap();
+        let mut session = dev.rf_link_session().map_err(bladerf_err)?;
+        Ok(session.get_bandwidth(ch(channel)?).map_err(bladerf_err)? as f64)
     }
 
     fn set_bandwidth(&self, _direction: Direction, channel: usize, bw: f64) -> Result<(), Error> {
-        let actual = self
-            .inner
-            .lock()
-            .unwrap()
+        let mut dev = self.inner.lock().unwrap();
+        let mut session = dev.rf_link_session().map_err(bladerf_err)?;
+        let actual = session
             .set_bandwidth(ch(channel)?, bw as u32)
             .map_err(bladerf_err)?;
         if actual != bw as u32 {
@@ -743,7 +738,7 @@ impl crate::DeviceTrait for BladeRf {
     }
 
     fn get_bandwidth_range(&self, _direction: Direction, _channel: usize) -> Result<Range, Error> {
-        Ok(BladeRf1::get_bandwidth_range().into())
+        Ok(RfLinkSession::get_bandwidth_range().into())
     }
 
     fn has_dc_offset_mode(&self, _direction: Direction, _channel: usize) -> Result<bool, Error> {
