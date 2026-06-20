@@ -130,9 +130,7 @@ impl From<BladeRfRangeItem> for RangeItem {
 
 impl From<BladeRfRange> for Range {
     fn from(val: BladeRfRange) -> Self {
-        Range {
-            items: val.items.into_iter().map(Into::into).collect(),
-        }
+        Range::new(val.iter().cloned().map(Into::into).collect())
     }
 }
 
@@ -550,7 +548,7 @@ impl crate::DeviceTrait for BladeRf {
         let mut dev = self.inner.lock().unwrap();
         let mut session = dev.rf_link_session().map_err(bladerf_err)?;
         Ok(Some(
-            session.get_gain(ch(channel)?).map_err(bladerf_err)?.db as f64,
+            session.get_gain(ch(channel)?).map_err(bladerf_err)?.db() as f64,
         ))
     }
 
@@ -587,7 +585,7 @@ impl crate::DeviceTrait for BladeRf {
         let mut dev = self.inner.lock().unwrap();
         let mut session = dev.rf_link_session().map_err(bladerf_err)?;
         Ok(Some(
-            session.get_gain_stage(stage).map_err(bladerf_err)?.db as f64,
+            session.get_gain_stage(stage).map_err(bladerf_err)?.db() as f64,
         ))
     }
 
