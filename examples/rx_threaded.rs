@@ -68,20 +68,18 @@ pub fn main() -> Result<(), Box<dyn Error>> {
         if terminate.load(Ordering::Relaxed) {
             break;
         }
-        let r_buff = match r.slice() {
-            Some(b) => b,
-            None => {
-                std::thread::sleep(std::time::Duration::from_millis(10));
-                continue;
-            }
+        let Some(r_buff) = r.slice() else {
+            break;
         };
         let l = r_buff.len();
         println!("received {l} samples");
         r.consume(l);
     }
 
-    if let Err(e) = rx_thread.join() {
-        std::panic::resume_unwind(e);
+    match rx_thread.join() {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => return Err(e),
+        Err(e) => std::panic::resume_unwind(e),
     }
     Ok(())
 }
