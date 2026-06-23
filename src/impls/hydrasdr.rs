@@ -2,14 +2,16 @@
 
 use std::any::Any;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use hydrasdr_rs::commands::{GainType, RfPort};
 use hydrasdr_rs::device::HydraSdr as DirectHydraSdr;
 use hydrasdr_rs::discovery;
 use hydrasdr_rs::errors::StatusCode;
 use hydrasdr_rs::rfone;
-use hydrasdr_rs::streaming::Transfer;
+use hydrasdr_rs::streaming::DirectRxStream;
 use hydrasdr_rs::types::{GainInfo, SampleType};
+use hydrasdr_rs::usb::control::NusbBulkIn;
 use num_complex::Complex32;
 
 use crate::Direction::*;
@@ -37,6 +39,7 @@ struct Inner {
     bandwidths: Vec<u32>,
     gains: Vec<GainCache>,
     agc: bool,
+    active_rx_streams: usize,
 }
 
 #[derive(Clone)]
@@ -56,8 +59,9 @@ enum DeviceSelector {
 
 pub struct RxStreamer {
     dev: Arc<Mutex<DirectHydraSdr>>,
+    inner: Arc<Mutex<Inner>>,
     active: bool,
-    leftover: Vec<Complex32>,
+    stream: Option<DirectRxStream<NusbBulkIn>>,
 }
 
 unsafe impl Send for RxStreamer {}
@@ -102,8 +106,17 @@ impl HydraSdr {
                 bandwidths,
                 gains,
                 agc: false,
+                active_rx_streams: 0,
             })),
         })
+    }
+
+    fn ensure_rx_config_idle(&self) -> Result<(), Error> {
+        if self.inner.lock().unwrap().active_rx_streams == 0 {
+            Ok(())
+        } else {
+            Err(Error::DeviceError)
+        }
     }
 }
 
@@ -161,11 +174,15 @@ impl DeviceTrait for HydraSdr {
         if channels != [0] {
             return Err(Error::ValueError);
         }
+        self.ensure_rx_config_idle()?;
         let mut dev = self.dev.lock().unwrap();
         dev.set_sample_type(SampleType::Float32Iq)
             .map_err(map_hydrasdr_error)?;
         dev.set_packing(0).map_err(map_hydrasdr_error)?;
-        Ok(RxStreamer::new(Arc::clone(&self.dev)))
+        Ok(RxStreamer::new(
+            Arc::clone(&self.dev),
+            Arc::clone(&self.inner),
+        ))
     }
 
     fn tx_streamer(&self, _channels: &[usize], _args: Args) -> Result<Self::TxStreamer, Error> {
@@ -187,6 +204,7 @@ impl DeviceTrait for HydraSdr {
 
     fn set_antenna(&self, direction: Direction, channel: usize, name: &str) -> Result<(), Error> {
         check_rx(direction, channel)?;
+        self.ensure_rx_config_idle()?;
         let (name, port) = antenna_port(name).ok_or(Error::ValueError)?;
         self.dev
             .lock()
@@ -416,6 +434,7 @@ impl DeviceTrait for HydraSdr {
         if !range.contains(rate) {
             return Err(Error::OutOfRange(range, rate));
         }
+        self.ensure_rx_config_idle()?;
         self.dev
             .lock()
             .unwrap()
@@ -457,6 +476,7 @@ impl DeviceTrait for HydraSdr {
         if !range.contains(bw) {
             return Err(Error::OutOfRange(range, bw));
         }
+        self.ensure_rx_config_idle()?;
         self.dev
             .lock()
             .unwrap()
@@ -503,11 +523,12 @@ impl DeviceTrait for HydraSdr {
 }
 
 impl RxStreamer {
-    fn new(dev: Arc<Mutex<DirectHydraSdr>>) -> Self {
+    fn new(dev: Arc<Mutex<DirectHydraSdr>>, inner: Arc<Mutex<Inner>>) -> Self {
         Self {
             dev,
+            inner,
             active: false,
-            leftover: Vec::new(),
+            stream: None,
         }
     }
 }
@@ -521,7 +542,18 @@ impl crate::RxStreamer for RxStreamer {
         if time_ns.is_some() {
             return Err(Error::NotSupported);
         }
+        if self.active {
+            return Ok(());
+        }
+        let stream = self
+            .dev
+            .lock()
+            .unwrap()
+            .start_rx_stream()
+            .map_err(map_hydrasdr_error)?;
+        self.stream = Some(stream);
         self.active = true;
+        self.inner.lock().unwrap().active_rx_streams += 1;
         Ok(())
     }
 
@@ -530,16 +562,23 @@ impl crate::RxStreamer for RxStreamer {
             return Err(Error::NotSupported);
         }
         if self.active {
-            let mut dev = self.dev.lock().unwrap();
-            if dev.is_streaming() {
-                dev.stop_rx().map_err(map_hydrasdr_error)?;
+            self.active = false;
+            {
+                let mut inner = self.inner.lock().unwrap();
+                inner.active_rx_streams = inner.active_rx_streams.saturating_sub(1);
+            }
+            if let Some(stream) = self.stream.take() {
+                self.dev
+                    .lock()
+                    .unwrap()
+                    .stop_rx_stream(stream)
+                    .map_err(map_hydrasdr_error)?;
             }
         }
-        self.active = false;
         Ok(())
     }
 
-    fn read(&mut self, buffers: &mut [&mut [Complex32]], _timeout_us: i64) -> Result<usize, Error> {
+    fn read(&mut self, buffers: &mut [&mut [Complex32]], timeout_us: i64) -> Result<usize, Error> {
         if !self.active {
             return Err(Error::Inactive);
         }
@@ -551,42 +590,37 @@ impl crate::RxStreamer for RxStreamer {
         }
 
         let out = &mut buffers[0];
-        let mut written = 0;
-
-        let from_leftover = out.len().min(self.leftover.len());
-        out[..from_leftover].copy_from_slice(&self.leftover[..from_leftover]);
-        self.leftover.drain(..from_leftover);
-        written += from_leftover;
-        if written == out.len() {
-            return Ok(written);
+        let timeout = if timeout_us < 0 {
+            Duration::MAX
+        } else {
+            Duration::from_micros(timeout_us as u64)
+        };
+        let stream = self.stream.as_mut().ok_or(Error::Inactive)?;
+        let mut iq = vec![(0.0, 0.0); out.len()];
+        let read = stream
+            .read_float32_iq(&mut iq, timeout)
+            .map_err(map_hydrasdr_error)?;
+        for (dst, (i, q)) in out.iter_mut().take(read).zip(iq.into_iter()) {
+            *dst = Complex32::new(i, q);
         }
 
-        let mut dev = self.dev.lock().unwrap();
-        let mut decode_error = None;
-        dev.start_rx(|transfer: &Transfer<'_>| {
-            match decode_float32_iq(transfer) {
-                Ok(samples) => {
-                    for sample in samples {
-                        if written < out.len() {
-                            out[written] = sample;
-                            written += 1;
-                        } else {
-                            self.leftover.push(sample);
-                        }
-                    }
-                }
-                Err(err) => {
-                    decode_error = Some(err);
+        Ok(read)
+    }
+}
+
+impl Drop for RxStreamer {
+    fn drop(&mut self) {
+        if self.active {
+            if let Some(stream) = self.stream.take() {
+                if let Ok(mut dev) = self.dev.lock() {
+                    let _ = dev.stop_rx_stream(stream);
                 }
             }
-            1
-        })
-        .map_err(map_hydrasdr_error)?;
-        if let Some(err) = decode_error {
-            return Err(err);
+            if let Ok(mut inner) = self.inner.lock() {
+                inner.active_rx_streams = inner.active_rx_streams.saturating_sub(1);
+            }
+            self.active = false;
         }
-
-        Ok(written)
     }
 }
 
@@ -750,22 +784,6 @@ fn gain_cache_item(name: &'static str, gain: GainInfo) -> GainCache {
     }
 }
 
-fn decode_float32_iq(transfer: &Transfer<'_>) -> Result<Vec<Complex32>, Error> {
-    if transfer.sample_type != SampleType::Float32Iq {
-        return Err(Error::NotSupported);
-    }
-
-    Ok(transfer
-        .samples
-        .chunks_exact(8)
-        .map(|chunk| {
-            let i = f32::from_le_bytes(chunk[0..4].try_into().expect("four bytes"));
-            let q = f32::from_le_bytes(chunk[4..8].try_into().expect("four bytes"));
-            Complex32::new(i, q)
-        })
-        .collect())
-}
-
 fn map_hydrasdr_error(err: hydrasdr_rs::Error) -> Error {
     if matches!(
         &err,
@@ -776,6 +794,8 @@ fn map_hydrasdr_error(err: hydrasdr_rs::Error) -> Error {
             }
     ) {
         Error::NotFound
+    } else if matches!(&err, hydrasdr_rs::Error::Status(StatusCode::Unsupported)) {
+        Error::NotSupported
     } else {
         err.into()
     }
@@ -785,65 +805,6 @@ fn map_hydrasdr_error(err: hydrasdr_rs::Error) -> Error {
 mod tests {
     use super::*;
     use hydrasdr_rs::types::BoardId;
-
-    #[test]
-    fn decode_float32_iq_converts_little_endian_iq_pairs() {
-        let mut samples = Vec::new();
-        samples.extend_from_slice(&1.25f32.to_le_bytes());
-        samples.extend_from_slice(&(-0.5f32).to_le_bytes());
-        samples.extend_from_slice(&0.0f32.to_le_bytes());
-        samples.extend_from_slice(&2.5f32.to_le_bytes());
-
-        let transfer = Transfer {
-            samples: &samples,
-            sample_count: 2,
-            dropped_samples: 0,
-            sample_type: SampleType::Float32Iq,
-        };
-
-        let decoded = decode_float32_iq(&transfer).unwrap();
-
-        assert_eq!(
-            decoded,
-            vec![Complex32::new(1.25, -0.5), Complex32::new(0.0, 2.5)]
-        );
-    }
-
-    #[test]
-    fn decode_float32_iq_rejects_unexpected_sample_type() {
-        let samples = [0_u8; 8];
-        let transfer = Transfer {
-            samples: &samples,
-            sample_count: 1,
-            dropped_samples: 0,
-            sample_type: SampleType::Raw,
-        };
-
-        assert!(matches!(
-            decode_float32_iq(&transfer),
-            Err(Error::NotSupported)
-        ));
-    }
-
-    #[test]
-    fn decode_float32_iq_ignores_incomplete_trailing_sample_bytes() {
-        let mut samples = Vec::new();
-        samples.extend_from_slice(&3.5f32.to_le_bytes());
-        samples.extend_from_slice(&(-4.25f32).to_le_bytes());
-        samples.extend_from_slice(&[0xaa, 0xbb, 0xcc]);
-
-        let transfer = Transfer {
-            samples: &samples,
-            sample_count: 1,
-            dropped_samples: 0,
-            sample_type: SampleType::Float32Iq,
-        };
-
-        assert_eq!(
-            decode_float32_iq(&transfer).unwrap(),
-            vec![Complex32::new(3.5, -4.25)]
-        );
-    }
 
     #[test]
     fn probe_args_from_info_maps_usb_metadata_without_opening_hardware() {
