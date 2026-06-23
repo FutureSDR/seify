@@ -617,8 +617,16 @@ impl crate::RxStreamer for RxStreamer {
         }
         if self.active {
             if let Some(stream) = self.stream.take() {
-                let (device, _) = stream.finish().map_err(map_hydrasdr_error)?;
-                *self.dev.lock().unwrap() = Some(device);
+                match stream.finish() {
+                    Ok((device, _)) => {
+                        *self.dev.lock().unwrap() = Some(device);
+                    }
+                    Err(err) => {
+                        let (device, err, _) = err.into_parts();
+                        *self.dev.lock().unwrap() = Some(device);
+                        return Err(map_hydrasdr_error(err));
+                    }
+                }
             }
             self.active = false;
             let mut inner = self.inner.lock().unwrap();
@@ -658,9 +666,17 @@ impl Drop for RxStreamer {
     fn drop(&mut self) {
         if self.active {
             if let Some(stream) = self.stream.take() {
-                if let Ok((device, _)) = stream.finish() {
-                    if let Ok(mut dev) = self.dev.lock() {
-                        *dev = Some(device);
+                match stream.finish() {
+                    Ok((device, _)) => {
+                        if let Ok(mut dev) = self.dev.lock() {
+                            *dev = Some(device);
+                        }
+                    }
+                    Err(err) => {
+                        let (device, _, _) = err.into_parts();
+                        if let Ok(mut dev) = self.dev.lock() {
+                            *dev = Some(device);
+                        }
                     }
                 }
             }
