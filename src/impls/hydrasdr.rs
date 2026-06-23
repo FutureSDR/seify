@@ -47,6 +47,13 @@ struct GainCache {
     range: Range,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum DeviceSelector {
+    First,
+    Serial(u64),
+    Index(usize),
+}
+
 pub struct RxStreamer {
     dev: Arc<Mutex<DirectHydraSdr>>,
     active: bool,
@@ -80,20 +87,14 @@ impl HydraSdr {
 
     pub fn open<A: TryInto<Args>>(args: A) -> Result<Self, Error> {
         let args = args.try_into().or(Err(Error::ValueError))?;
-        let serial = match args.get::<u64>("serial") {
-            Ok(serial) => Some(serial),
-            Err(Error::NotFound) => None,
-            Err(e) => return Err(e),
-        };
-
-        let mut dev = match serial {
-            Some(serial) => DirectHydraSdr::open_sn(serial),
-            None => DirectHydraSdr::open(),
-        }
-        .map_err(map_hydrasdr_error)?;
+        let selector = device_selector(&args)?;
+        let (mut dev, serial) = open_selected_device(selector)?;
 
         dev.set_sample_type(SampleType::Float32Iq)
             .map_err(map_hydrasdr_error)?;
+        // TODO: wire a Seify `packing` Arg if/when the HydraSDR sample-format semantics are exposed
+        // clearly enough for non-Float32IQ receive paths. Seify Complex32 streaming currently uses
+        // unpacked Float32IQ to avoid inventing packed/raw conversion behavior.
         dev.set_packing(0).map_err(map_hydrasdr_error)?;
 
         let sample_rates = dev.get_samplerates().unwrap_or_default();
@@ -572,18 +573,29 @@ impl crate::RxStreamer for RxStreamer {
         }
 
         let mut dev = self.dev.lock().unwrap();
+        let mut decode_error = None;
         dev.start_rx(|transfer: &Transfer<'_>| {
-            for sample in decode_float32_iq(transfer) {
-                if written < out.len() {
-                    out[written] = sample;
-                    written += 1;
-                } else {
-                    self.leftover.push(sample);
+            match decode_float32_iq(transfer) {
+                Ok(samples) => {
+                    for sample in samples {
+                        if written < out.len() {
+                            out[written] = sample;
+                            written += 1;
+                        } else {
+                            self.leftover.push(sample);
+                        }
+                    }
+                }
+                Err(err) => {
+                    decode_error = Some(err);
                 }
             }
             1
         })
         .map_err(map_hydrasdr_error)?;
+        if let Some(err) = decode_error {
+            return Err(err);
+        }
 
         Ok(written)
     }
@@ -678,6 +690,48 @@ fn gain_cache(dev: &DirectHydraSdr) -> Vec<GainCache> {
         .collect()
 }
 
+fn device_selector(args: &Args) -> Result<DeviceSelector, Error> {
+    match args.get::<usize>("index") {
+        Ok(index) => return Ok(DeviceSelector::Index(index)),
+        Err(Error::NotFound) => {}
+        Err(err) => return Err(err),
+    }
+
+    match args.get::<u64>("serial") {
+        Ok(serial) => Ok(DeviceSelector::Serial(serial)),
+        Err(Error::NotFound) => Ok(DeviceSelector::First),
+        Err(err) => Err(err),
+    }
+}
+
+fn open_selected_device(selector: DeviceSelector) -> Result<(DirectHydraSdr, Option<u64>), Error> {
+    match selector {
+        DeviceSelector::First => DirectHydraSdr::open()
+            .map(|dev| (dev, None))
+            .map_err(map_hydrasdr_error),
+        DeviceSelector::Serial(serial) => DirectHydraSdr::open_sn(serial)
+            .map(|dev| (dev, Some(serial)))
+            .map_err(map_hydrasdr_error),
+        DeviceSelector::Index(index) => {
+            let devices = discovery::list_devices().map_err(map_hydrasdr_error)?;
+            let Some(info) = devices.get(index) else {
+                return Err(Error::NotFound);
+            };
+            if let Some(serial) = info.serial {
+                DirectHydraSdr::open_sn(serial)
+                    .map(|dev| (dev, Some(serial)))
+                    .map_err(map_hydrasdr_error)
+            } else if index == 0 {
+                DirectHydraSdr::open()
+                    .map(|dev| (dev, None))
+                    .map_err(map_hydrasdr_error)
+            } else {
+                Err(Error::NotFound)
+            }
+        }
+    }
+}
+
 fn gain_cache_item(name: &'static str, gain: GainInfo) -> GainCache {
     let step = gain.step_value.max(1) as f64;
     GainCache {
@@ -692,8 +746,12 @@ fn gain_cache_item(name: &'static str, gain: GainInfo) -> GainCache {
     }
 }
 
-fn decode_float32_iq(transfer: &Transfer<'_>) -> Vec<Complex32> {
-    transfer
+fn decode_float32_iq(transfer: &Transfer<'_>) -> Result<Vec<Complex32>, Error> {
+    if transfer.sample_type != SampleType::Float32Iq {
+        return Err(Error::NotSupported);
+    }
+
+    Ok(transfer
         .samples
         .chunks_exact(8)
         .map(|chunk| {
@@ -701,7 +759,7 @@ fn decode_float32_iq(transfer: &Transfer<'_>) -> Vec<Complex32> {
             let q = f32::from_le_bytes(chunk[4..8].try_into().expect("four bytes"));
             Complex32::new(i, q)
         })
-        .collect()
+        .collect())
 }
 
 fn map_hydrasdr_error(err: hydrasdr_rs::Error) -> Error {
@@ -716,5 +774,73 @@ fn map_hydrasdr_error(err: hydrasdr_rs::Error) -> Error {
         Error::NotFound
     } else {
         err.into()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn decode_float32_iq_converts_little_endian_iq_pairs() {
+        let mut samples = Vec::new();
+        samples.extend_from_slice(&1.25f32.to_le_bytes());
+        samples.extend_from_slice(&(-0.5f32).to_le_bytes());
+        samples.extend_from_slice(&0.0f32.to_le_bytes());
+        samples.extend_from_slice(&2.5f32.to_le_bytes());
+
+        let transfer = Transfer {
+            samples: &samples,
+            sample_count: 2,
+            dropped_samples: 0,
+            sample_type: SampleType::Float32Iq,
+        };
+
+        let decoded = decode_float32_iq(&transfer).unwrap();
+
+        assert_eq!(
+            decoded,
+            vec![Complex32::new(1.25, -0.5), Complex32::new(0.0, 2.5)]
+        );
+    }
+
+    #[test]
+    fn decode_float32_iq_rejects_unexpected_sample_type() {
+        let samples = [0_u8; 8];
+        let transfer = Transfer {
+            samples: &samples,
+            sample_count: 1,
+            dropped_samples: 0,
+            sample_type: SampleType::Raw,
+        };
+
+        assert!(matches!(
+            decode_float32_iq(&transfer),
+            Err(Error::NotSupported)
+        ));
+    }
+
+    #[test]
+    fn device_selector_defaults_to_first_device() {
+        let args = Args::default();
+
+        assert_eq!(device_selector(&args).unwrap(), DeviceSelector::First);
+    }
+
+    #[test]
+    fn device_selector_accepts_serial() {
+        let args: Args = "driver=hydrasdr,serial=1234".try_into().unwrap();
+
+        assert_eq!(
+            device_selector(&args).unwrap(),
+            DeviceSelector::Serial(1234)
+        );
+    }
+
+    #[test]
+    fn device_selector_prefers_index_over_serial_like_other_seify_drivers() {
+        let args: Args = "driver=hydrasdr,index=2,serial=1234".try_into().unwrap();
+
+        assert_eq!(device_selector(&args).unwrap(), DeviceSelector::Index(2));
     }
 }
