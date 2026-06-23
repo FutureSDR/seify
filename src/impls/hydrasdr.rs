@@ -2,17 +2,18 @@
 
 use std::any::Any;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use hydrasdr_rs::{
-    Bandwidth, Config, Device as HydraSdrDevice, GainConfig, GainInfo, GainPreset, GainType,
-    HydraSdrDeviceInfo, OwnedRxStream, RfPort, SampleFormat, StatusCode,
+    Bandwidth, Config, DecimationMode, Device as HydraSdrDevice, GainConfig, GainInfo, GainPreset,
+    GainType, HydraSdrDeviceInfo, OwnedF32RxStream, RfPort, SampleFormat, StatusCode,
 };
 use num_complex::Complex32;
 
 use crate::Direction::*;
 use crate::{Args, DeviceTrait, Direction, Driver, Error, Range, RangeItem};
 
-const MTU: usize = 262_144 / 2;
+const MTU: usize = 262_144 / 8;
 const DEFAULT_SAMPLE_RATE_MIN: f64 = 10_000.0;
 const DEFAULT_BANDWIDTH_MIN: f64 = 1_000.0;
 
@@ -60,8 +61,7 @@ pub struct RxStreamer {
     dev: Arc<Mutex<Option<HydraSdrDevice>>>,
     inner: Arc<Mutex<Inner>>,
     active: bool,
-    stream: Option<OwnedRxStream>,
-    pending: Vec<Complex32>,
+    stream: Option<OwnedF32RxStream>,
 }
 
 unsafe impl Send for RxStreamer {}
@@ -577,7 +577,6 @@ impl RxStreamer {
             inner,
             active: false,
             stream: None,
-            pending: Vec::new(),
         }
     }
 }
@@ -598,7 +597,7 @@ impl crate::RxStreamer for RxStreamer {
         let Some(device) = dev.take() else {
             return Err(Error::DeviceError);
         };
-        let stream = match device.into_rx_stream() {
+        let stream = match device.into_f32_rx_stream() {
             Ok(stream) => stream,
             Err(err) => {
                 let (device, err) = err.into_parts();
@@ -621,7 +620,6 @@ impl crate::RxStreamer for RxStreamer {
                 let (device, _) = stream.finish().map_err(map_hydrasdr_error)?;
                 *self.dev.lock().unwrap() = Some(device);
             }
-            self.pending.clear();
             self.active = false;
             let mut inner = self.inner.lock().unwrap();
             inner.active_rx_streams = inner.active_rx_streams.saturating_sub(1);
@@ -629,7 +627,7 @@ impl crate::RxStreamer for RxStreamer {
         Ok(())
     }
 
-    fn read(&mut self, buffers: &mut [&mut [Complex32]], _timeout_us: i64) -> Result<usize, Error> {
+    fn read(&mut self, buffers: &mut [&mut [Complex32]], timeout_us: i64) -> Result<usize, Error> {
         if !self.active {
             return Err(Error::Inactive);
         }
@@ -641,16 +639,18 @@ impl crate::RxStreamer for RxStreamer {
         }
 
         let out = &mut buffers[0];
-        let mut written = drain_pending(&mut self.pending, out);
-        while written == 0 {
-            let stream = self.stream.as_mut().ok_or(Error::Inactive)?;
-            let Some(block) = stream.next_block().map_err(map_hydrasdr_error)? else {
-                break;
-            };
-            append_raw_u8_iq(block.raw_bytes(), &mut self.pending);
-            written += drain_pending(&mut self.pending, &mut out[written..]);
+        let timeout = if timeout_us < 0 {
+            Duration::MAX
+        } else {
+            Duration::from_micros(timeout_us as u64)
+        };
+        let stream = self.stream.as_mut().ok_or(Error::Inactive)?;
+        let mut iq = vec![(0.0, 0.0); out.len()];
+        let read = stream.read(&mut iq, timeout).map_err(map_hydrasdr_error)?;
+        for (dst, (i, q)) in out.iter_mut().take(read).zip(iq) {
+            *dst = Complex32::new(i, q);
         }
-        Ok(written)
+        Ok(read)
     }
 }
 
@@ -664,7 +664,6 @@ impl Drop for RxStreamer {
                     }
                 }
             }
-            self.pending.clear();
             if let Ok(mut inner) = self.inner.lock() {
                 inner.active_rx_streams = inner.active_rx_streams.saturating_sub(1);
             }
@@ -822,13 +821,15 @@ fn device_selector(args: &Args) -> Result<DeviceSelector, Error> {
 fn open_selected_device(selector: DeviceSelector) -> Result<(HydraSdrDevice, Option<u64>), Error> {
     match selector {
         DeviceSelector::First => HydraSdrDevice::builder()
-            .sample_format(SampleFormat::RawU8Iq)
+            .sample_format(SampleFormat::F32Iq)
+            .decimation_mode(DecimationMode::HighDefinition)
             .open()
             .map(|dev| (dev, None))
             .map_err(map_hydrasdr_error),
         DeviceSelector::Serial(serial) => HydraSdrDevice::builder()
             .serial(serial)
-            .sample_format(SampleFormat::RawU8Iq)
+            .sample_format(SampleFormat::F32Iq)
+            .decimation_mode(DecimationMode::HighDefinition)
             .open()
             .map(|dev| (dev, Some(serial)))
             .map_err(map_hydrasdr_error),
@@ -840,13 +841,15 @@ fn open_selected_device(selector: DeviceSelector) -> Result<(HydraSdrDevice, Opt
             if let Some(serial) = info.serial {
                 HydraSdrDevice::builder()
                     .serial(serial)
-                    .sample_format(SampleFormat::RawU8Iq)
+                    .sample_format(SampleFormat::F32Iq)
+                    .decimation_mode(DecimationMode::HighDefinition)
                     .open()
                     .map(|dev| (dev, Some(serial)))
                     .map_err(map_hydrasdr_error)
             } else if index == 0 {
                 HydraSdrDevice::builder()
-                    .sample_format(SampleFormat::RawU8Iq)
+                    .sample_format(SampleFormat::F32Iq)
+                    .decimation_mode(DecimationMode::HighDefinition)
                     .open()
                     .map(|dev| (dev, None))
                     .map_err(map_hydrasdr_error)
@@ -860,7 +863,8 @@ fn open_selected_device(selector: DeviceSelector) -> Result<(HydraSdrDevice, Opt
 fn configure_device(dev: &mut HydraSdrDevice, inner: &Inner) -> Result<(), Error> {
     let (_, port) = antenna_port(inner.antenna).ok_or(Error::ValueError)?;
     let mut builder = Config::builder()
-        .sample_format(SampleFormat::RawU8Iq)
+        .sample_format(SampleFormat::F32Iq)
+        .decimation_mode(DecimationMode::HighDefinition)
         .rf_port(port)
         .gain(inner.gain_config)
         .packing(false);
@@ -907,22 +911,6 @@ fn gain_cache_item(name: &'static str, gain: GainInfo) -> GainCache {
             step,
         )]),
     }
-}
-
-fn append_raw_u8_iq(raw: &[u8], pending: &mut Vec<Complex32>) {
-    pending.extend(raw.chunks_exact(2).map(|sample| {
-        Complex32::new(
-            (sample[0] as f32 - 127.0) / 128.0,
-            (sample[1] as f32 - 127.0) / 128.0,
-        )
-    }));
-}
-
-fn drain_pending(pending: &mut Vec<Complex32>, out: &mut [Complex32]) -> usize {
-    let count = pending.len().min(out.len());
-    out[..count].copy_from_slice(&pending[..count]);
-    pending.drain(..count);
-    count
 }
 
 fn map_hydrasdr_error(err: hydrasdr_rs::Error) -> Error {
