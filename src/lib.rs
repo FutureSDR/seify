@@ -58,6 +58,9 @@ pub enum Error {
     #[cfg(all(feature = "hackrfone", not(target_arch = "wasm32")))]
     #[error("Hackrf ({0})")]
     HackRfOne(#[from] seify_hackrfone::Error),
+    #[cfg(all(feature = "hydrasdr", not(target_arch = "wasm32")))]
+    #[error("HydraSdr ({0})")]
+    HydraSdr(#[from] hydrasdr_rs::Error),
 }
 
 #[cfg(all(feature = "aaronia_http", not(target_arch = "wasm32")))]
@@ -76,6 +79,7 @@ pub enum Driver {
     BladeRf,
     Dummy,
     HackRf,
+    HydraSdr,
     RtlSdr,
     Soapy,
 }
@@ -102,6 +106,9 @@ impl FromStr for Driver {
         }
         if s == "hackrf" || s == "hackrfone" {
             return Ok(Driver::HackRf);
+        }
+        if s == "hydrasdr" || s == "hydra-sdr" || s == "hydra" {
+            return Ok(Driver::HydraSdr);
         }
         if s == "dummy" || s == "Dummy" {
             return Ok(Driver::Dummy);
@@ -207,6 +214,18 @@ pub fn enumerate_with_args<A: TryInto<Args>>(a: A) -> Result<Vec<Args>, Error> {
             return Err(Error::FeatureNotEnabled);
         }
     }
+    #[cfg(all(feature = "hydrasdr", not(target_arch = "wasm32")))]
+    {
+        if driver.is_none() || matches!(driver, Some(Driver::HydraSdr)) {
+            devs.append(&mut impls::HydraSdr::probe(&args)?)
+        }
+    }
+    #[cfg(not(all(feature = "hydrasdr", not(target_arch = "wasm32"))))]
+    {
+        if matches!(driver, Some(Driver::HydraSdr)) {
+            return Err(Error::FeatureNotEnabled);
+        }
+    }
     #[cfg(feature = "dummy")]
     {
         if driver.is_none() || matches!(driver, Some(Driver::Dummy)) {
@@ -222,4 +241,34 @@ pub fn enumerate_with_args<A: TryInto<Args>>(a: A) -> Result<Vec<Args>, Error> {
 
     let _ = &mut devs;
     Ok(devs)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hydrasdr_driver_aliases_parse() {
+        for alias in ["hydrasdr", "hydra-sdr", "hydra"] {
+            assert_eq!(alias.parse::<Driver>().unwrap(), Driver::HydraSdr);
+        }
+    }
+
+    #[test]
+    #[cfg(not(all(feature = "hydrasdr", not(target_arch = "wasm32"))))]
+    fn hydrasdr_enumeration_reports_disabled_feature_when_not_enabled() {
+        assert!(matches!(
+            enumerate_with_args("driver=hydrasdr"),
+            Err(Error::FeatureNotEnabled)
+        ));
+    }
+
+    #[test]
+    #[cfg(not(all(feature = "hydrasdr", not(target_arch = "wasm32"))))]
+    fn hydrasdr_from_args_reports_disabled_feature_when_not_enabled() {
+        assert!(matches!(
+            Device::from_args("driver=hydrasdr"),
+            Err(Error::FeatureNotEnabled)
+        ));
+    }
 }

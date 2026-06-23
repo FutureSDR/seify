@@ -377,6 +377,30 @@ impl Device<GenericDevice> {
                 }
             }
         }
+        #[cfg(all(feature = "hydrasdr", not(target_arch = "wasm32")))]
+        {
+            if driver.is_none() || matches!(driver, Some(Driver::HydraSdr)) {
+                match crate::impls::HydraSdr::open(&args) {
+                    Ok(d) => {
+                        return Ok(Device {
+                            dev: Arc::new(DeviceWrapper { dev: d }),
+                        })
+                    }
+                    Err(Error::NotFound) => {
+                        if driver.is_some() {
+                            return Err(Error::NotFound);
+                        }
+                    }
+                    Err(e) => return Err(e),
+                }
+            }
+        }
+        #[cfg(not(all(feature = "hydrasdr", not(target_arch = "wasm32"))))]
+        {
+            if matches!(driver, Some(Driver::HydraSdr)) {
+                return Err(Error::FeatureNotEnabled);
+            }
+        }
         #[cfg(feature = "dummy")]
         {
             if driver.is_none() || matches!(driver, Some(Driver::Dummy)) {
