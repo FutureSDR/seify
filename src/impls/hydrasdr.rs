@@ -69,18 +69,7 @@ impl HydraSdr {
     pub fn probe(_args: &Args) -> Result<Vec<Args>, Error> {
         let mut devs = Vec::new();
         for dev in discovery::list_devices().map_err(map_hydrasdr_error)? {
-            let mut args = Args::default();
-            args.set("driver", "hydrasdr");
-            args.set("vid", format!("0x{:04x}", dev.vid));
-            args.set("pid", format!("0x{:04x}", dev.pid));
-            args.set("description", dev.description);
-            if let Some(serial) = dev.serial {
-                args.set("serial", serial.to_string());
-            }
-            if let Some(product) = dev.product_string {
-                args.set("product", product);
-            }
-            devs.push(args);
+            devs.push(probe_args_from_info(dev));
         }
         Ok(devs)
     }
@@ -690,6 +679,21 @@ fn gain_cache(dev: &DirectHydraSdr) -> Vec<GainCache> {
         .collect()
 }
 
+fn probe_args_from_info(dev: discovery::HydraSdrDeviceInfo) -> Args {
+    let mut args = Args::default();
+    args.set("driver", "hydrasdr");
+    args.set("vid", format!("0x{:04x}", dev.vid));
+    args.set("pid", format!("0x{:04x}", dev.pid));
+    args.set("description", dev.description);
+    if let Some(serial) = dev.serial {
+        args.set("serial", serial.to_string());
+    }
+    if let Some(product) = dev.product_string {
+        args.set("product", product);
+    }
+    args
+}
+
 fn device_selector(args: &Args) -> Result<DeviceSelector, Error> {
     match args.get::<usize>("index") {
         Ok(index) => return Ok(DeviceSelector::Index(index)),
@@ -780,6 +784,7 @@ fn map_hydrasdr_error(err: hydrasdr_rs::Error) -> Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use hydrasdr_rs::types::BoardId;
 
     #[test]
     fn decode_float32_iq_converts_little_endian_iq_pairs() {
@@ -821,6 +826,57 @@ mod tests {
     }
 
     #[test]
+    fn decode_float32_iq_ignores_incomplete_trailing_sample_bytes() {
+        let mut samples = Vec::new();
+        samples.extend_from_slice(&3.5f32.to_le_bytes());
+        samples.extend_from_slice(&(-4.25f32).to_le_bytes());
+        samples.extend_from_slice(&[0xaa, 0xbb, 0xcc]);
+
+        let transfer = Transfer {
+            samples: &samples,
+            sample_count: 1,
+            dropped_samples: 0,
+            sample_type: SampleType::Float32Iq,
+        };
+
+        assert_eq!(
+            decode_float32_iq(&transfer).unwrap(),
+            vec![Complex32::new(3.5, -4.25)]
+        );
+    }
+
+    #[test]
+    fn probe_args_from_info_maps_usb_metadata_without_opening_hardware() {
+        let info = discovery::HydraSdrDeviceInfo {
+            vid: 0x38af,
+            pid: 0x0001,
+            description: "HydraSDR RFOne Official VID/PID",
+            board_id: BoardId::HydraSdrRfOneOfficial,
+            serial: Some(0x1234_5678_9abc_def0),
+            product_string: Some("HydraSDR RFOne".to_string()),
+        };
+
+        let args = probe_args_from_info(info);
+
+        assert_eq!(args.get::<String>("driver").unwrap(), "hydrasdr");
+        assert_eq!(args.get::<String>("vid").unwrap(), "0x38af");
+        assert_eq!(args.get::<String>("pid").unwrap(), "0x0001");
+        assert_eq!(
+            args.get::<String>("description").unwrap(),
+            "HydraSDR RFOne Official VID/PID"
+        );
+        assert_eq!(args.get::<String>("serial").unwrap(), "1311768467463790320");
+        assert_eq!(args.get::<String>("product").unwrap(), "HydraSDR RFOne");
+    }
+
+    #[test]
+    fn check_rx_accepts_only_rx_channel_zero_and_rejects_tx() {
+        assert!(check_rx(Rx, 0).is_ok());
+        assert!(matches!(check_rx(Rx, 1), Err(Error::ValueError)));
+        assert!(matches!(check_rx(Tx, 0), Err(Error::NotSupported)));
+    }
+
+    #[test]
     fn device_selector_defaults_to_first_device() {
         let args = Args::default();
 
@@ -842,5 +898,20 @@ mod tests {
         let args: Args = "driver=hydrasdr,index=2,serial=1234".try_into().unwrap();
 
         assert_eq!(device_selector(&args).unwrap(), DeviceSelector::Index(2));
+    }
+
+    #[test]
+    fn device_selector_rejects_invalid_index_and_serial_args() {
+        let bad_index: Args = "driver=hydrasdr,index=not-a-number".try_into().unwrap();
+        assert!(matches!(
+            device_selector(&bad_index),
+            Err(Error::ValueError)
+        ));
+
+        let bad_serial: Args = "driver=hydrasdr,serial=not-a-number".try_into().unwrap();
+        assert!(matches!(
+            device_selector(&bad_serial),
+            Err(Error::ValueError)
+        ));
     }
 }
