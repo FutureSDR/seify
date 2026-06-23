@@ -2,27 +2,23 @@
 
 use std::any::Any;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
-use hydrasdr_rs::commands::{GainType, RfPort};
-use hydrasdr_rs::device::HydraSdr as DirectHydraSdr;
-use hydrasdr_rs::discovery;
-use hydrasdr_rs::errors::StatusCode;
-use hydrasdr_rs::rfone;
-use hydrasdr_rs::streaming::DirectRxStream;
-use hydrasdr_rs::types::{DecimationMode, GainInfo, SampleType};
-use hydrasdr_rs::usb::control::NusbBulkIn;
+use hydrasdr_rs::{
+    Bandwidth, Config, Device as HydraSdrDevice, GainConfig, GainInfo, GainPreset, GainType,
+    HydraSdrDeviceInfo, OwnedRxStream, RfPort, SampleFormat, StatusCode,
+};
 use num_complex::Complex32;
 
 use crate::Direction::*;
 use crate::{Args, DeviceTrait, Direction, Driver, Error, Range, RangeItem};
 
-const MTU: usize = 262_144 / 8;
+const MTU: usize = 262_144 / 2;
 const DEFAULT_SAMPLE_RATE_MIN: f64 = 10_000.0;
+const DEFAULT_BANDWIDTH_MIN: f64 = 1_000.0;
 
 #[derive(Clone)]
 pub struct HydraSdr {
-    dev: Arc<Mutex<DirectHydraSdr>>,
+    dev: Arc<Mutex<Option<HydraSdrDevice>>>,
     serial: Option<u64>,
     inner: Arc<Mutex<Inner>>,
 }
@@ -38,8 +34,11 @@ struct Inner {
     sample_rates: Vec<u32>,
     bandwidths: Vec<u32>,
     gains: Vec<GainCache>,
+    gain_config: GainConfig,
     agc: bool,
     active_rx_streams: usize,
+    min_frequency: f64,
+    max_frequency: f64,
 }
 
 #[derive(Clone)]
@@ -58,10 +57,11 @@ enum DeviceSelector {
 }
 
 pub struct RxStreamer {
-    dev: Arc<Mutex<DirectHydraSdr>>,
+    dev: Arc<Mutex<Option<HydraSdrDevice>>>,
     inner: Arc<Mutex<Inner>>,
     active: bool,
-    stream: Option<DirectRxStream<NusbBulkIn>>,
+    stream: Option<OwnedRxStream>,
+    pending: Vec<Complex32>,
 }
 
 unsafe impl Send for RxStreamer {}
@@ -72,7 +72,7 @@ unsafe impl Send for TxDummy {}
 impl HydraSdr {
     pub fn probe(_args: &Args) -> Result<Vec<Args>, Error> {
         let mut devs = Vec::new();
-        for dev in discovery::list_devices().map_err(map_hydrasdr_error)? {
+        for dev in HydraSdrDevice::list().map_err(map_hydrasdr_error)? {
             devs.push(probe_args_from_info(dev));
         }
         Ok(devs)
@@ -82,22 +82,15 @@ impl HydraSdr {
         let args = args.try_into().or(Err(Error::ValueError))?;
         let selector = device_selector(&args)?;
         let (mut dev, serial) = open_selected_device(selector)?;
-
-        dev.set_sample_type(SampleType::Float32Iq)
-            .map_err(map_hydrasdr_error)?;
-        // TODO: wire a Seify `packing` Arg if/when the HydraSDR sample-format semantics are exposed
-        // clearly enough for non-Float32IQ receive paths. Seify Complex32 streaming currently uses
-        // unpacked Float32IQ to avoid inventing packed/raw conversion behavior.
-        dev.set_packing(0).map_err(map_hydrasdr_error)?;
-        dev.set_decimation_mode(DecimationMode::HighDefinition)
-            .map_err(map_hydrasdr_error)?;
-
-        let sample_rates = dev.get_samplerates().unwrap_or_default();
-        let bandwidths = dev.get_bandwidths().unwrap_or_default();
-        let gains = gain_cache(&dev);
+        let sample_rates = dev.sample_rates().unwrap_or_default();
+        let bandwidths = dev.bandwidths().unwrap_or_default();
+        let info = dev.info();
+        let gains = gain_cache(info.gains.clone());
+        let min_frequency = info.min_frequency as f64;
+        let max_frequency = info.max_frequency as f64;
 
         Ok(Self {
-            dev: Arc::new(Mutex::new(dev)),
+            dev: Arc::new(Mutex::new(Some(dev))),
             serial,
             inner: Arc::new(Mutex::new(Inner {
                 antenna: "ANT",
@@ -107,8 +100,11 @@ impl HydraSdr {
                 sample_rates,
                 bandwidths,
                 gains,
+                gain_config: GainConfig::Unchanged,
                 agc: false,
                 active_rx_streams: 0,
+                min_frequency,
+                max_frequency,
             })),
         })
     }
@@ -144,9 +140,10 @@ impl DeviceTrait for HydraSdr {
         }
 
         let dev = self.dev.lock().unwrap();
+        let dev = dev.as_ref().ok_or(Error::DeviceError)?;
         let serial = dev
-            .board_partid_serialno_read()
-            .map_err(map_hydrasdr_error)?
+            .info()
+            .part_serial
             .serial_no
             .iter()
             .map(|word| format!("{word:08x}"))
@@ -177,10 +174,6 @@ impl DeviceTrait for HydraSdr {
             return Err(Error::ValueError);
         }
         self.ensure_rx_config_idle()?;
-        let mut dev = self.dev.lock().unwrap();
-        dev.set_sample_type(SampleType::Float32Iq)
-            .map_err(map_hydrasdr_error)?;
-        dev.set_packing(0).map_err(map_hydrasdr_error)?;
         Ok(RxStreamer::new(
             Arc::clone(&self.dev),
             Arc::clone(&self.inner),
@@ -207,13 +200,19 @@ impl DeviceTrait for HydraSdr {
     fn set_antenna(&self, direction: Direction, channel: usize, name: &str) -> Result<(), Error> {
         check_rx(direction, channel)?;
         self.ensure_rx_config_idle()?;
-        let (name, port) = antenna_port(name).ok_or(Error::ValueError)?;
-        self.dev
-            .lock()
-            .unwrap()
-            .set_rf_port(port)
-            .map_err(map_hydrasdr_error)?;
-        self.inner.lock().unwrap().antenna = name;
+        let (name, _) = antenna_port(name).ok_or(Error::ValueError)?;
+        let mut inner = self.inner.lock().unwrap();
+        let old = inner.antenna;
+        inner.antenna = name;
+        let mut dev = self.dev.lock().unwrap();
+        let Some(dev) = dev.as_mut() else {
+            inner.antenna = old;
+            return Err(Error::DeviceError);
+        };
+        if let Err(err) = configure_device(dev, &inner) {
+            inner.antenna = old;
+            return Err(err);
+        }
         Ok(())
     }
 
@@ -224,13 +223,23 @@ impl DeviceTrait for HydraSdr {
 
     fn enable_agc(&self, direction: Direction, channel: usize, agc: bool) -> Result<(), Error> {
         check_rx(direction, channel)?;
-        let value = u8::from(agc);
+        self.ensure_rx_config_idle()?;
+        let mut inner = self.inner.lock().unwrap();
+        let old_agc = inner.agc;
+        let old_gain_config = inner.gain_config;
+        inner.agc = agc;
+        inner.gain_config = manual_gain_config(&inner);
         let mut dev = self.dev.lock().unwrap();
-        dev.set_gain(GainType::LnaAgc, value)
-            .map_err(map_hydrasdr_error)?;
-        dev.set_gain(GainType::MixerAgc, value)
-            .map_err(map_hydrasdr_error)?;
-        self.inner.lock().unwrap().agc = agc;
+        let Some(dev) = dev.as_mut() else {
+            inner.agc = old_agc;
+            inner.gain_config = old_gain_config;
+            return Err(Error::DeviceError);
+        };
+        if let Err(err) = configure_device(dev, &inner) {
+            inner.agc = old_agc;
+            inner.gain_config = old_gain_config;
+            return Err(err);
+        }
         Ok(())
     }
 
@@ -277,21 +286,35 @@ impl DeviceTrait for HydraSdr {
             return Err(Error::OutOfRange(range, gain));
         }
 
-        self.dev
-            .lock()
-            .unwrap()
-            .set_gain(gain_type, gain.round() as u8)
-            .map_err(map_hydrasdr_error)?;
-
-        if let Some(cached) = self
-            .inner
-            .lock()
-            .unwrap()
+        self.ensure_rx_config_idle()?;
+        let mut inner = self.inner.lock().unwrap();
+        let old_gains = inner.gains.clone();
+        let old_gain_config = inner.gain_config;
+        if let Some(cached) = inner
             .gains
             .iter_mut()
             .find(|cached| cached.gain_type == gain_type)
         {
             cached.value = gain;
+        }
+        inner.gain_config = match gain_type {
+            GainType::Linearity => GainConfig::Preset(GainPreset::Linearity(gain.round() as u8)),
+            GainType::Sensitivity => {
+                GainConfig::Preset(GainPreset::Sensitivity(gain.round() as u8))
+            }
+            GainType::Lna | GainType::Mixer | GainType::Vga => manual_gain_config(&inner),
+            _ => old_gain_config,
+        };
+        let mut dev = self.dev.lock().unwrap();
+        let Some(dev) = dev.as_mut() else {
+            inner.gains = old_gains;
+            inner.gain_config = old_gain_config;
+            return Err(Error::DeviceError);
+        };
+        if let Err(err) = configure_device(dev, &inner) {
+            inner.gains = old_gains;
+            inner.gain_config = old_gain_config;
+            return Err(err);
         }
         Ok(())
     }
@@ -371,9 +394,10 @@ impl DeviceTrait for HydraSdr {
     ) -> Result<Range, Error> {
         check_rx(direction, channel)?;
         if name == "TUNER" {
+            let inner = self.inner.lock().unwrap();
             Ok(Range::new(vec![RangeItem::Interval(
-                rfone::RFONE_MIN_FREQ_HZ as f64,
-                rfone::RFONE_MAX_FREQ_HZ as f64,
+                inner.min_frequency,
+                inner.max_frequency,
             )]))
         } else {
             Err(Error::ValueError)
@@ -408,12 +432,19 @@ impl DeviceTrait for HydraSdr {
         if !range.contains(frequency) {
             return Err(Error::OutOfRange(range, frequency));
         }
-        self.dev
-            .lock()
-            .unwrap()
-            .set_freq(frequency as u64)
-            .map_err(map_hydrasdr_error)?;
-        self.inner.lock().unwrap().frequency = Some(frequency);
+        self.ensure_rx_config_idle()?;
+        let mut inner = self.inner.lock().unwrap();
+        let old = inner.frequency;
+        inner.frequency = Some(frequency);
+        let mut dev = self.dev.lock().unwrap();
+        let Some(dev) = dev.as_mut() else {
+            inner.frequency = old;
+            return Err(Error::DeviceError);
+        };
+        if let Err(err) = configure_device(dev, &inner) {
+            inner.frequency = old;
+            return Err(err);
+        }
         Ok(())
     }
 
@@ -437,12 +468,18 @@ impl DeviceTrait for HydraSdr {
             return Err(Error::OutOfRange(range, rate));
         }
         self.ensure_rx_config_idle()?;
-        self.dev
-            .lock()
-            .unwrap()
-            .set_samplerate(rate as u32)
-            .map_err(map_hydrasdr_error)?;
-        self.inner.lock().unwrap().sample_rate = Some(rate);
+        let mut inner = self.inner.lock().unwrap();
+        let old = inner.sample_rate;
+        inner.sample_rate = Some(rate);
+        let mut dev = self.dev.lock().unwrap();
+        let Some(dev) = dev.as_mut() else {
+            inner.sample_rate = old;
+            return Err(Error::DeviceError);
+        };
+        if let Err(err) = configure_device(dev, &inner) {
+            inner.sample_rate = old;
+            return Err(err);
+        }
         Ok(())
     }
 
@@ -479,12 +516,18 @@ impl DeviceTrait for HydraSdr {
             return Err(Error::OutOfRange(range, bw));
         }
         self.ensure_rx_config_idle()?;
-        self.dev
-            .lock()
-            .unwrap()
-            .set_bandwidth(bw as u32)
-            .map_err(map_hydrasdr_error)?;
-        self.inner.lock().unwrap().bandwidth = Some(bw);
+        let mut inner = self.inner.lock().unwrap();
+        let old = inner.bandwidth;
+        inner.bandwidth = Some(bw);
+        let mut dev = self.dev.lock().unwrap();
+        let Some(dev) = dev.as_mut() else {
+            inner.bandwidth = old;
+            return Err(Error::DeviceError);
+        };
+        if let Err(err) = configure_device(dev, &inner) {
+            inner.bandwidth = old;
+            return Err(err);
+        }
         Ok(())
     }
 
@@ -492,7 +535,10 @@ impl DeviceTrait for HydraSdr {
         check_rx(direction, channel)?;
         let bandwidths = &self.inner.lock().unwrap().bandwidths;
         if bandwidths.is_empty() {
-            Err(Error::NotSupported)
+            Ok(Range::new(vec![RangeItem::Interval(
+                DEFAULT_BANDWIDTH_MIN,
+                u32::MAX as f64,
+            )]))
         } else {
             Ok(Range::new(
                 bandwidths
@@ -525,12 +571,13 @@ impl DeviceTrait for HydraSdr {
 }
 
 impl RxStreamer {
-    fn new(dev: Arc<Mutex<DirectHydraSdr>>, inner: Arc<Mutex<Inner>>) -> Self {
+    fn new(dev: Arc<Mutex<Option<HydraSdrDevice>>>, inner: Arc<Mutex<Inner>>) -> Self {
         Self {
             dev,
             inner,
             active: false,
             stream: None,
+            pending: Vec::new(),
         }
     }
 }
@@ -547,12 +594,18 @@ impl crate::RxStreamer for RxStreamer {
         if self.active {
             return Ok(());
         }
-        let stream = self
-            .dev
-            .lock()
-            .unwrap()
-            .start_rx_stream()
-            .map_err(map_hydrasdr_error)?;
+        let mut dev = self.dev.lock().unwrap();
+        let Some(device) = dev.take() else {
+            return Err(Error::DeviceError);
+        };
+        let stream = match device.into_rx_stream() {
+            Ok(stream) => stream,
+            Err(err) => {
+                let (device, err) = err.into_parts();
+                *dev = Some(device);
+                return Err(map_hydrasdr_error(err));
+            }
+        };
         self.stream = Some(stream);
         self.active = true;
         self.inner.lock().unwrap().active_rx_streams += 1;
@@ -564,23 +617,19 @@ impl crate::RxStreamer for RxStreamer {
             return Err(Error::NotSupported);
         }
         if self.active {
-            self.active = false;
-            {
-                let mut inner = self.inner.lock().unwrap();
-                inner.active_rx_streams = inner.active_rx_streams.saturating_sub(1);
-            }
             if let Some(stream) = self.stream.take() {
-                self.dev
-                    .lock()
-                    .unwrap()
-                    .stop_rx_stream(stream)
-                    .map_err(map_hydrasdr_error)?;
+                let (device, _) = stream.finish().map_err(map_hydrasdr_error)?;
+                *self.dev.lock().unwrap() = Some(device);
             }
+            self.pending.clear();
+            self.active = false;
+            let mut inner = self.inner.lock().unwrap();
+            inner.active_rx_streams = inner.active_rx_streams.saturating_sub(1);
         }
         Ok(())
     }
 
-    fn read(&mut self, buffers: &mut [&mut [Complex32]], timeout_us: i64) -> Result<usize, Error> {
+    fn read(&mut self, buffers: &mut [&mut [Complex32]], _timeout_us: i64) -> Result<usize, Error> {
         if !self.active {
             return Err(Error::Inactive);
         }
@@ -592,21 +641,16 @@ impl crate::RxStreamer for RxStreamer {
         }
 
         let out = &mut buffers[0];
-        let timeout = if timeout_us < 0 {
-            Duration::MAX
-        } else {
-            Duration::from_micros(timeout_us as u64)
-        };
-        let stream = self.stream.as_mut().ok_or(Error::Inactive)?;
-        let mut iq = vec![(0.0, 0.0); out.len()];
-        let read = stream
-            .read_float32_iq(&mut iq, timeout)
-            .map_err(map_hydrasdr_error)?;
-        for (dst, (i, q)) in out.iter_mut().take(read).zip(iq.into_iter()) {
-            *dst = Complex32::new(i, q);
+        let mut written = drain_pending(&mut self.pending, out);
+        while written == 0 {
+            let stream = self.stream.as_mut().ok_or(Error::Inactive)?;
+            let Some(block) = stream.next_block().map_err(map_hydrasdr_error)? else {
+                break;
+            };
+            append_raw_u8_iq(block.raw_bytes(), &mut self.pending);
+            written += drain_pending(&mut self.pending, &mut out[written..]);
         }
-
-        Ok(read)
+        Ok(written)
     }
 }
 
@@ -614,10 +658,13 @@ impl Drop for RxStreamer {
     fn drop(&mut self) {
         if self.active {
             if let Some(stream) = self.stream.take() {
-                if let Ok(mut dev) = self.dev.lock() {
-                    let _ = dev.stop_rx_stream(stream);
+                if let Ok((device, _)) = stream.finish() {
+                    if let Ok(mut dev) = self.dev.lock() {
+                        *dev = Some(device);
+                    }
                 }
             }
+            self.pending.clear();
             if let Ok(mut inner) = self.inner.lock() {
                 inner.active_rx_streams = inner.active_rx_streams.saturating_sub(1);
             }
@@ -701,21 +748,49 @@ fn gain_name(gain_type: GainType) -> Option<&'static str> {
     }
 }
 
-fn gain_cache(dev: &DirectHydraSdr) -> Vec<GainCache> {
-    let mut gains = dev
-        .get_all_gains()
-        .unwrap_or_else(|_| rfone::default_gain_infos());
+fn gain_cache(gains: Vec<GainInfo>) -> Vec<GainCache> {
     if gains.is_empty() {
-        gains = rfone::default_gain_infos();
+        return default_gain_cache();
     }
 
-    gains
+    let cache = gains
         .into_iter()
         .filter_map(|gain| gain_name(gain.gain_type).map(|name| gain_cache_item(name, gain)))
-        .collect()
+        .collect::<Vec<_>>();
+    if cache.is_empty() {
+        default_gain_cache()
+    } else {
+        cache
+    }
 }
 
-fn probe_args_from_info(dev: discovery::HydraSdrDeviceInfo) -> Args {
+fn default_gain_cache() -> Vec<GainCache> {
+    [
+        ("LNA", GainType::Lna, 0, 14, 8),
+        ("MIXER", GainType::Mixer, 0, 15, 8),
+        ("VGA", GainType::Vga, 0, 15, 8),
+        ("LINEARITY", GainType::Linearity, 0, 21, 10),
+        ("SENSITIVITY", GainType::Sensitivity, 0, 21, 10),
+    ]
+    .into_iter()
+    .map(|(name, gain_type, min_value, max_value, value)| {
+        gain_cache_item(
+            name,
+            GainInfo {
+                gain_type,
+                min_value,
+                max_value,
+                step_value: 1,
+                default_value: value,
+                value,
+                flags: 0,
+            },
+        )
+    })
+    .collect()
+}
+
+fn probe_args_from_info(dev: HydraSdrDeviceInfo) -> Args {
     let mut args = Args::default();
     args.set("driver", "hydrasdr");
     args.set("vid", format!("0x{:04x}", dev.vid));
@@ -744,25 +819,35 @@ fn device_selector(args: &Args) -> Result<DeviceSelector, Error> {
     }
 }
 
-fn open_selected_device(selector: DeviceSelector) -> Result<(DirectHydraSdr, Option<u64>), Error> {
+fn open_selected_device(selector: DeviceSelector) -> Result<(HydraSdrDevice, Option<u64>), Error> {
     match selector {
-        DeviceSelector::First => DirectHydraSdr::open()
+        DeviceSelector::First => HydraSdrDevice::builder()
+            .sample_format(SampleFormat::RawU8Iq)
+            .open()
             .map(|dev| (dev, None))
             .map_err(map_hydrasdr_error),
-        DeviceSelector::Serial(serial) => DirectHydraSdr::open_sn(serial)
+        DeviceSelector::Serial(serial) => HydraSdrDevice::builder()
+            .serial(serial)
+            .sample_format(SampleFormat::RawU8Iq)
+            .open()
             .map(|dev| (dev, Some(serial)))
             .map_err(map_hydrasdr_error),
         DeviceSelector::Index(index) => {
-            let devices = discovery::list_devices().map_err(map_hydrasdr_error)?;
+            let devices = HydraSdrDevice::list().map_err(map_hydrasdr_error)?;
             let Some(info) = devices.get(index) else {
                 return Err(Error::NotFound);
             };
             if let Some(serial) = info.serial {
-                DirectHydraSdr::open_sn(serial)
+                HydraSdrDevice::builder()
+                    .serial(serial)
+                    .sample_format(SampleFormat::RawU8Iq)
+                    .open()
                     .map(|dev| (dev, Some(serial)))
                     .map_err(map_hydrasdr_error)
             } else if index == 0 {
-                DirectHydraSdr::open()
+                HydraSdrDevice::builder()
+                    .sample_format(SampleFormat::RawU8Iq)
+                    .open()
                     .map(|dev| (dev, None))
                     .map_err(map_hydrasdr_error)
             } else {
@@ -770,6 +855,44 @@ fn open_selected_device(selector: DeviceSelector) -> Result<(DirectHydraSdr, Opt
             }
         }
     }
+}
+
+fn configure_device(dev: &mut HydraSdrDevice, inner: &Inner) -> Result<(), Error> {
+    let (_, port) = antenna_port(inner.antenna).ok_or(Error::ValueError)?;
+    let mut builder = Config::builder()
+        .sample_format(SampleFormat::RawU8Iq)
+        .rf_port(port)
+        .gain(inner.gain_config)
+        .packing(false);
+    if let Some(frequency) = inner.frequency {
+        builder = builder.frequency_hz(frequency as u64);
+    }
+    if let Some(sample_rate) = inner.sample_rate {
+        builder = builder.sample_rate_hz(sample_rate as u32);
+    }
+    if let Some(bandwidth) = inner.bandwidth {
+        builder = builder.bandwidth(Bandwidth::ManualHz(bandwidth as u32));
+    }
+    let config = builder.build().map_err(map_hydrasdr_error)?;
+    dev.configure(&config).map_err(map_hydrasdr_error)
+}
+
+fn manual_gain_config(inner: &Inner) -> GainConfig {
+    GainConfig::Manual {
+        lna: cached_gain_value(inner, GainType::Lna),
+        mixer: cached_gain_value(inner, GainType::Mixer),
+        vga: cached_gain_value(inner, GainType::Vga),
+        lna_agc: Some(inner.agc),
+        mixer_agc: Some(inner.agc),
+    }
+}
+
+fn cached_gain_value(inner: &Inner, gain_type: GainType) -> Option<u8> {
+    inner
+        .gains
+        .iter()
+        .find(|cached| cached.gain_type == gain_type)
+        .map(|cached| cached.value.round() as u8)
 }
 
 fn gain_cache_item(name: &'static str, gain: GainInfo) -> GainCache {
@@ -784,6 +907,22 @@ fn gain_cache_item(name: &'static str, gain: GainInfo) -> GainCache {
             step,
         )]),
     }
+}
+
+fn append_raw_u8_iq(raw: &[u8], pending: &mut Vec<Complex32>) {
+    pending.extend(raw.chunks_exact(2).map(|sample| {
+        Complex32::new(
+            (sample[0] as f32 - 127.0) / 128.0,
+            (sample[1] as f32 - 127.0) / 128.0,
+        )
+    }));
+}
+
+fn drain_pending(pending: &mut Vec<Complex32>, out: &mut [Complex32]) -> usize {
+    let count = pending.len().min(out.len());
+    out[..count].copy_from_slice(&pending[..count]);
+    pending.drain(..count);
+    count
 }
 
 fn map_hydrasdr_error(err: hydrasdr_rs::Error) -> Error {
@@ -806,11 +945,11 @@ fn map_hydrasdr_error(err: hydrasdr_rs::Error) -> Error {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use hydrasdr_rs::types::BoardId;
+    use hydrasdr_rs::BoardId;
 
     #[test]
     fn probe_args_from_info_maps_usb_metadata_without_opening_hardware() {
-        let info = discovery::HydraSdrDeviceInfo {
+        let info = HydraSdrDeviceInfo {
             vid: 0x38af,
             pid: 0x0001,
             description: "HydraSDR RFOne Official VID/PID",
