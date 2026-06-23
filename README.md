@@ -21,6 +21,35 @@ At the moment, Seify is designed to commit the driver implementations upstream, 
 This will probably be added but is no priority at the moment.
 While this concentrates maintenance efforts on Seify, it simplifies things for the user, who just add Seify to the project and enables feature flags for their SDR.
 
+### HydraSDR RFOne
+
+The HydraSDR RFOne driver is available behind the `hydrasdr` Cargo feature. The
+Seify workspace expects the Rust HydraSDR driver checkout next to this repository
+and uses it through a path dependency:
+
+```toml
+hydrasdr-rs = { path = "../hydrasdr-rs", optional = true }
+```
+
+Build or test Seify's HydraSDR support with the feature enabled:
+
+```bash
+cargo check --no-default-features --features hydrasdr
+```
+
+HydraSDR is an rx-only Seify driver. Use the generic device API with args such as
+`driver=hydrasdr` or `driver=hydrasdr,serial=<decimal serial>`. Examples that only
+probe/list devices are safe to run without hardware, while receive examples require
+an attached RFOne:
+
+```bash
+# No hardware required; prints an empty list when no RFOne is attached.
+cargo run --no-default-features --features hydrasdr --example probe -- --args driver=hydrasdr
+
+# Requires RFOne hardware and receives through the generic rx example.
+cargo run --no-default-features --features hydrasdr --example rx_generic -- --args driver=hydrasdr
+```
+
 ## Example
 
 ```rust
