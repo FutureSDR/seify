@@ -10,7 +10,7 @@ use hydrasdr_rs::discovery;
 use hydrasdr_rs::errors::StatusCode;
 use hydrasdr_rs::rfone;
 use hydrasdr_rs::streaming::DirectRxStream;
-use hydrasdr_rs::types::{GainInfo, SampleType};
+use hydrasdr_rs::types::{DecimationMode, GainInfo, SampleType};
 use hydrasdr_rs::usb::control::NusbBulkIn;
 use num_complex::Complex32;
 
@@ -89,6 +89,8 @@ impl HydraSdr {
         // clearly enough for non-Float32IQ receive paths. Seify Complex32 streaming currently uses
         // unpacked Float32IQ to avoid inventing packed/raw conversion behavior.
         dev.set_packing(0).map_err(map_hydrasdr_error)?;
+        dev.set_decimation_mode(DecimationMode::HighDefinition)
+            .map_err(map_hydrasdr_error)?;
 
         let sample_rates = dev.get_samplerates().unwrap_or_default();
         let bandwidths = dev.get_bandwidths().unwrap_or_default();
