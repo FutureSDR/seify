@@ -1,6 +1,6 @@
 use clap::Parser;
 use seify::enumerate_with_args;
-use seify::Device;
+use seify::DynDevice;
 
 #[derive(Parser, Debug)]
 #[clap(version)]
@@ -21,7 +21,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("devs: {devs:?}");
 
     for d in devs {
-        let dev: Device = Device::from_args(d)?;
+        let dev = DynDevice::from_args(d)?;
 
         println!();
         println!("Device ({:?} - {:?}), ", dev.driver(), dev.id()?);

@@ -1,7 +1,7 @@
 use clap::Parser;
 use num_complex::Complex32;
 
-use seify::Device;
+use seify::DynDevice;
 use seify::RxStreamer;
 
 #[derive(Parser, Debug)]
@@ -18,9 +18,9 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // HydraSDR RFOne is rx-only and can be selected with generic args, e.g.:
     // cargo run --no-default-features --features hydrasdr --example rx_generic -- --args driver=hydrasdr
-    let dev: Device = Device::from_args(cli.args)?;
+    let dev = DynDevice::from_args(cli.args)?;
     // Get typed reference to device impl
-    // let r: &seify::impls::RtlSdr = dev.impl_ref().unwrap();
+    // let r: &seify::impls::RtlSdr = dev.downcast_ref().unwrap();
 
     let rx0 = dev.rx(0)?;
     if let Ok(agc) = rx0.agc() {

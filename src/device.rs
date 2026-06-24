@@ -5,7 +5,6 @@ use std::any::Any;
 use std::sync::Arc;
 
 use crate::Args;
-use crate::DeviceOpen;
 use crate::Direction;
 use crate::Driver;
 use crate::Error;
@@ -13,6 +12,7 @@ use crate::Range;
 use crate::Registry;
 use crate::RxStreamer;
 use crate::TxStreamer;
+use crate::TypedDeviceBackend;
 
 /// Type-erased RX streamer.
 pub type DynRxStreamer = Box<dyn RxStreamer>;
@@ -104,12 +104,14 @@ pub trait DynDeviceBackend: DeviceInfo + Send + Sync {
     }
 }
 
-/// Runtime-dispatched device implementation.
+/// Runtime-dispatched opened device.
 ///
-/// This is usually used to create a hardware-independent `Device<DynDevice>`,
-/// for example through [`Device::new`], when the concrete implementation is not
-/// known at compile time.
-pub type DynDevice = Arc<dyn DynDeviceBackend>;
+/// This is used to control a device when the concrete driver implementation is
+/// not known at compile time.
+#[derive(Clone)]
+pub struct DynDevice {
+    inner: Arc<dyn DynDeviceBackend>,
+}
 
 /// Structured runtime capabilities for a device.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -814,7 +816,7 @@ where
 /// Implements a more ergonomic version of the backend APIs, e.g. using
 /// `Into<Args>`, which would not be possible in traits.
 #[derive(Clone)]
-pub struct Device<T = DynDevice> {
+pub struct Device<T> {
     dev: T,
 }
 
@@ -823,31 +825,48 @@ impl<T> Device<T> {
     pub fn from_impl(dev: T) -> Self {
         Self { dev }
     }
+
+    /// Borrow the underlying device implementation.
+    pub fn as_inner(&self) -> &T {
+        &self.dev
+    }
+
+    /// Mutably borrow the underlying device implementation.
+    pub fn as_inner_mut(&mut self) -> &mut T {
+        &mut self.dev
+    }
+
+    /// Consume this device and return the underlying implementation.
+    pub fn into_inner(self) -> T {
+        self.dev
+    }
 }
 
 impl<T> Device<T>
 where
-    T: DeviceOpen,
+    T: TypedDeviceBackend,
 {
-    /// Open a device matching `args`.
+    /// Open a typed device matching `args`.
     pub fn from_args<A: TryInto<Args>>(args: A) -> Result<Self, Error> {
-        T::open_device_args(args.try_into().map_err(|_| Error::ValueError)?)
+        let args = args.try_into().map_err(|_| Error::ValueError)?;
+        match args.get::<Driver>("driver") {
+            Ok(driver) if driver != <T as TypedDeviceBackend>::driver() => {
+                return Err(Error::ValueError);
+            }
+            Ok(_) | Err(Error::NotFound) => {}
+            Err(e) => return Err(e),
+        }
+        Ok(Self::from_impl(T::open(&args)?))
     }
 }
 
-impl Device<DynDevice> {
-    /// Creates a [`DynDevice`] opening the first device discovered through
-    /// [`enumerate`](crate::enumerate).
-    pub fn new() -> Result<Self, Error> {
-        let registry = Registry::default();
-        let descriptors = registry.probe(Args::new())?;
-        let descriptor = descriptors.first().ok_or(Error::NotFound)?;
-        registry.open(descriptor)
-    }
-
-    /// Create a runtime-dispatched device from a device implementation.
-    pub fn dyn_from_impl<T: DynDeviceBackend + 'static>(dev: T) -> Self {
-        Self { dev: Arc::new(dev) }
+impl<T> Device<T>
+where
+    T: DynDeviceBackend + 'static,
+{
+    /// Convert this typed device into a runtime-dispatched device.
+    pub fn erase(self) -> DynDevice {
+        DynDevice::from_impl(self.dev)
     }
 }
 
@@ -867,41 +886,125 @@ impl<T: DeviceInfo> Device<T> {
         self.dev.info()
     }
 
-    /// Try to downcast to a given device implementation `D`, either directly (from `Device<D>`)
-    /// or indirectly (from a `Device<DynDevice>` that wraps a `D`).
+    /// Borrow the underlying device implementation as type `D`.
     pub fn impl_ref<D: DeviceInfo + 'static>(&self) -> Result<&D, Error> {
-        if let Some(d) = self.dev.as_any().downcast_ref::<D>() {
-            return Ok(d);
-        }
-
-        let d = self
-            .dev
-            .as_any()
-            .downcast_ref::<DynDevice>()
-            .ok_or(Error::ValueError)?;
-
-        d.as_ref()
+        self.dev
             .as_any()
             .downcast_ref::<D>()
             .ok_or(Error::ValueError)
     }
 
-    /// Try to downcast mutably to a given device implementation `D`, either directly
-    /// (from `Device<D>`) or indirectly (from a `Device<DynDevice>` that wraps a `D`).
+    /// Mutably borrow the underlying device implementation as type `D`.
     pub fn impl_mut<D: DeviceInfo + 'static>(&mut self) -> Result<&mut D, Error> {
-        // work around borrow checker limitation
-        if let Some(d) = self.dev.as_any().downcast_ref::<D>() {
-            Ok(self.dev.as_any_mut().downcast_mut::<D>().unwrap())
-        } else {
-            let d = self
-                .dev
-                .as_any_mut()
-                .downcast_mut::<DynDevice>()
-                .ok_or(Error::ValueError)?;
+        self.dev
+            .as_any_mut()
+            .downcast_mut::<D>()
+            .ok_or(Error::ValueError)
+    }
+}
 
-            let d = Arc::get_mut(d).ok_or(Error::ValueError)?;
-            d.as_any_mut().downcast_mut::<D>().ok_or(Error::ValueError)
+impl DynDevice {
+    /// Open the first discovered runtime-dispatched device.
+    pub fn new() -> Result<Self, Error> {
+        let registry = Registry::default();
+        let descriptors = registry.probe(Args::new())?;
+        let descriptor = descriptors.first().ok_or(Error::NotFound)?;
+        registry.open(descriptor)
+    }
+
+    /// Open a runtime-dispatched device matching `args`.
+    pub fn from_args<A: TryInto<Args>>(args: A) -> Result<Self, Error> {
+        Registry::default().open_args(args)
+    }
+
+    /// Create a runtime-dispatched device from a concrete implementation.
+    pub fn from_impl<T: DynDeviceBackend + 'static>(dev: T) -> Self {
+        Self {
+            inner: Arc::new(dev),
         }
+    }
+
+    /// Borrow the erased backend.
+    pub fn as_backend(&self) -> &dyn DynDeviceBackend {
+        self.inner.as_ref()
+    }
+
+    /// Try to downcast to a concrete device implementation.
+    pub fn downcast_ref<D: DeviceInfo + 'static>(&self) -> Option<&D> {
+        self.inner.as_any().downcast_ref::<D>()
+    }
+
+    /// Try to downcast mutably to a concrete device implementation.
+    pub fn downcast_mut<D: DeviceInfo + 'static>(&mut self) -> Option<&mut D> {
+        Arc::get_mut(&mut self.inner)?
+            .as_any_mut()
+            .downcast_mut::<D>()
+    }
+
+    /// SDR [driver](Driver).
+    pub fn driver(&self) -> Driver {
+        self.inner.driver()
+    }
+
+    /// Identifier for the device, e.g. its serial.
+    pub fn id(&self) -> Result<String, Error> {
+        self.inner.id()
+    }
+
+    /// Device info that can be displayed to the user.
+    pub fn info(&self) -> Result<Args, Error> {
+        self.inner.info()
+    }
+
+    /// Structured runtime capabilities for the device.
+    pub fn capabilities(&self) -> Result<DeviceCapabilities, Error> {
+        self.inner.capabilities()
+    }
+
+    /// RX channel handle.
+    pub fn rx(&self, index: usize) -> Result<RxChannel<'_, Self>, Error> {
+        ensure_channel(self, Direction::Rx, index)?;
+        Ok(RxChannel::new(self, index))
+    }
+
+    /// TX channel handle.
+    pub fn tx(&self, index: usize) -> Result<TxChannel<'_, Self>, Error> {
+        ensure_channel(self, Direction::Tx, index)?;
+        Ok(TxChannel::new(self, index))
+    }
+
+    /// Create an RX streamer.
+    pub fn rx_streamer(&self, channels: &[usize]) -> Result<DynRxStreamer, Error> {
+        self.rx_streamer_with_args(channels, Args::new())
+    }
+
+    /// Create an RX streamer, using `args`.
+    pub fn rx_streamer_with_args<A: TryInto<Args>>(
+        &self,
+        channels: &[usize],
+        args: A,
+    ) -> Result<DynRxStreamer, Error> {
+        for channel in channels {
+            ensure_channel(self, Direction::Rx, *channel)?;
+        }
+        <Self as RxDevice>::rx_streamer(self, channels, args.try_into().or(Err(Error::ValueError))?)
+    }
+
+    /// Create a TX streamer.
+    pub fn tx_streamer(&self, channels: &[usize]) -> Result<DynTxStreamer, Error> {
+        self.tx_streamer_with_args(channels, Args::new())
+    }
+
+    /// Create a TX streamer, using `args`.
+    pub fn tx_streamer_with_args<A: TryInto<Args>>(
+        &self,
+        channels: &[usize],
+        args: A,
+    ) -> Result<DynTxStreamer, Error> {
+        for channel in channels {
+            ensure_channel(self, Direction::Tx, *channel)?;
+        }
+        <Self as TxDevice>::tx_streamer(self, channels, args.try_into().or(Err(Error::ValueError))?)
     }
 }
 
@@ -915,25 +1018,27 @@ impl DeviceInfo for DynDevice {
     }
 
     fn driver(&self) -> Driver {
-        self.as_ref().driver()
+        self.inner.driver()
     }
     fn id(&self) -> Result<String, Error> {
-        self.as_ref().id()
+        self.inner.id()
     }
     fn info(&self) -> Result<Args, Error> {
-        self.as_ref().info()
+        self.inner.info()
     }
 }
 
 impl ChannelInfo for DynDevice {
     fn num_channels(&self, direction: Direction) -> Result<usize, Error> {
-        self.as_ref()
+        self.inner
+            .as_ref()
             .channel_info()
             .ok_or(Error::NotSupported)?
             .num_channels(direction)
     }
     fn full_duplex(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        self.as_ref()
+        self.inner
+            .as_ref()
             .channel_info()
             .ok_or(Error::NotSupported)?
             .full_duplex(direction, channel)
@@ -944,7 +1049,8 @@ impl RxDevice for DynDevice {
     type RxStreamer = DynRxStreamer;
 
     fn rx_streamer(&self, channels: &[usize], args: Args) -> Result<Self::RxStreamer, Error> {
-        self.as_ref()
+        self.inner
+            .as_ref()
             .rx_device()
             .ok_or(Error::NotSupported)?
             .rx_streamer(channels, args)
@@ -955,7 +1061,8 @@ impl TxDevice for DynDevice {
     type TxStreamer = DynTxStreamer;
 
     fn tx_streamer(&self, channels: &[usize], args: Args) -> Result<Self::TxStreamer, Error> {
-        self.as_ref()
+        self.inner
+            .as_ref()
             .tx_device()
             .ok_or(Error::NotSupported)?
             .tx_streamer(channels, args)
@@ -964,21 +1071,24 @@ impl TxDevice for DynDevice {
 
 impl AntennaControl for DynDevice {
     fn antennas(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
-        self.as_ref()
+        self.inner
+            .as_ref()
             .antenna_control()
             .ok_or(Error::NotSupported)?
             .antennas(direction, channel)
     }
 
     fn antenna(&self, direction: Direction, channel: usize) -> Result<String, Error> {
-        self.as_ref()
+        self.inner
+            .as_ref()
             .antenna_control()
             .ok_or(Error::NotSupported)?
             .antenna(direction, channel)
     }
 
     fn set_antenna(&self, direction: Direction, channel: usize, name: &str) -> Result<(), Error> {
-        self.as_ref()
+        self.inner
+            .as_ref()
             .antenna_control()
             .ok_or(Error::NotSupported)?
             .set_antenna(direction, channel, name)
@@ -987,28 +1097,32 @@ impl AntennaControl for DynDevice {
 
 impl GainControl for DynDevice {
     fn gain_elements(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
-        self.as_ref()
+        self.inner
+            .as_ref()
             .gain_control()
             .ok_or(Error::NotSupported)?
             .gain_elements(direction, channel)
     }
 
     fn set_gain(&self, direction: Direction, channel: usize, gain: f64) -> Result<(), Error> {
-        self.as_ref()
+        self.inner
+            .as_ref()
             .gain_control()
             .ok_or(Error::NotSupported)?
             .set_gain(direction, channel, gain)
     }
 
     fn gain(&self, direction: Direction, channel: usize) -> Result<Option<f64>, Error> {
-        self.as_ref()
+        self.inner
+            .as_ref()
             .gain_control()
             .ok_or(Error::NotSupported)?
             .gain(direction, channel)
     }
 
     fn gain_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
-        self.as_ref()
+        self.inner
+            .as_ref()
             .gain_control()
             .ok_or(Error::NotSupported)?
             .gain_range(direction, channel)
@@ -1021,7 +1135,8 @@ impl GainControl for DynDevice {
         name: &str,
         gain: f64,
     ) -> Result<(), Error> {
-        self.as_ref()
+        self.inner
+            .as_ref()
             .gain_control()
             .ok_or(Error::NotSupported)?
             .set_gain_element(direction, channel, name, gain)
@@ -1033,7 +1148,8 @@ impl GainControl for DynDevice {
         channel: usize,
         name: &str,
     ) -> Result<Option<f64>, Error> {
-        self.as_ref()
+        self.inner
+            .as_ref()
             .gain_control()
             .ok_or(Error::NotSupported)?
             .gain_element(direction, channel, name)
@@ -1045,7 +1161,8 @@ impl GainControl for DynDevice {
         channel: usize,
         name: &str,
     ) -> Result<Range, Error> {
-        self.as_ref()
+        self.inner
+            .as_ref()
             .gain_control()
             .ok_or(Error::NotSupported)?
             .gain_element_range(direction, channel, name)
@@ -1054,14 +1171,16 @@ impl GainControl for DynDevice {
 
 impl FrequencyControl for DynDevice {
     fn frequency_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
-        self.as_ref()
+        self.inner
+            .as_ref()
             .frequency_control()
             .ok_or(Error::NotSupported)?
             .frequency_range(direction, channel)
     }
 
     fn frequency(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
-        self.as_ref()
+        self.inner
+            .as_ref()
             .frequency_control()
             .ok_or(Error::NotSupported)?
             .frequency(direction, channel)
@@ -1074,7 +1193,8 @@ impl FrequencyControl for DynDevice {
         frequency: f64,
         args: Args,
     ) -> Result<(), Error> {
-        self.as_ref()
+        self.inner
+            .as_ref()
             .frequency_control()
             .ok_or(Error::NotSupported)?
             .set_frequency(direction, channel, frequency, args)
@@ -1085,7 +1205,8 @@ impl FrequencyControl for DynDevice {
         direction: Direction,
         channel: usize,
     ) -> Result<Vec<String>, Error> {
-        self.as_ref()
+        self.inner
+            .as_ref()
             .frequency_control()
             .ok_or(Error::NotSupported)?
             .frequency_components(direction, channel)
@@ -1097,7 +1218,8 @@ impl FrequencyControl for DynDevice {
         channel: usize,
         name: &str,
     ) -> Result<Range, Error> {
-        self.as_ref()
+        self.inner
+            .as_ref()
             .frequency_control()
             .ok_or(Error::NotSupported)?
             .component_frequency_range(direction, channel, name)
@@ -1109,7 +1231,8 @@ impl FrequencyControl for DynDevice {
         channel: usize,
         name: &str,
     ) -> Result<f64, Error> {
-        self.as_ref()
+        self.inner
+            .as_ref()
             .frequency_control()
             .ok_or(Error::NotSupported)?
             .component_frequency(direction, channel, name)
@@ -1122,7 +1245,8 @@ impl FrequencyControl for DynDevice {
         name: &str,
         frequency: f64,
     ) -> Result<(), Error> {
-        self.as_ref()
+        self.inner
+            .as_ref()
             .frequency_control()
             .ok_or(Error::NotSupported)?
             .set_component_frequency(direction, channel, name, frequency)
@@ -1131,7 +1255,8 @@ impl FrequencyControl for DynDevice {
 
 impl SampleRateControl for DynDevice {
     fn sample_rate(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
-        self.as_ref()
+        self.inner
+            .as_ref()
             .sample_rate_control()
             .ok_or(Error::NotSupported)?
             .sample_rate(direction, channel)
@@ -1143,14 +1268,16 @@ impl SampleRateControl for DynDevice {
         channel: usize,
         rate: f64,
     ) -> Result<(), Error> {
-        self.as_ref()
+        self.inner
+            .as_ref()
             .sample_rate_control()
             .ok_or(Error::NotSupported)?
             .set_sample_rate(direction, channel, rate)
     }
 
     fn get_sample_rate_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
-        self.as_ref()
+        self.inner
+            .as_ref()
             .sample_rate_control()
             .ok_or(Error::NotSupported)?
             .get_sample_rate_range(direction, channel)
@@ -1159,21 +1286,24 @@ impl SampleRateControl for DynDevice {
 
 impl BandwidthControl for DynDevice {
     fn bandwidth(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
-        self.as_ref()
+        self.inner
+            .as_ref()
             .bandwidth_control()
             .ok_or(Error::NotSupported)?
             .bandwidth(direction, channel)
     }
 
     fn set_bandwidth(&self, direction: Direction, channel: usize, bw: f64) -> Result<(), Error> {
-        self.as_ref()
+        self.inner
+            .as_ref()
             .bandwidth_control()
             .ok_or(Error::NotSupported)?
             .set_bandwidth(direction, channel, bw)
     }
 
     fn get_bandwidth_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
-        self.as_ref()
+        self.inner
+            .as_ref()
             .bandwidth_control()
             .ok_or(Error::NotSupported)?
             .get_bandwidth_range(direction, channel)
@@ -1182,14 +1312,16 @@ impl BandwidthControl for DynDevice {
 
 impl AgcControl for DynDevice {
     fn agc_available(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        self.as_ref()
+        self.inner
+            .as_ref()
             .agc_control()
             .ok_or(Error::NotSupported)?
             .agc_available(direction, channel)
     }
 
     fn agc_enabled(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        self.as_ref()
+        self.inner
+            .as_ref()
             .agc_control()
             .ok_or(Error::NotSupported)?
             .agc_enabled(direction, channel)
@@ -1201,7 +1333,8 @@ impl AgcControl for DynDevice {
         channel: usize,
         enabled: bool,
     ) -> Result<(), Error> {
-        self.as_ref()
+        self.inner
+            .as_ref()
             .agc_control()
             .ok_or(Error::NotSupported)?
             .set_agc_enabled(direction, channel, enabled)
@@ -1210,14 +1343,16 @@ impl AgcControl for DynDevice {
 
 impl DcOffsetControl for DynDevice {
     fn dc_offset_available(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        self.as_ref()
+        self.inner
+            .as_ref()
             .dc_offset_control()
             .ok_or(Error::NotSupported)?
             .dc_offset_available(direction, channel)
     }
 
     fn dc_offset_enabled(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        self.as_ref()
+        self.inner
+            .as_ref()
             .dc_offset_control()
             .ok_or(Error::NotSupported)?
             .dc_offset_enabled(direction, channel)
@@ -1229,17 +1364,11 @@ impl DcOffsetControl for DynDevice {
         channel: usize,
         enabled: bool,
     ) -> Result<(), Error> {
-        self.as_ref()
+        self.inner
+            .as_ref()
             .dc_offset_control()
             .ok_or(Error::NotSupported)?
             .set_dc_offset_enabled(direction, channel, enabled)
-    }
-}
-
-impl Device<DynDevice> {
-    /// Structured runtime capabilities for the device.
-    pub fn capabilities(&self) -> Result<DeviceCapabilities, Error> {
-        self.dev.capabilities()
     }
 }
 
@@ -1527,7 +1656,7 @@ mod tests {
     #[test]
     fn dyn_device_reports_capabilities() {
         let dummy = crate::impls::Dummy::open(Args::new()).unwrap();
-        let dev: Device<DynDevice> = Device::dyn_from_impl(dummy);
+        let dev = DynDevice::from_impl(dummy);
 
         let capabilities = dev.capabilities().unwrap();
 
@@ -1560,6 +1689,17 @@ mod tests {
     }
 
     #[test]
+    fn typed_device_erases_to_dyn_device_and_downcasts() {
+        let dummy = crate::impls::Dummy::open(Args::new()).unwrap();
+        let dev = Device::from_impl(dummy);
+        let mut dev = dev.erase();
+
+        assert_eq!(dev.driver(), Driver::Dummy);
+        assert!(dev.downcast_ref::<crate::impls::Dummy>().is_some());
+        assert!(dev.downcast_mut::<crate::impls::Dummy>().is_some());
+    }
+
+    #[test]
     fn agc_handle_controls_enabled_state() {
         let dummy = crate::impls::Dummy::open(Args::new()).unwrap();
         let dev = Device::from_impl(dummy);
@@ -1588,7 +1728,7 @@ mod tests {
 
     #[test]
     fn dyn_device_does_not_require_all_capabilities() {
-        let dev: Device<DynDevice> = Device::dyn_from_impl(RxOnly);
+        let dev = DynDevice::from_impl(RxOnly);
 
         let capabilities = dev.capabilities().unwrap();
         assert_eq!(capabilities.rx_channels.len(), 1);

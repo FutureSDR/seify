@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 
 use crate::Args;
-use crate::Device;
 use crate::Driver;
 use crate::DynDevice;
 use crate::Error;
@@ -44,7 +43,7 @@ pub trait DriverBackend: Send + Sync {
     fn probe(&self, args: &Args) -> Result<Vec<DeviceDescriptor>, Error>;
 
     /// Open a previously discovered device descriptor.
-    fn open(&self, descriptor: &DeviceDescriptor) -> Result<Device<DynDevice>, Error>;
+    fn open(&self, descriptor: &DeviceDescriptor) -> Result<DynDevice, Error>;
 }
 
 /// Typed driver implementation that can be opened directly.
@@ -57,34 +56,6 @@ pub trait TypedDeviceBackend: crate::DynDeviceBackend + Sized + 'static {
 
     /// Open a typed device matching `args`.
     fn open(args: &Args) -> Result<Self, Error>;
-}
-
-/// Target type that can be opened through [`Device::from_args`].
-pub trait DeviceOpen: Sized {
-    /// Open this device target from `args`.
-    fn open_device_args(args: Args) -> Result<Device<Self>, Error>;
-}
-
-impl DeviceOpen for DynDevice {
-    fn open_device_args(args: Args) -> Result<Device<Self>, Error> {
-        Registry::default().open_args(args)
-    }
-}
-
-impl<D> DeviceOpen for D
-where
-    D: TypedDeviceBackend,
-{
-    fn open_device_args(args: Args) -> Result<Device<Self>, Error> {
-        match args.get::<Driver>("driver") {
-            Ok(driver) if driver != <D as TypedDeviceBackend>::driver() => {
-                return Err(Error::ValueError);
-            }
-            Ok(_) | Err(Error::NotFound) => {}
-            Err(e) => return Err(e),
-        }
-        Ok(Device::from_impl(D::open(&args)?))
-    }
 }
 
 /// Registry of driver discovery/opening backends.
@@ -136,7 +107,7 @@ impl Registry {
     }
 
     /// Open a discovered device descriptor.
-    pub fn open(&self, descriptor: &DeviceDescriptor) -> Result<Device<DynDevice>, Error> {
+    pub fn open(&self, descriptor: &DeviceDescriptor) -> Result<DynDevice, Error> {
         let driver = descriptor.driver();
         let mut matched_backend = false;
 
@@ -162,7 +133,7 @@ impl Registry {
     }
 
     /// Open the first device matching `args`.
-    pub fn open_args<A>(&self, args: A) -> Result<Device<DynDevice>, Error>
+    pub fn open_args<A>(&self, args: A) -> Result<DynDevice, Error>
     where
         A: TryInto<Args>,
     {
@@ -301,8 +272,8 @@ where
         })
     }
 
-    fn open(&self, descriptor: &DeviceDescriptor) -> Result<Device<DynDevice>, Error> {
-        Ok(Device::dyn_from_impl(D::open(descriptor.args())?))
+    fn open(&self, descriptor: &DeviceDescriptor) -> Result<DynDevice, Error> {
+        Ok(DynDevice::from_impl(D::open(descriptor.args())?))
     }
 }
 
@@ -377,7 +348,7 @@ mod tests {
     #[test]
     #[cfg(feature = "dummy")]
     fn device_from_args_uses_registry() {
-        let device: Device = Device::from_args("driver=dummy").unwrap();
+        let device = DynDevice::from_args("driver=dummy").unwrap();
 
         assert_eq!(device.driver(), Driver::Dummy);
     }
@@ -385,7 +356,7 @@ mod tests {
     #[test]
     #[cfg(feature = "dummy")]
     fn typed_device_from_args_opens_concrete_backend() {
-        let device = Device::<crate::impls::Dummy>::from_args("driver=dummy").unwrap();
+        let device = crate::Device::<crate::impls::Dummy>::from_args("driver=dummy").unwrap();
 
         assert_eq!(device.driver(), Driver::Dummy);
     }
@@ -394,7 +365,7 @@ mod tests {
     #[cfg(feature = "dummy")]
     fn typed_device_from_args_rejects_mismatched_driver_filter() {
         assert!(matches!(
-            Device::<crate::impls::Dummy>::from_args("driver=soapy"),
+            crate::Device::<crate::impls::Dummy>::from_args("driver=soapy"),
             Err(Error::ValueError)
         ));
     }

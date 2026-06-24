@@ -39,7 +39,6 @@ pub mod impls;
 
 mod registry;
 pub use registry::DeviceDescriptor;
-pub use registry::DeviceOpen;
 pub use registry::DriverBackend;
 pub use registry::Registry;
 pub use registry::TypedDeviceBackend;
@@ -161,7 +160,7 @@ pub enum Direction {
 /// ## Returns
 ///
 /// A vector or [`Args`] that provide information about the device and can be used to identify it
-/// uniquely, i.e., passing the [`Args`] to [`Device::from_args`](crate::Device::from_args) will
+/// uniquely, i.e., passing the [`Args`] to [`DynDevice::from_args`](crate::DynDevice::from_args) will
 /// open this particular device.
 pub fn enumerate() -> Result<Vec<Args>, Error> {
     enumerate_with_args(Args::new())
@@ -172,7 +171,7 @@ pub fn enumerate() -> Result<Vec<Args>, Error> {
 /// ## Returns
 ///
 /// A vector or [`Args`] that provide information about the device and can be used to identify it
-/// uniquely, i.e., passing the [`Args`] to [`Device::from_args`](crate::Device::from_args) will
+/// uniquely, i.e., passing the [`Args`] to [`DynDevice::from_args`](crate::DynDevice::from_args) will
 /// open this particular device.
 pub fn enumerate_with_args<A: TryInto<Args>>(a: A) -> Result<Vec<Args>, Error> {
     Ok(Registry::default()
@@ -220,7 +219,7 @@ mod tests {
     #[test]
     #[cfg(not(all(feature = "hydrasdr", not(target_arch = "wasm32"))))]
     fn hydrasdr_from_args_reports_disabled_feature_when_not_enabled() {
-        let result: Result<Device, Error> = Device::from_args("driver=hydrasdr");
+        let result = DynDevice::from_args("driver=hydrasdr");
         assert!(matches!(result, Err(Error::FeatureNotEnabled)));
     }
 }

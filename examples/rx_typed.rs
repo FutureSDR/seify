@@ -19,7 +19,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let dev = Device::<rtlsdr::RtlSdr>::from_args(cli.args)?;
     // Get typed reference to device impl
-    // let _r : &seify::impls::RtlSdr = dev.impl_ref().unwrap();
+    // let _r: &seify::impls::RtlSdr = dev.as_inner();
 
     let rx0 = dev.rx(0)?;
     rx0.agc()?.enable()?;

@@ -1,6 +1,6 @@
 use clap::Parser;
 use num_complex::Complex32;
-use seify::Device;
+use seify::DynDevice;
 use seify::RxStreamer;
 use std::error::Error;
 use std::sync::atomic::AtomicBool;
@@ -20,7 +20,7 @@ pub fn main() -> Result<(), Box<dyn Error>> {
     env_logger::init();
     let cli = Args::parse();
 
-    let dev: Device = Device::from_args(cli.args)?;
+    let dev = DynDevice::from_args(cli.args)?;
 
     println!("driver:      {:?}", dev.driver());
     println!("id:          {:?}", dev.id()?);
