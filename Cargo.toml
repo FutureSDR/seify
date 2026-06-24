@@ -9,7 +9,7 @@ license = "Apache-2.0"
 repository = "https://github.com/FutureSDR/seify"
 
 [features]
-default = ["soapy", "dummy"]
+default = ["soapy"]
 aaronia_http = ["dep:ureq"]
 bladerf1 = ["dep:libbladerf-rs"]
 dummy = []

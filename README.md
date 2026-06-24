@@ -1,51 +1,56 @@
-# Seify! A Rusty SDR Hardware Abstraction Library
+# Seify
 
-## Goals
+Rust SDR hardware abstraction for applications that want one API over multiple
+radio backends.
+
+## What Seify Provides
 
 A clear path towards a great Rust SDR driver ecosystem.
 
-- Seify has an implementation for Soapy and, therefore, supports basically all available SDR frontends.
-- Seify supports both typed and generic devices with dynamic dispatch. There is no or minimal overhead for the typed version, i.e., there should be no reason not to use Seify.
-- Once more native Rust drivers become available, they can be added to Seify and gradually move from Soapy to pure-Rust drivers.
-- A clear path towards a proper async and WASM WebUSB.
-- Zero-installation: Rust drivers need no libraries from the base system. Either they are network/http-based or they use `nusb` (a pure Rust USB implementation).
-- Proper driver integration for Rust drivers (e.g., no threads in the core library).
-- Rust drivers are added with crate features per binary and do not rely on system-wide libraries.  
-- Provide a framework for Rust SDR drivers, to avoid diverging concepts of driver implementations in the ecosystem.
+- One API for probing, opening, configuring, and streaming from SDR devices.
+- Typed devices when an application wants a concrete backend.
+- Type-erased devices when an application wants runtime driver selection.
+- Capability-oriented channel APIs, so backends expose the controls they support.
+- Feature-gated drivers, so each binary only includes the SDR backends it needs.
+- SoapySDR support for broad hardware coverage and native Rust drivers where available.
 
-## Hardware Drivers
+The native Rust drivers are still experimental. For production use and the
+widest set of stable hardware integrations, prefer the SoapySDR backend.
 
-To add a new SDR driver, add a struct in the `src/impls` folder, implement the capability traits it actually supports, and add feature-gated logic for the driver to the probing/enumeration logic in `src/device.rs`.
+## Features
 
-At the moment, Seify is designed to commit the driver implementations upstream, i.e., there is no plugin system.
-This will probably be added but is no priority at the moment.
-While this concentrates maintenance efforts on Seify, it simplifies things for the user, who just add Seify to the project and enables feature flags for their SDR.
+The default feature set is `soapy`.
 
-### HydraSDR RFOne
-
-The HydraSDR RFOne driver is available behind the `hydrasdr` Cargo feature:
-
-```toml
-hydrasdr-rs = { version = "0.2.0", optional = true }
-```
-
-Build or test Seify's HydraSDR support with the feature enabled:
+Enable drivers explicitly in `Cargo.toml` or on the command line:
 
 ```bash
-cargo check --no-default-features --features hydrasdr
+cargo check --no-default-features --features rtlsdr
+cargo check --features hydrasdr,hackrfone
 ```
 
-HydraSDR is an rx-only Seify driver. Use the generic device API with args such as
-`driver=hydrasdr` or `driver=hydrasdr,serial=<decimal serial>`. Examples that only
-probe/list devices are safe to run without hardware, while receive examples require
-an attached RFOne:
+Available features:
+
+| Feature | Driver argument | Notes |
+| --- | --- | --- |
+| `dummy` | `driver=dummy` | In-process test driver. |
+| `soapy` | `driver=soapy` | SoapySDR backend. Enabled by default. Requires SoapySDR system libraries. |
+| `aaronia_http` | `driver=aaronia_http` | Aaronia HTTP backend. |
+| `bladerf1` | `driver=bladerf` | bladeRF 1 backend. |
+| `hackrfone` | `driver=hackrfone` | HackRF One backend. |
+| `hydrasdr` | `driver=hydrasdr` | HydraSDR backend. |
+| `rtlsdr` | `driver=rtlsdr` | RTL-SDR backend. |
+
+Use the generic API with an argument string to select a backend at runtime:
 
 ```bash
-# No hardware required; prints an empty list when no RFOne is attached.
-cargo run --no-default-features --features hydrasdr --example probe -- --args driver=hydrasdr
+cargo run --no-default-features --features rtlsdr --example probe -- --args driver=rtlsdr
+cargo run --no-default-features --features rtlsdr --example rx_generic -- --args driver=rtlsdr
+```
 
-# Requires RFOne hardware and receives through the generic rx example.
-cargo run --no-default-features --features hydrasdr --example rx_generic -- --args driver=hydrasdr
+Additional driver-specific arguments can be passed in the same string:
+
+```bash
+cargo run --no-default-features --features soapy --example probe -- --args driver=soapy,soapy_driver=rtlsdr
 ```
 
 ## Example
