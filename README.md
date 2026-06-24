@@ -23,12 +23,10 @@ While this concentrates maintenance efforts on Seify, it simplifies things for t
 
 ### HydraSDR RFOne
 
-The HydraSDR RFOne driver is available behind the `hydrasdr` Cargo feature. The
-Seify workspace expects the Rust HydraSDR driver checkout next to this repository
-and uses it through a path dependency:
+The HydraSDR RFOne driver is available behind the `hydrasdr` Cargo feature:
 
 ```toml
-hydrasdr-rs = { path = "../hydrasdr-rs", optional = true }
+hydrasdr-rs = { version = "0.2.0", optional = true }
 ```
 
 Build or test Seify's HydraSDR support with the feature enabled:

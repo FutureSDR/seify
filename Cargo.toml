@@ -38,7 +38,7 @@ libbladerf-rs = { version = "0.4.1", optional = true, features = ["bladerf1", "x
 # libbladerf-rs = { path="../libbladerf-rs", optional = true, features = ["bladerf1", "xb100", "xb200", "xb300"] }
 seify-rtlsdr = { path = "crates/rtl-sdr-rs", version = "0.0.3", optional = true }
 seify-hackrfone = { path = "crates/seify-hackrfone", version = "0.1.0", optional = true }
-hydrasdr-rs = { path = "../hydrasdr-rs", optional = true }
+hydrasdr-rs = { version = "0.2.0", optional = true }
 soapysdr = { version = "0.5", optional = true }
 ureq = { version = "3.3", features = ["json"], optional = true }
 
