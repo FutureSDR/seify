@@ -33,24 +33,29 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let rx0 = dev.rx(0)?;
     if let Some(frequency) = cli.frequency {
-        rx0.frequency()?.set(frequency)?;
+        rx0.frequency().set(frequency)?;
     }
     if let Some(sample_rate) = cli.sample_rate {
-        rx0.sample_rate()?.set(sample_rate)?;
+        rx0.sample_rate().set(sample_rate)?;
     }
     if let Some(gain) = cli.gain {
-        if let Ok(agc) = rx0.agc() {
-            agc.disable()?;
+        match rx0.agc().disable() {
+            Ok(())
+            | Err(seify::Error::Unsupported {
+                capability: seify::Capability::Agc,
+                ..
+            }) => {}
+            Err(err) => return Err(err.into()),
         }
-        rx0.gain()?.set(gain)?;
+        rx0.gain().set(gain)?;
     }
 
     println!("driver:      {:?}", dev.driver());
     println!("id:          {:?}", dev.id()?);
     println!("info:        {:?}", dev.info()?);
-    println!("sample rate: {:?}", rx0.sample_rate()?.value()?);
-    println!("frequency:   {:?}", rx0.frequency()?.value()?);
-    println!("gain:        {:?}", rx0.gain()?.value()?);
+    println!("sample rate: {:?}", rx0.sample_rate().value()?);
+    println!("frequency:   {:?}", rx0.frequency().value()?);
+    println!("gain:        {:?}", rx0.gain().value()?);
 
     let mut samps = [Complex32::new(0.0, 0.0); 8192];
     let mut rx = rx0.streamer()?;

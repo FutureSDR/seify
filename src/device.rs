@@ -491,26 +491,23 @@ pub struct Antenna<'a, T: AntennaControl + ?Sized> {
     dev: &'a T,
     direction: Direction,
     channel: usize,
-    ports: Vec<String>,
 }
 
 impl<'a, T> Antenna<'a, T>
 where
     T: AntennaControl + ?Sized,
 {
-    fn new(dev: &'a T, direction: Direction, channel: usize) -> Result<Self, Error> {
-        let ports = dev.antennas(direction, channel)?;
-        Ok(Self {
+    fn new(dev: &'a T, direction: Direction, channel: usize) -> Self {
+        Self {
             dev,
             direction,
             channel,
-            ports,
-        })
+        }
     }
 
     /// Selectable antenna ports.
-    pub fn ports(&self) -> &[String] {
-        &self.ports
+    pub fn ports(&self) -> Result<Vec<String>, Error> {
+        self.dev.antennas(self.direction, self.channel)
     }
 
     /// Currently selected antenna.
@@ -535,19 +532,25 @@ impl<'a, T> Agc<'a, T>
 where
     T: AgcControl + ?Sized,
 {
-    fn new(dev: &'a T, direction: Direction, channel: usize) -> Result<Self, Error> {
-        if !dev.agc_available(direction, channel)? {
-            return Err(Error::unsupported(Capability::Agc));
-        }
-        Ok(Self {
+    fn new(dev: &'a T, direction: Direction, channel: usize) -> Self {
+        Self {
             dev,
             direction,
             channel,
-        })
+        }
+    }
+
+    fn ensure_available(&self) -> Result<(), Error> {
+        if self.dev.agc_available(self.direction, self.channel)? {
+            Ok(())
+        } else {
+            Err(Error::unsupported(Capability::Agc))
+        }
     }
 
     /// Return whether automatic gain control is enabled.
     pub fn enabled(&self) -> Result<bool, Error> {
+        self.ensure_available()?;
         self.dev.agc_enabled(self.direction, self.channel)
     }
 
@@ -563,6 +566,7 @@ where
 
     /// Set whether automatic gain control is enabled.
     pub fn set_enabled(&self, enabled: bool) -> Result<(), Error> {
+        self.ensure_available()?;
         self.dev
             .set_agc_enabled(self.direction, self.channel, enabled)
     }
@@ -818,19 +822,25 @@ impl<'a, T> DcOffset<'a, T>
 where
     T: DcOffsetControl + ?Sized,
 {
-    fn new(dev: &'a T, direction: Direction, channel: usize) -> Result<Self, Error> {
-        if !dev.dc_offset_available(direction, channel)? {
-            return Err(Error::unsupported(Capability::DcOffset));
-        }
-        Ok(Self {
+    fn new(dev: &'a T, direction: Direction, channel: usize) -> Self {
+        Self {
             dev,
             direction,
             channel,
-        })
+        }
+    }
+
+    fn ensure_available(&self) -> Result<(), Error> {
+        if self.dev.dc_offset_available(self.direction, self.channel)? {
+            Ok(())
+        } else {
+            Err(Error::unsupported(Capability::DcOffset))
+        }
     }
 
     /// Return whether automatic DC offset correction is enabled.
     pub fn enabled(&self) -> Result<bool, Error> {
+        self.ensure_available()?;
         self.dev.dc_offset_enabled(self.direction, self.channel)
     }
 
@@ -846,6 +856,7 @@ where
 
     /// Set whether automatic DC offset correction is enabled.
     pub fn set_enabled(&self, enabled: bool) -> Result<(), Error> {
+        self.ensure_available()?;
         self.dev
             .set_dc_offset_enabled(self.direction, self.channel, enabled)
     }
@@ -1533,49 +1544,49 @@ macro_rules! impl_channel_controls {
     ($channel:ident, $direction:expr) => {
         impl<'a, T: AntennaControl + ?Sized> $channel<'a, T> {
             /// Antenna control.
-            pub fn antenna(&self) -> Result<Antenna<'_, T>, Error> {
+            pub fn antenna(&self) -> Antenna<'_, T> {
                 Antenna::new(self.dev, $direction, self.channel)
             }
         }
 
         impl<'a, T: AgcControl + ?Sized> $channel<'a, T> {
             /// Automatic gain control.
-            pub fn agc(&self) -> Result<Agc<'_, T>, Error> {
+            pub fn agc(&self) -> Agc<'_, T> {
                 Agc::new(self.dev, $direction, self.channel)
             }
         }
 
         impl<'a, T: GainControl + ?Sized> $channel<'a, T> {
             /// Gain control.
-            pub fn gain(&self) -> Result<Gain<'_, T>, Error> {
-                Ok(Gain::new(self.dev, $direction, self.channel))
+            pub fn gain(&self) -> Gain<'_, T> {
+                Gain::new(self.dev, $direction, self.channel)
             }
         }
 
         impl<'a, T: FrequencyControl + ?Sized> $channel<'a, T> {
             /// Frequency control.
-            pub fn frequency(&self) -> Result<Frequency<'_, T>, Error> {
-                Ok(Frequency::new(self.dev, $direction, self.channel))
+            pub fn frequency(&self) -> Frequency<'_, T> {
+                Frequency::new(self.dev, $direction, self.channel)
             }
         }
 
         impl<'a, T: SampleRateControl + ?Sized> $channel<'a, T> {
             /// Sample-rate control.
-            pub fn sample_rate(&self) -> Result<SampleRate<'_, T>, Error> {
-                Ok(SampleRate::new(self.dev, $direction, self.channel))
+            pub fn sample_rate(&self) -> SampleRate<'_, T> {
+                SampleRate::new(self.dev, $direction, self.channel)
             }
         }
 
         impl<'a, T: BandwidthControl + ?Sized> $channel<'a, T> {
             /// Bandwidth control.
-            pub fn bandwidth(&self) -> Result<Bandwidth<'_, T>, Error> {
-                Ok(Bandwidth::new(self.dev, $direction, self.channel))
+            pub fn bandwidth(&self) -> Bandwidth<'_, T> {
+                Bandwidth::new(self.dev, $direction, self.channel)
             }
         }
 
         impl<'a, T: DcOffsetControl + ?Sized> $channel<'a, T> {
             /// Automatic DC offset correction.
-            pub fn dc_offset(&self) -> Result<DcOffset<'_, T>, Error> {
+            pub fn dc_offset(&self) -> DcOffset<'_, T> {
                 DcOffset::new(self.dev, $direction, self.channel)
             }
         }
@@ -1740,9 +1751,9 @@ mod tests {
         let dummy = crate::impls::Dummy::open(Args::new()).unwrap();
         let dev = Device::from_impl(dummy);
         let rx0 = dev.rx(0).unwrap();
-        let antenna = rx0.antenna().unwrap();
+        let antenna = rx0.antenna();
 
-        assert_eq!(antenna.ports(), &[String::from("A")]);
+        assert_eq!(antenna.ports().unwrap(), vec![String::from("A")]);
         assert_eq!(antenna.selected().unwrap(), "A");
         antenna.select("A").unwrap();
     }
@@ -1763,7 +1774,7 @@ mod tests {
         let dummy = crate::impls::Dummy::open(Args::new()).unwrap();
         let dev = Device::from_impl(dummy);
         let rx0 = dev.rx(0).unwrap();
-        let agc = rx0.agc().unwrap();
+        let agc = rx0.agc();
 
         agc.enable().unwrap();
         assert!(agc.enabled().unwrap());
@@ -1776,7 +1787,7 @@ mod tests {
     fn dc_offset_handle_controls_enabled_state() {
         let dev = Device::from_impl(DcToggle(std::sync::Mutex::new(false)));
         let rx0 = RxChannel::new(&dev.dev, 0);
-        let dc_offset = rx0.dc_offset().unwrap();
+        let dc_offset = rx0.dc_offset();
 
         dc_offset.enable().unwrap();
         assert!(dc_offset.enabled().unwrap());
@@ -1807,15 +1818,17 @@ mod tests {
             })
         ));
         let rx0 = dev.rx(0).unwrap();
+        let agc = rx0.agc();
         assert!(matches!(
-            rx0.agc(),
+            agc.enabled(),
             Err(Error::Unsupported {
                 capability: Capability::Agc,
                 ..
             })
         ));
+        let dc_offset = rx0.dc_offset();
         assert!(matches!(
-            rx0.dc_offset(),
+            dc_offset.enabled(),
             Err(Error::Unsupported {
                 capability: Capability::DcOffset,
                 ..
