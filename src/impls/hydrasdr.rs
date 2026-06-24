@@ -22,6 +22,7 @@ const DEFAULT_SAMPLE_RATE_MIN: f64 = 10_000.0;
 const DEFAULT_BANDWIDTH_MIN: f64 = 1_000.0;
 
 #[derive(Clone)]
+/// HydraSDR RFOne device backend.
 pub struct HydraSdr {
     dev: Arc<Mutex<Option<HydraSdrDevice>>>,
     serial: Option<u64>,
@@ -70,6 +71,7 @@ enum DeviceSelector {
     Index(usize),
 }
 
+/// HydraSDR RFOne receive streamer.
 pub struct RxStreamer {
     dev: Arc<Mutex<Option<HydraSdrDevice>>>,
     inner: Arc<Mutex<Inner>>,
@@ -78,10 +80,12 @@ pub struct RxStreamer {
 
 unsafe impl Send for RxStreamer {}
 
+/// Placeholder transmit streamer for unsupported TX operations.
 pub struct TxDummy;
 unsafe impl Send for TxDummy {}
 
 impl HydraSdr {
+    /// Return descriptors for detected HydraSDR RFOne devices.
     pub fn probe(_args: &Args) -> Result<Vec<Args>, Error> {
         let mut devs = Vec::new();
         for dev in HydraSdrDevice::list().map_err(map_hydrasdr_error)? {
@@ -90,6 +94,7 @@ impl HydraSdr {
         Ok(devs)
     }
 
+    /// Open a HydraSDR RFOne device from arguments.
     pub fn open<A: TryInto<Args>>(args: A) -> Result<Self, Error> {
         let args = args
             .try_into()

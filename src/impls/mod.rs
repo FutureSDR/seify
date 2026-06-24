@@ -5,6 +5,7 @@ pub mod aaronia_http;
 #[cfg(all(feature = "aaronia_http", not(target_arch = "wasm32")))]
 pub use aaronia_http::AaroniaHttp;
 
+/// bladeRF 1 backend.
 #[cfg(all(feature = "bladerf1", not(target_arch = "wasm32")))]
 pub mod bladerf1;
 #[cfg(all(feature = "bladerf1", not(target_arch = "wasm32")))]
@@ -25,6 +26,7 @@ pub mod soapy;
 #[cfg(all(feature = "soapy", not(target_arch = "wasm32")))]
 pub use soapy::Soapy;
 
+/// HackRF One backend.
 #[cfg(all(feature = "hackrfone", not(target_arch = "wasm32")))]
 pub mod hackrfone;
 #[cfg(all(feature = "hackrfone", not(target_arch = "wasm32")))]

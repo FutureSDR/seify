@@ -1,3 +1,39 @@
+#![deny(missing_docs)]
+//! Rust SDR hardware abstraction over multiple radio backends.
+//!
+//! Seify provides one API for probing, opening, configuring, and streaming from
+//! SDR devices. Applications can use typed devices when the concrete backend is
+//! known at compile time, or [`DynDevice`] when a driver is selected at runtime
+//! through [`Args`].
+//!
+//! # Driver features
+//!
+//! The default feature set enables the `soapy` backend. Other backends are
+//! enabled with Cargo features such as `rtlsdr`, `hackrfone`, `hydrasdr`,
+//! `bladerf1`, `aaronia_http`, and `dummy`.
+//!
+//! Native Rust drivers are still experimental. For production use and the
+//! widest set of stable hardware integrations, prefer the SoapySDR backend.
+//!
+//! # Example
+//!
+//! ```no_run
+//! use num_complex::Complex32;
+//! use seify::{DynDevice, RxStreamer};
+//!
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! let dev = DynDevice::from_args("driver=soapy")?;
+//! let rx0 = dev.rx(0)?;
+//! let mut rx = rx0.streamer()?;
+//! let mut samples = [Complex32::new(0.0, 0.0); 1024];
+//!
+//! rx.activate()?;
+//! let n = rx.read(&mut [&mut samples], 200_000)?;
+//! println!("read {n} samples");
+//! # Ok(())
+//! # }
+//! ```
+
 mod args;
 pub use args::Args;
 
@@ -60,19 +96,33 @@ use thiserror::Error;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Capability {
+    /// Channel count or channel metadata.
     ChannelInfo,
+    /// Receive streaming.
     RxStreaming,
+    /// Transmit streaming.
     TxStreaming,
+    /// Antenna selection.
     Antenna,
+    /// Automatic gain control.
     Agc,
+    /// Manual gain control.
     Gain,
+    /// Frequency tuning.
     Frequency,
+    /// Sample-rate control.
     SampleRate,
+    /// Bandwidth control.
     Bandwidth,
+    /// DC offset correction.
     DcOffset,
+    /// Device identifier lookup.
     DeviceId,
+    /// Timed stream activation.
     TimedActivation,
+    /// Timed stream deactivation.
     TimedDeactivation,
+    /// Backend-specific driver operation.
     DriverOperation,
 }
 
@@ -82,76 +132,125 @@ pub enum Capability {
 pub enum DriverError {
     #[cfg(all(feature = "soapy", not(target_arch = "wasm32")))]
     #[error("Soapy ({0})")]
+    /// Error returned by the SoapySDR backend.
     Soapy(soapysdr::Error),
     #[cfg(all(feature = "aaronia_http", not(target_arch = "wasm32")))]
     #[error("Ureq ({0})")]
+    /// HTTP client error returned by the Aaronia HTTP backend.
     Ureq(Box<ureq::Error>),
     #[cfg(all(feature = "rtlsdr", not(target_arch = "wasm32")))]
     #[error("RtlSdr ({0})")]
+    /// Error returned by the RTL-SDR backend.
     RtlSdr(seify_rtlsdr::error::RtlsdrError),
     #[cfg(all(feature = "hackrfone", not(target_arch = "wasm32")))]
     #[error("Hackrf ({0})")]
+    /// Error returned by the HackRF One backend.
     HackRfOne(seify_hackrfone::Error),
     #[cfg(all(feature = "hydrasdr", not(target_arch = "wasm32")))]
     #[error("HydraSdr ({0})")]
+    /// Error returned by the HydraSDR backend.
     HydraSdr(hydrasdr_rs::Error),
     #[error("{0}")]
+    /// Backend error represented as a string.
     Other(String),
 }
 
-/// Seify Error
+/// Error returned by Seify operations.
 #[derive(Debug, Error)]
 pub enum Error {
+    /// A device or channel does not expose the requested capability.
     #[error("unsupported capability {capability:?}")]
     Unsupported {
+        /// Capability that is not supported.
         capability: Capability,
+        /// Optional backend-specific reason.
         reason: Option<String>,
     },
+    /// A channel index is invalid for the requested direction.
     #[error("invalid {direction:?} channel {channel}; available channels: {available}")]
     InvalidChannel {
+        /// RX or TX direction.
         direction: Direction,
+        /// Requested channel index.
         channel: usize,
+        /// Number of channels available in the direction.
         available: usize,
     },
+    /// An argument exists but has an invalid value.
     #[error("invalid argument {name}: {reason}")]
-    InvalidArgument { name: String, reason: String },
+    InvalidArgument {
+        /// Argument name.
+        name: String,
+        /// Reason the value is invalid.
+        reason: String,
+    },
+    /// A required argument is missing.
     #[error("missing argument {name}")]
-    MissingArgument { name: String },
+    MissingArgument {
+        /// Missing argument name.
+        name: String,
+    },
+    /// No matching device was found.
     #[error("device not found")]
     DeviceNotFound,
+    /// A requested driver is not enabled in this build.
     #[error("driver feature not enabled for {driver:?}")]
-    DriverFeatureNotEnabled { driver: Driver },
+    DriverFeatureNotEnabled {
+        /// Driver whose Cargo feature is disabled.
+        driver: Driver,
+    },
+    /// The requested driver does not match the typed backend.
     #[error("driver mismatch: expected {expected:?}, requested {requested:?}")]
-    DriverMismatch { expected: Driver, requested: Driver },
+    DriverMismatch {
+        /// Driver implemented by the typed backend.
+        expected: Driver,
+        /// Driver requested in arguments.
+        requested: Driver,
+    },
+    /// A numeric value is outside the supported range.
     #[error("value {value} for {name} out of range ({range:?})")]
     OutOfRange {
+        /// Name of the setting being changed.
         name: String,
+        /// Supported range.
         range: Range,
+        /// Requested value.
         value: f64,
     },
+    /// Device or stream resource is busy.
     #[error("busy")]
     Busy,
+    /// Device was disconnected while in use.
     #[error("device disconnected")]
     DeviceDisconnected,
+    /// Operation timed out.
     #[error("timeout")]
     Timeout,
+    /// Stream operation requires an active stream.
     #[error("stream inactive")]
     StreamInactive,
+    /// Stream has been closed.
     #[error("stream closed")]
     StreamClosed,
+    /// RX stream overrun.
     #[error("overrun")]
     Overrun,
+    /// TX stream underrun.
     #[error("underrun")]
     Underrun,
+    /// JSON serialization or deserialization failed.
     #[error("Json ({0})")]
     Json(#[from] serde_json::Error),
+    /// I/O operation failed.
     #[error("Io ({0})")]
     Io(#[from] std::io::Error),
+    /// Backend driver error.
     #[error("driver error ({0})")]
     Driver(#[from] DriverError),
 }
 
 impl Error {
+    /// Create an unsupported-capability error without a backend-specific reason.
     pub fn unsupported(capability: Capability) -> Self {
         Self::Unsupported {
             capability,
@@ -159,6 +258,7 @@ impl Error {
         }
     }
 
+    /// Create an unsupported-capability error with a backend-specific reason.
     pub fn unsupported_reason(capability: Capability, reason: impl Into<String>) -> Self {
         Self::Unsupported {
             capability,
@@ -166,6 +266,7 @@ impl Error {
         }
     }
 
+    /// Create an invalid-argument error.
     pub fn invalid_argument(name: impl Into<String>, reason: impl Into<String>) -> Self {
         Self::InvalidArgument {
             name: name.into(),
@@ -173,10 +274,12 @@ impl Error {
         }
     }
 
+    /// Create a missing-argument error.
     pub fn missing_argument(name: impl Into<String>) -> Self {
         Self::MissingArgument { name: name.into() }
     }
 
+    /// Create an invalid-channel error.
     pub fn invalid_channel(direction: Direction, channel: usize, available: usize) -> Self {
         Self::InvalidChannel {
             direction,
@@ -185,6 +288,7 @@ impl Error {
         }
     }
 
+    /// Create an out-of-range error.
     pub fn out_of_range(name: impl Into<String>, range: Range, value: f64) -> Self {
         Self::OutOfRange {
             name: name.into(),
@@ -193,14 +297,17 @@ impl Error {
         }
     }
 
+    /// Return `true` if this error reports an unsupported capability.
     pub fn is_unsupported(&self) -> bool {
         matches!(self, Self::Unsupported { .. })
     }
 
+    /// Return `true` if this error reports that no device was found.
     pub fn is_device_not_found(&self) -> bool {
         matches!(self, Self::DeviceNotFound)
     }
 
+    /// Return `true` if this error reports a missing argument.
     pub fn is_missing_argument(&self) -> bool {
         matches!(self, Self::MissingArgument { .. })
     }
@@ -238,12 +345,19 @@ impl From<hydrasdr_rs::Error> for Error {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum Driver {
+    /// Aaronia Spectran HTTP backend.
     AaroniaHttp,
+    /// bladeRF 1 backend.
     BladeRf,
+    /// In-process dummy backend.
     Dummy,
+    /// HackRF One backend.
     HackRf,
+    /// HydraSDR backend.
     HydraSdr,
+    /// RTL-SDR backend.
     RtlSdr,
+    /// SoapySDR backend.
     Soapy,
 }
 
@@ -277,10 +391,12 @@ impl FromStr for Driver {
     }
 }
 
-/// Direction (Rx/TX)
+/// Signal direction.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum Direction {
+    /// Receive direction.
     Rx,
+    /// Transmit direction.
     Tx,
 }
 

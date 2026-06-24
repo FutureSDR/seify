@@ -64,42 +64,52 @@ pub trait DynDeviceBackend: DeviceInfo + Send + Sync {
         DeviceCapabilities::from_dyn(self)
     }
 
+    /// Return channel metadata capability, if the backend exposes it.
     fn channel_info(&self) -> Option<&dyn ChannelInfo> {
         None
     }
 
+    /// Return RX streaming capability, if the backend exposes it.
     fn rx_device(&self) -> Option<&dyn ErasedRxDevice> {
         None
     }
 
+    /// Return TX streaming capability, if the backend exposes it.
     fn tx_device(&self) -> Option<&dyn ErasedTxDevice> {
         None
     }
 
+    /// Return antenna control capability, if the backend exposes it.
     fn antenna_control(&self) -> Option<&dyn AntennaControl> {
         None
     }
 
+    /// Return automatic gain control capability, if the backend exposes it.
     fn agc_control(&self) -> Option<&dyn AgcControl> {
         None
     }
 
+    /// Return gain control capability, if the backend exposes it.
     fn gain_control(&self) -> Option<&dyn GainControl> {
         None
     }
 
+    /// Return frequency control capability, if the backend exposes it.
     fn frequency_control(&self) -> Option<&dyn FrequencyControl> {
         None
     }
 
+    /// Return sample-rate control capability, if the backend exposes it.
     fn sample_rate_control(&self) -> Option<&dyn SampleRateControl> {
         None
     }
 
+    /// Return bandwidth control capability, if the backend exposes it.
     fn bandwidth_control(&self) -> Option<&dyn BandwidthControl> {
         None
     }
 
+    /// Return DC offset control capability, if the backend exposes it.
     fn dc_offset_control(&self) -> Option<&dyn DcOffsetControl> {
         None
     }
@@ -295,15 +305,21 @@ pub trait TxDevice {
 
 /// Antenna control capability.
 pub trait AntennaControl {
+    /// Return available antenna port names.
     fn antennas(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error>;
+    /// Return the currently selected antenna port name.
     fn antenna(&self, direction: Direction, channel: usize) -> Result<String, Error>;
+    /// Select an antenna port by name.
     fn set_antenna(&self, direction: Direction, channel: usize, name: &str) -> Result<(), Error>;
 }
 
 /// Automatic gain control capability.
 pub trait AgcControl {
+    /// Return whether automatic gain control is available.
     fn agc_available(&self, direction: Direction, channel: usize) -> Result<bool, Error>;
+    /// Return whether automatic gain control is currently enabled.
     fn agc_enabled(&self, direction: Direction, channel: usize) -> Result<bool, Error>;
+    /// Enable or disable automatic gain control.
     fn set_agc_enabled(
         &self,
         direction: Direction,
@@ -314,10 +330,15 @@ pub trait AgcControl {
 
 /// Gain control capability.
 pub trait GainControl {
+    /// Return named gain elements available for the channel.
     fn gain_elements(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error>;
+    /// Set overall channel gain in dB.
     fn set_gain(&self, direction: Direction, channel: usize, gain: f64) -> Result<(), Error>;
+    /// Return overall channel gain in dB, if available.
     fn gain(&self, direction: Direction, channel: usize) -> Result<Option<f64>, Error>;
+    /// Return supported overall channel gain range in dB.
     fn gain_range(&self, direction: Direction, channel: usize) -> Result<Range, Error>;
+    /// Set a named gain element in dB.
     fn set_gain_element(
         &self,
         direction: Direction,
@@ -325,12 +346,14 @@ pub trait GainControl {
         name: &str,
         gain: f64,
     ) -> Result<(), Error>;
+    /// Return a named gain element in dB, if available.
     fn gain_element(
         &self,
         direction: Direction,
         channel: usize,
         name: &str,
     ) -> Result<Option<f64>, Error>;
+    /// Return supported range in dB for a named gain element.
     fn gain_element_range(
         &self,
         direction: Direction,
@@ -341,8 +364,11 @@ pub trait GainControl {
 
 /// Frequency control capability.
 pub trait FrequencyControl {
+    /// Return supported overall tuning range in Hz.
     fn frequency_range(&self, direction: Direction, channel: usize) -> Result<Range, Error>;
+    /// Return current overall channel frequency in Hz.
     fn frequency(&self, direction: Direction, channel: usize) -> Result<f64, Error>;
+    /// Set overall channel frequency in Hz with optional driver arguments.
     fn set_frequency(
         &self,
         direction: Direction,
@@ -350,23 +376,27 @@ pub trait FrequencyControl {
         frequency: f64,
         args: Args,
     ) -> Result<(), Error>;
+    /// Return named frequency components for the channel.
     fn frequency_components(
         &self,
         direction: Direction,
         channel: usize,
     ) -> Result<Vec<String>, Error>;
+    /// Return supported range in Hz for a named frequency component.
     fn component_frequency_range(
         &self,
         direction: Direction,
         channel: usize,
         name: &str,
     ) -> Result<Range, Error>;
+    /// Return current frequency in Hz for a named frequency component.
     fn component_frequency(
         &self,
         direction: Direction,
         channel: usize,
         name: &str,
     ) -> Result<f64, Error>;
+    /// Set frequency in Hz for a named frequency component.
     fn set_component_frequency(
         &self,
         direction: Direction,
@@ -378,23 +408,32 @@ pub trait FrequencyControl {
 
 /// Sample-rate control capability.
 pub trait SampleRateControl {
+    /// Return current sample rate in samples per second.
     fn sample_rate(&self, direction: Direction, channel: usize) -> Result<f64, Error>;
+    /// Set sample rate in samples per second.
     fn set_sample_rate(&self, direction: Direction, channel: usize, rate: f64)
         -> Result<(), Error>;
+    /// Return supported sample-rate range in samples per second.
     fn get_sample_rate_range(&self, direction: Direction, channel: usize) -> Result<Range, Error>;
 }
 
 /// Bandwidth control capability.
 pub trait BandwidthControl {
+    /// Return current channel bandwidth in Hz.
     fn bandwidth(&self, direction: Direction, channel: usize) -> Result<f64, Error>;
+    /// Set channel bandwidth in Hz.
     fn set_bandwidth(&self, direction: Direction, channel: usize, bw: f64) -> Result<(), Error>;
+    /// Return supported channel bandwidth range in Hz.
     fn get_bandwidth_range(&self, direction: Direction, channel: usize) -> Result<Range, Error>;
 }
 
 /// Automatic DC offset correction capability.
 pub trait DcOffsetControl {
+    /// Return whether automatic DC offset correction is available.
     fn dc_offset_available(&self, direction: Direction, channel: usize) -> Result<bool, Error>;
+    /// Return whether automatic DC offset correction is enabled.
     fn dc_offset_enabled(&self, direction: Direction, channel: usize) -> Result<bool, Error>;
+    /// Enable or disable automatic DC offset correction.
     fn set_dc_offset_enabled(
         &self,
         direction: Direction,

@@ -9,6 +9,7 @@ use crate::{
     SampleRateControl, TxDevice,
 };
 
+/// HackRF One device backend.
 pub struct HackRfOne {
     inner: Arc<HackRfInner>,
 }
@@ -16,6 +17,7 @@ pub struct HackRfOne {
 const MTU: usize = 64 * 1024;
 
 impl HackRfOne {
+    /// Return descriptors for detected HackRF One devices.
     pub fn probe(_args: &Args) -> Result<Vec<Args>, Error> {
         let mut devs = vec![];
         for (bus_number, address) in seify_hackrfone::HackRf::scan()? {
@@ -31,7 +33,7 @@ impl HackRfOne {
         Ok(devs)
     }
 
-    /// Create a Hackrf One devices
+    /// Open a HackRF One device from arguments.
     pub fn open<A: TryInto<Args>>(args: A) -> Result<Self, Error> {
         let args: Args = args
             .try_into()
@@ -78,6 +80,7 @@ impl HackRfOne {
         })
     }
 
+    /// Mutate the cached RX or TX configuration through a closure.
     pub fn with_config<F, R>(&self, direction: Direction, f: F) -> R
     where
         F: FnOnce(&mut Config) -> R,
@@ -96,6 +99,7 @@ struct HackRfInner {
     rx_config: Mutex<seify_hackrfone::Config>,
 }
 
+/// HackRF One receive streamer.
 pub struct RxStreamer {
     inner: Arc<HackRfInner>,
     stream: Option<seify_hackrfone::RxStream>,
@@ -156,6 +160,7 @@ impl crate::RxStreamer for RxStreamer {
     }
 }
 
+/// HackRF One transmit streamer.
 pub struct TxStreamer {
     inner: Arc<HackRfInner>,
 }

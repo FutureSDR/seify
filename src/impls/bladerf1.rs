@@ -141,6 +141,7 @@ impl From<BladeRfRange> for Range {
     }
 }
 
+/// bladeRF 1 device backend.
 pub struct BladeRf {
     inner: Arc<Mutex<BladeRf1>>,
 }
@@ -154,6 +155,7 @@ impl BladeRf {
         })
     }
 
+    /// Return descriptors for detected bladeRF 1 devices.
     pub fn probe(_args: &Args) -> Result<Vec<Args>, Error> {
         let dev_infos = BladeRf1::list_bladerf1()
             .map_err(|_| Error::DeviceNotFound)?
@@ -173,6 +175,7 @@ impl BladeRf {
             .collect())
     }
 
+    /// Open a bladeRF 1 device from arguments.
     pub fn open<A: TryInto<Args>>(args: A) -> Result<Self, Error> {
         let args: Args = args
             .try_into()
@@ -210,12 +213,14 @@ impl BladeRf {
         }
     }
 
+    /// Attach and enable a bladeRF expansion board.
     pub fn enable_expansion_board(&mut self, board_type: ExpansionBoard) -> Result<(), Error> {
         let mut dev = self.inner.lock().unwrap();
         let mut session = dev.rf_link_session().map_err(bladerf_err)?;
         session.expansion_attach(board_type).map_err(bladerf_err)
     }
 
+    /// Run DC calibration for the selected calibration module.
     pub fn calibrate_dc(&mut self, module: DcCalModule) -> Result<(), Error> {
         let mut dev = self.inner.lock().unwrap();
         let mut session = dev.rf_link_session().map_err(bladerf_err)?;
@@ -223,6 +228,7 @@ impl BladeRf {
     }
 }
 
+/// bladeRF 1 receive streamer.
 pub struct RxStreamer {
     streamer: Option<RxStream>,
     dev: Arc<Mutex<BladeRf1>>,
@@ -230,6 +236,7 @@ pub struct RxStreamer {
     pending: Option<(Buffer, usize)>,
 }
 
+/// bladeRF 1 transmit streamer.
 pub struct TxStreamer {
     streamer: Option<TxStream>,
     dev: Arc<Mutex<BladeRf1>>,
