@@ -1071,8 +1071,7 @@ impl crate::TxStreamer for TxStreamer {
             } else if end_burst && (num_streamable_samples_tmp as usize) < len {
                 // not enough space in tx queue to send burst in one go -> return and retry later
                 // log::debug!("WARNING: cannot send burst while assuring less than 1s streaming delay.");
-                assert!(len <= (1.0_f64 / sample_rate) as usize); // assure that the burst can be sent at all if tx queue is empty
-                return Ok(0);
+                return Err(Error::Busy);
             } else if (num_streamable_samples_tmp as usize) < len {
                 // log::debug!("WARNING: tx queue running full, sending only a subset of samples ({}/{}).", num_streamable_samples_tmp, len);
                 num_streamable_samples_tmp as usize
