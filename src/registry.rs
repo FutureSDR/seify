@@ -123,10 +123,8 @@ impl Registry {
             }
         }
 
-        if !matched_backend {
-            if !builtin_driver_enabled(driver) {
-                return Err(Error::FeatureNotEnabled);
-            }
+        if !matched_backend && !builtin_driver_enabled(driver) {
+            return Err(Error::FeatureNotEnabled);
         }
 
         Err(Error::NotFound)
