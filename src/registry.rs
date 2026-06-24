@@ -176,9 +176,6 @@ impl Default for Registry {
         #[cfg(all(feature = "rtlsdr", not(target_arch = "wasm32")))]
         registry.register(BuiltinDriver::<crate::impls::RtlSdr>::new(Driver::RtlSdr));
 
-        #[cfg(all(feature = "soapy", not(target_arch = "wasm32")))]
-        registry.register(BuiltinDriver::<crate::impls::Soapy>::new(Driver::Soapy));
-
         #[cfg(all(feature = "hackrfone", not(target_arch = "wasm32")))]
         registry.register(BuiltinDriver::<crate::impls::HackRfOne>::new(
             Driver::HackRf,
@@ -188,6 +185,9 @@ impl Default for Registry {
         registry.register(BuiltinDriver::<crate::impls::HydraSdr>::new(
             Driver::HydraSdr,
         ));
+
+        #[cfg(all(feature = "soapy", not(target_arch = "wasm32")))]
+        registry.register(BuiltinDriver::<crate::impls::Soapy>::new(Driver::Soapy));
 
         #[cfg(feature = "dummy")]
         registry.register(BuiltinDriver::<crate::impls::Dummy>::new(Driver::Dummy));
@@ -324,6 +324,34 @@ impl_builtin_device!(crate::impls::Soapy, Driver::Soapy);
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn default_registry_prefers_specific_drivers_before_fallbacks() {
+        let drivers: Vec<_> = Registry::default()
+            .backends
+            .iter()
+            .map(|backend| backend.driver())
+            .collect();
+
+        let soapy = drivers.iter().position(|driver| *driver == Driver::Soapy);
+        let dummy = drivers.iter().position(|driver| *driver == Driver::Dummy);
+
+        for fallback in [soapy, dummy].into_iter().flatten() {
+            for (index, driver) in drivers.iter().enumerate() {
+                if matches!(driver, Driver::Soapy | Driver::Dummy) {
+                    continue;
+                }
+                assert!(
+                    index < fallback,
+                    "{driver:?} should be registered before fallback drivers"
+                );
+            }
+        }
+
+        if let (Some(soapy), Some(dummy)) = (soapy, dummy) {
+            assert!(soapy < dummy, "dummy should be registered last");
+        }
+    }
 
     #[test]
     #[cfg(feature = "dummy")]
