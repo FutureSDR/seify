@@ -37,6 +37,11 @@ pub use device::TxDevice;
 
 pub mod impls;
 
+mod registry;
+pub use registry::DeviceDescriptor;
+pub use registry::DriverBackend;
+pub use registry::Registry;
+
 mod range;
 pub use range::Range;
 pub use range::RangeItem;
@@ -100,7 +105,7 @@ impl From<ureq::Error> for Error {
 }
 
 /// Supported hardware drivers.
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum Driver {
     AaroniaHttp,
@@ -168,104 +173,11 @@ pub fn enumerate() -> Result<Vec<Args>, Error> {
 /// uniquely, i.e., passing the [`Args`] to [`Device::from_args`](crate::Device::from_args) will
 /// open this particular device.
 pub fn enumerate_with_args<A: TryInto<Args>>(a: A) -> Result<Vec<Args>, Error> {
-    let args: Args = a.try_into().or(Err(Error::ValueError))?;
-    let mut devs = Vec::new();
-    let driver = match args.get::<String>("driver") {
-        Ok(s) => Some(s.parse::<Driver>()?),
-        Err(_) => None,
-    };
-
-    #[cfg(all(feature = "aaronia_http", not(target_arch = "wasm32")))]
-    {
-        if driver.is_none() || matches!(driver, Some(Driver::AaroniaHttp)) {
-            devs.append(&mut impls::AaroniaHttp::probe(&args)?)
-        }
-    }
-    #[cfg(not(all(feature = "aaronia_http", not(target_arch = "wasm32"))))]
-    {
-        if matches!(driver, Some(Driver::AaroniaHttp)) {
-            return Err(Error::FeatureNotEnabled);
-        }
-    }
-
-    #[cfg(all(feature = "bladerf1", not(target_arch = "wasm32")))]
-    {
-        if driver.is_none() || matches!(driver, Some(Driver::BladeRf)) {
-            devs.append(&mut impls::BladeRf::probe(&args)?)
-        }
-    }
-    #[cfg(not(all(feature = "bladerf1", not(target_arch = "wasm32"))))]
-    {
-        if matches!(driver, Some(Driver::BladeRf)) {
-            return Err(Error::FeatureNotEnabled);
-        }
-    }
-
-    #[cfg(all(feature = "rtlsdr", not(target_arch = "wasm32")))]
-    {
-        if driver.is_none() || matches!(driver, Some(Driver::RtlSdr)) {
-            devs.append(&mut impls::RtlSdr::probe(&args)?)
-        }
-    }
-    #[cfg(not(all(feature = "rtlsdr", not(target_arch = "wasm32"))))]
-    {
-        if matches!(driver, Some(Driver::RtlSdr)) {
-            return Err(Error::FeatureNotEnabled);
-        }
-    }
-
-    #[cfg(all(feature = "soapy", not(target_arch = "wasm32")))]
-    {
-        if driver.is_none() || matches!(driver, Some(Driver::Soapy)) {
-            devs.append(&mut impls::Soapy::probe(&args)?)
-        }
-    }
-    #[cfg(not(all(feature = "soapy", not(target_arch = "wasm32"))))]
-    {
-        if matches!(driver, Some(Driver::Soapy)) {
-            return Err(Error::FeatureNotEnabled);
-        }
-    }
-
-    #[cfg(all(feature = "hackrfone", not(target_arch = "wasm32")))]
-    {
-        if driver.is_none() || matches!(driver, Some(Driver::HackRf)) {
-            devs.append(&mut impls::HackRfOne::probe(&args)?)
-        }
-    }
-    #[cfg(not(all(feature = "hackrfone", not(target_arch = "wasm32"))))]
-    {
-        if matches!(driver, Some(Driver::HackRf)) {
-            return Err(Error::FeatureNotEnabled);
-        }
-    }
-    #[cfg(all(feature = "hydrasdr", not(target_arch = "wasm32")))]
-    {
-        if driver.is_none() || matches!(driver, Some(Driver::HydraSdr)) {
-            devs.append(&mut impls::HydraSdr::probe(&args)?)
-        }
-    }
-    #[cfg(not(all(feature = "hydrasdr", not(target_arch = "wasm32"))))]
-    {
-        if matches!(driver, Some(Driver::HydraSdr)) {
-            return Err(Error::FeatureNotEnabled);
-        }
-    }
-    #[cfg(feature = "dummy")]
-    {
-        if driver.is_none() || matches!(driver, Some(Driver::Dummy)) {
-            devs.append(&mut impls::Dummy::probe(&args)?)
-        }
-    }
-    #[cfg(not(feature = "dummy"))]
-    {
-        if matches!(driver, Some(Driver::Dummy)) {
-            return Err(Error::FeatureNotEnabled);
-        }
-    }
-
-    let _ = &mut devs;
-    Ok(devs)
+    Ok(Registry::default()
+        .probe(a)?
+        .into_iter()
+        .map(DeviceDescriptor::into_args)
+        .collect())
 }
 
 #[cfg(test)]

@@ -9,6 +9,7 @@ use crate::Direction;
 use crate::Driver;
 use crate::Error;
 use crate::Range;
+use crate::Registry;
 use crate::RxStreamer;
 use crate::TxStreamer;
 
@@ -827,11 +828,10 @@ impl Device<DynDevice> {
     /// Creates a [`DynDevice`] opening the first device discovered through
     /// [`enumerate`](crate::enumerate).
     pub fn new() -> Result<Self, Error> {
-        let mut devs = crate::enumerate()?;
-        if devs.is_empty() {
-            return Err(Error::NotFound);
-        }
-        Self::from_args(devs.remove(0))
+        let registry = Registry::default();
+        let descriptors = registry.probe(Args::new())?;
+        let descriptor = descriptors.first().ok_or(Error::NotFound)?;
+        registry.open(descriptor)
     }
 
     /// Create a runtime-dispatched device from a device implementation.
@@ -843,132 +843,7 @@ impl Device<DynDevice> {
     /// the `args` or the first device discovered through [`enumerate`](crate::enumerate) that
     /// matches the args.
     pub fn from_args<A: TryInto<Args>>(args: A) -> Result<Self, Error> {
-        let args = args.try_into().map_err(|_| Error::ValueError)?;
-        let driver = match args.get::<Driver>("driver") {
-            Ok(d) => Some(d),
-            Err(Error::NotFound) => None,
-            Err(e) => return Err(e),
-        };
-        #[cfg(all(feature = "aaronia_http", not(target_arch = "wasm32")))]
-        {
-            if driver.is_none() || matches!(driver, Some(Driver::AaroniaHttp)) {
-                match crate::impls::AaroniaHttp::open(&args) {
-                    Ok(d) => return Ok(Device { dev: Arc::new(d) }),
-                    Err(Error::NotFound) => {
-                        if driver.is_some() {
-                            return Err(Error::NotFound);
-                        }
-                    }
-                    Err(e) => return Err(e),
-                }
-            }
-        }
-        #[cfg(all(feature = "bladerf1", not(target_arch = "wasm32")))]
-        {
-            if driver.is_none() || matches!(driver, Some(Driver::BladeRf)) {
-                match crate::impls::BladeRf::open(&args) {
-                    Ok(d) => return Ok(Device { dev: Arc::new(d) }),
-                    Err(Error::NotFound) => {
-                        if driver.is_some() {
-                            return Err(Error::NotFound);
-                        }
-                    }
-                    Err(e) => return Err(e),
-                }
-            }
-        }
-        #[cfg(all(feature = "bladerf1", not(target_arch = "wasm32")))]
-        {
-            if driver.is_none() || matches!(driver, Some(Driver::BladeRf)) {
-                match crate::impls::BladeRf::open(&args) {
-                    Ok(d) => return Ok(Device { dev: Arc::new(d) }),
-                    Err(Error::NotFound) => {
-                        if driver.is_some() {
-                            return Err(Error::NotFound);
-                        }
-                    }
-                    Err(e) => return Err(e),
-                }
-            }
-        }
-        #[cfg(all(feature = "rtlsdr", not(target_arch = "wasm32")))]
-        {
-            if driver.is_none() || matches!(driver, Some(Driver::RtlSdr)) {
-                match crate::impls::RtlSdr::open(&args) {
-                    Ok(d) => return Ok(Device { dev: Arc::new(d) }),
-                    Err(Error::NotFound) => {
-                        if driver.is_some() {
-                            return Err(Error::NotFound);
-                        }
-                    }
-                    Err(e) => return Err(e),
-                }
-            }
-        }
-        #[cfg(all(feature = "soapy", not(target_arch = "wasm32")))]
-        {
-            if driver.is_none() || matches!(driver, Some(Driver::Soapy)) {
-                match crate::impls::Soapy::open(&args) {
-                    Ok(d) => return Ok(Device { dev: Arc::new(d) }),
-                    Err(Error::NotFound) => {
-                        if driver.is_some() {
-                            return Err(Error::NotFound);
-                        }
-                    }
-                    Err(e) => return Err(e),
-                }
-            }
-        }
-        #[cfg(all(feature = "hackrfone", not(target_arch = "wasm32")))]
-        {
-            if driver.is_none() || matches!(driver, Some(Driver::HackRf)) {
-                match crate::impls::HackRfOne::open(&args) {
-                    Ok(d) => return Ok(Device { dev: Arc::new(d) }),
-                    Err(Error::NotFound) => {
-                        if driver.is_some() {
-                            return Err(Error::NotFound);
-                        }
-                    }
-                    Err(e) => return Err(e),
-                }
-            }
-        }
-        #[cfg(all(feature = "hydrasdr", not(target_arch = "wasm32")))]
-        {
-            if driver.is_none() || matches!(driver, Some(Driver::HydraSdr)) {
-                match crate::impls::HydraSdr::open(&args) {
-                    Ok(d) => return Ok(Device { dev: Arc::new(d) }),
-                    Err(Error::NotFound) => {
-                        if driver.is_some() {
-                            return Err(Error::NotFound);
-                        }
-                    }
-                    Err(e) => return Err(e),
-                }
-            }
-        }
-        #[cfg(not(all(feature = "hydrasdr", not(target_arch = "wasm32"))))]
-        {
-            if matches!(driver, Some(Driver::HydraSdr)) {
-                return Err(Error::FeatureNotEnabled);
-            }
-        }
-        #[cfg(feature = "dummy")]
-        {
-            if driver.is_none() || matches!(driver, Some(Driver::Dummy)) {
-                match crate::impls::Dummy::open(&args) {
-                    Ok(d) => return Ok(Device { dev: Arc::new(d) }),
-                    Err(Error::NotFound) => {
-                        if driver.is_some() {
-                            return Err(Error::NotFound);
-                        }
-                    }
-                    Err(e) => return Err(e),
-                }
-            }
-        }
-
-        Err(Error::NotFound)
+        Registry::default().open_args(args)
     }
 }
 
