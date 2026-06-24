@@ -17,13 +17,9 @@ use hydrasdr_rs::{
 use num_complex::Complex32;
 
 use crate::Direction::*;
-use crate::{
-    dev::DynDeviceBackend, AgcControl, AntennaControl, Args, BandwidthControl, Capability,
-    ChannelInfo, DeviceInfo, Direction, Driver, Error, FrequencyControl, GainControl, Range,
-    RangeItem, RxDevice, SampleRateControl,
-};
 #[cfg(any(feature = "smol", feature = "tokio"))]
 use crate::{
+    async_compat::{timeout_from_micros, with_timeout, TimeoutResult},
     dev::{
         AsyncDynDeviceBackend, AsyncTypedDeviceBackend, ErasedAsyncAgcControl,
         ErasedAsyncAntennaControl, ErasedAsyncBandwidthControl, ErasedAsyncChannelInfo,
@@ -32,6 +28,11 @@ use crate::{
     },
     AsyncAgcControl, AsyncAntennaControl, AsyncBandwidthControl, AsyncChannelInfo, AsyncDeviceInfo,
     AsyncFrequencyControl, AsyncGainControl, AsyncRxDevice, AsyncSampleRateControl,
+};
+use crate::{
+    dev::DynDeviceBackend, AgcControl, AntennaControl, Args, BandwidthControl, Capability,
+    ChannelInfo, DeviceInfo, Direction, Driver, Error, FrequencyControl, GainControl, Range,
+    RangeItem, RxDevice, SampleRateControl,
 };
 
 const MTU: usize = 262_144 / 8;
@@ -1762,7 +1763,7 @@ impl crate::AsyncRxStreamer for AsyncHydraSdrRxStreamer {
     async fn read<'a>(
         &'a mut self,
         buffers: &'a mut [&'a mut [Complex32]],
-        _timeout_us: i64,
+        timeout_us: i64,
     ) -> Result<usize, Error> {
         if !self.active {
             return Err(Error::StreamInactive);
@@ -1775,12 +1776,22 @@ impl crate::AsyncRxStreamer for AsyncHydraSdrRxStreamer {
         let out = &mut buffers[0];
         let mut dev = self.dev.lock().await;
         let device = dev.as_mut().ok_or(Error::DeviceDisconnected)?;
-        // hydrasdr-rs currently exposes timeout control only on the sync stream API.
         let mut stream = device
             .f32_rx_stream_async()
             .await
             .map_err(map_hydrasdr_error)?;
-        let read = read_async_f32_stream(&mut stream, out).await?;
+        // One MTU maps to one HydraSDR USB completion; keeping this read to one
+        // completion makes timing out the wait cancellation-safe.
+        let read_len = out.len().min(MTU);
+        let read = match with_timeout(
+            read_async_f32_stream(&mut stream, &mut out[..read_len]),
+            timeout_from_micros(timeout_us),
+        )
+        .await
+        {
+            TimeoutResult::Completed(read) => read?,
+            TimeoutResult::TimedOut => 0,
+        };
         stream.finish().await.map_err(map_hydrasdr_error)?;
         Ok(read)
     }

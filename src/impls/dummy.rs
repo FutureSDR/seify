@@ -860,6 +860,20 @@ impl crate::AsyncRxStreamer for RxStreamer {
         buffers: &'a mut [&'a mut [num_complex::Complex32]],
         timeout_us: i64,
     ) -> Result<usize, Error> {
+        #[cfg(any(target_arch = "wasm32", feature = "smol", feature = "tokio"))]
+        {
+            match crate::async_compat::with_timeout(
+                async { <Self as crate::RxStreamer>::read(self, buffers, timeout_us) },
+                crate::async_compat::timeout_from_micros(timeout_us),
+            )
+            .await
+            {
+                crate::async_compat::TimeoutResult::Completed(result) => result,
+                crate::async_compat::TimeoutResult::TimedOut => Ok(0),
+            }
+        }
+
+        #[cfg(not(any(target_arch = "wasm32", feature = "smol", feature = "tokio")))]
         <Self as crate::RxStreamer>::read(self, buffers, timeout_us)
     }
 }

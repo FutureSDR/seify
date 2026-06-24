@@ -132,6 +132,12 @@ pub use streamer::TxStreamer;
 /// `wasm32` compatibility. The `Erased*` traits are runtime-dispatch adapters
 /// and are usually reached through blanket implementations.
 pub mod dev {
+    #[cfg(any(target_arch = "wasm32", feature = "smol", feature = "tokio"))]
+    pub use crate::async_compat::timeout_from_micros;
+    #[cfg(any(target_arch = "wasm32", feature = "smol", feature = "tokio"))]
+    pub use crate::async_compat::with_timeout;
+    #[cfg(any(target_arch = "wasm32", feature = "smol", feature = "tokio"))]
+    pub use crate::async_compat::TimeoutResult;
     pub use crate::async_device::AsyncDriverBackend;
     pub use crate::async_device::AsyncDynDeviceBackend;
     pub use crate::async_device::AsyncTypedDeviceBackend;
