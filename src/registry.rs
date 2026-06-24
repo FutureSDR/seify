@@ -47,7 +47,7 @@ pub trait DriverBackend: Send + Sync {
 }
 
 /// Typed driver implementation that can be opened directly.
-pub trait TypedDeviceBackend: crate::DynDeviceBackend + Sized + 'static {
+pub trait TypedDeviceBackend: crate::device::DynDeviceBackend + Sized + 'static {
     /// Driver implemented by this backend.
     fn driver() -> Driver;
 

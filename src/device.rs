@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::any::Any;
 use std::sync::Arc;
 
+use crate::registry::TypedDeviceBackend;
 use crate::Args;
 use crate::Capability;
 use crate::Direction;
@@ -13,7 +14,6 @@ use crate::Range;
 use crate::Registry;
 use crate::RxStreamer;
 use crate::TxStreamer;
-use crate::TypedDeviceBackend;
 
 /// Type-erased RX streamer.
 pub type DynRxStreamer = Box<dyn RxStreamer>;

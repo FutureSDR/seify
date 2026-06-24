@@ -12,6 +12,8 @@ use crate::MaybeSend;
 /// This interface is send-safe on native targets and local on `wasm32`.
 /// Implementations may perform real asynchronous I/O or wrap driver APIs that
 /// are already safe to wait on from an async task.
+/// Implementations may write methods as `async fn`; the explicit trait return
+/// types enforce Seify's target-dependent `MaybeSend` future bound.
 pub trait AsyncRxStreamer: MaybeSend {
     /// Get the stream's maximum transmission unit in number of elements.
     fn mtu(&self) -> impl Future<Output = Result<usize, Error>> + MaybeSend + '_;
@@ -132,6 +134,8 @@ impl AsyncRxStreamer for Box<dyn ErasedAsyncRxStreamer> {
 /// Asynchronous transmit streamer.
 ///
 /// This interface is send-safe on native targets and local on `wasm32`.
+/// Implementations may write methods as `async fn`; the explicit trait return
+/// types enforce Seify's target-dependent `MaybeSend` future bound.
 pub trait AsyncTxStreamer: MaybeSend {
     /// Get the stream's maximum transmission unit in number of elements.
     fn mtu(&self) -> impl Future<Output = Result<usize, Error>> + MaybeSend + '_;

@@ -1,8 +1,13 @@
 //! Dummy SDR for CI
-use std::future::Future;
 use std::sync::Arc;
 use std::sync::Mutex;
 
+use crate::dev::{
+    AsyncDynDeviceBackend, AsyncTypedDeviceBackend, DynDeviceBackend, ErasedAsyncAgcControl,
+    ErasedAsyncAntennaControl, ErasedAsyncBandwidthControl, ErasedAsyncChannelInfo,
+    ErasedAsyncFrequencyControl, ErasedAsyncGainControl, ErasedAsyncRxDevice,
+    ErasedAsyncSampleRateControl, ErasedAsyncTxDevice,
+};
 use crate::AgcControl;
 use crate::AntennaControl;
 use crate::Args;
@@ -11,13 +16,11 @@ use crate::AsyncAntennaControl;
 use crate::AsyncBandwidthControl;
 use crate::AsyncChannelInfo;
 use crate::AsyncDeviceInfo;
-use crate::AsyncDynDeviceBackend;
 use crate::AsyncFrequencyControl;
 use crate::AsyncGainControl;
 use crate::AsyncRxDevice;
 use crate::AsyncSampleRateControl;
 use crate::AsyncTxDevice;
-use crate::AsyncTypedDeviceBackend;
 use crate::BandwidthControl;
 use crate::ChannelInfo;
 use crate::DeviceInfo;
@@ -25,18 +28,9 @@ use crate::Direction;
 use crate::Direction::Rx;
 use crate::Direction::Tx;
 use crate::Driver;
-use crate::DynDeviceBackend;
-use crate::ErasedAsyncAgcControl;
-use crate::ErasedAsyncAntennaControl;
-use crate::ErasedAsyncBandwidthControl;
-use crate::ErasedAsyncChannelInfo;
-use crate::ErasedAsyncFrequencyControl;
-use crate::ErasedAsyncGainControl;
-use crate::ErasedAsyncSampleRateControl;
 use crate::Error;
 use crate::FrequencyControl;
 use crate::GainControl;
-use crate::MaybeSend;
 use crate::Range;
 use crate::RangeItem;
 use crate::RxDevice;
@@ -132,12 +126,12 @@ impl AsyncDeviceInfo for Dummy {
         Driver::Dummy
     }
 
-    fn async_id(&self) -> impl Future<Output = Result<String, Error>> + MaybeSend + '_ {
-        async { self.id() }
+    async fn async_id(&self) -> Result<String, Error> {
+        self.id()
     }
 
-    fn async_info(&self) -> impl Future<Output = Result<Args, Error>> + MaybeSend + '_ {
-        async { self.info() }
+    async fn async_info(&self) -> Result<Args, Error> {
+        self.info()
     }
 }
 
@@ -146,11 +140,11 @@ impl DynDeviceBackend for Dummy {
         Some(self)
     }
 
-    fn rx_device(&self) -> Option<&dyn crate::ErasedRxDevice> {
+    fn rx_device(&self) -> Option<&dyn crate::dev::ErasedRxDevice> {
         Some(self)
     }
 
-    fn tx_device(&self) -> Option<&dyn crate::ErasedTxDevice> {
+    fn tx_device(&self) -> Option<&dyn crate::dev::ErasedTxDevice> {
         Some(self)
     }
 
@@ -184,11 +178,11 @@ impl AsyncDynDeviceBackend for Dummy {
         Some(self)
     }
 
-    fn async_rx_device(&self) -> Option<&dyn crate::ErasedAsyncRxDevice> {
+    fn async_rx_device(&self) -> Option<&dyn ErasedAsyncRxDevice> {
         Some(self)
     }
 
-    fn async_tx_device(&self) -> Option<&dyn crate::ErasedAsyncTxDevice> {
+    fn async_tx_device(&self) -> Option<&dyn ErasedAsyncTxDevice> {
         Some(self)
     }
 
@@ -228,19 +222,12 @@ impl ChannelInfo for Dummy {
 }
 
 impl AsyncChannelInfo for Dummy {
-    fn async_num_channels(
-        &self,
-        direction: Direction,
-    ) -> impl Future<Output = Result<usize, Error>> + MaybeSend + '_ {
-        async move { self.num_channels(direction) }
+    async fn async_num_channels(&self, direction: Direction) -> Result<usize, Error> {
+        self.num_channels(direction)
     }
 
-    fn async_full_duplex(
-        &self,
-        direction: Direction,
-        channel: usize,
-    ) -> impl Future<Output = Result<bool, Error>> + MaybeSend + '_ {
-        async move { self.full_duplex(direction, channel) }
+    async fn async_full_duplex(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+        self.full_duplex(direction, channel)
     }
 }
 
@@ -258,12 +245,12 @@ impl RxDevice for Dummy {
 impl AsyncRxDevice for Dummy {
     type RxStreamer = RxStreamer;
 
-    fn async_rx_streamer<'a>(
-        &'a self,
-        channels: &'a [usize],
+    async fn async_rx_streamer(
+        &self,
+        channels: &[usize],
         args: Args,
-    ) -> impl Future<Output = Result<Self::RxStreamer, Error>> + MaybeSend + 'a {
-        async move { self.rx_streamer(channels, args) }
+    ) -> Result<Self::RxStreamer, Error> {
+        self.rx_streamer(channels, args)
     }
 }
 
@@ -281,12 +268,12 @@ impl TxDevice for Dummy {
 impl AsyncTxDevice for Dummy {
     type TxStreamer = TxStreamer;
 
-    fn async_tx_streamer<'a>(
-        &'a self,
-        channels: &'a [usize],
+    async fn async_tx_streamer(
+        &self,
+        channels: &[usize],
         args: Args,
-    ) -> impl Future<Output = Result<Self::TxStreamer, Error>> + MaybeSend + 'a {
-        async move { self.tx_streamer(channels, args) }
+    ) -> Result<Self::TxStreamer, Error> {
+        self.tx_streamer(channels, args)
     }
 }
 
@@ -316,29 +303,25 @@ impl AntennaControl for Dummy {
 }
 
 impl AsyncAntennaControl for Dummy {
-    fn async_antennas(
+    async fn async_antennas(
         &self,
         direction: Direction,
         channel: usize,
-    ) -> impl Future<Output = Result<Vec<String>, Error>> + MaybeSend + '_ {
-        async move { self.antennas(direction, channel) }
+    ) -> Result<Vec<String>, Error> {
+        self.antennas(direction, channel)
     }
 
-    fn async_antenna(
+    async fn async_antenna(&self, direction: Direction, channel: usize) -> Result<String, Error> {
+        self.antenna(direction, channel)
+    }
+
+    async fn async_set_antenna(
         &self,
         direction: Direction,
         channel: usize,
-    ) -> impl Future<Output = Result<String, Error>> + MaybeSend + '_ {
-        async move { self.antenna(direction, channel) }
-    }
-
-    fn async_set_antenna<'a>(
-        &'a self,
-        direction: Direction,
-        channel: usize,
-        name: &'a str,
-    ) -> impl Future<Output = Result<(), Error>> + MaybeSend + 'a {
-        async move { self.set_antenna(direction, channel, name) }
+        name: &str,
+    ) -> Result<(), Error> {
+        self.set_antenna(direction, channel, name)
     }
 }
 
@@ -380,29 +363,25 @@ impl AgcControl for Dummy {
 }
 
 impl AsyncAgcControl for Dummy {
-    fn async_agc_available(
+    async fn async_agc_available(
         &self,
         direction: Direction,
         channel: usize,
-    ) -> impl Future<Output = Result<bool, Error>> + MaybeSend + '_ {
-        async move { self.agc_available(direction, channel) }
+    ) -> Result<bool, Error> {
+        self.agc_available(direction, channel)
     }
 
-    fn async_agc_enabled(
-        &self,
-        direction: Direction,
-        channel: usize,
-    ) -> impl Future<Output = Result<bool, Error>> + MaybeSend + '_ {
-        async move { self.agc_enabled(direction, channel) }
+    async fn async_agc_enabled(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+        self.agc_enabled(direction, channel)
     }
 
-    fn async_set_agc_enabled(
+    async fn async_set_agc_enabled(
         &self,
         direction: Direction,
         channel: usize,
         enabled: bool,
-    ) -> impl Future<Output = Result<(), Error>> + MaybeSend + '_ {
-        async move { self.set_agc_enabled(direction, channel, enabled) }
+    ) -> Result<(), Error> {
+        self.set_agc_enabled(direction, channel, enabled)
     }
 }
 
@@ -513,65 +492,57 @@ impl GainControl for Dummy {
 }
 
 impl AsyncGainControl for Dummy {
-    fn async_gain_elements(
+    async fn async_gain_elements(
         &self,
         direction: Direction,
         channel: usize,
-    ) -> impl Future<Output = Result<Vec<String>, Error>> + MaybeSend + '_ {
-        async move { self.gain_elements(direction, channel) }
+    ) -> Result<Vec<String>, Error> {
+        self.gain_elements(direction, channel)
     }
 
-    fn async_set_gain(
+    async fn async_set_gain(
         &self,
         direction: Direction,
         channel: usize,
         gain: f64,
-    ) -> impl Future<Output = Result<(), Error>> + MaybeSend + '_ {
-        async move { self.set_gain(direction, channel, gain) }
+    ) -> Result<(), Error> {
+        self.set_gain(direction, channel, gain)
     }
 
-    fn async_gain(
+    async fn async_gain(&self, direction: Direction, channel: usize) -> Result<Option<f64>, Error> {
+        self.gain(direction, channel)
+    }
+
+    async fn async_gain_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
+        self.gain_range(direction, channel)
+    }
+
+    async fn async_set_gain_element(
         &self,
         direction: Direction,
         channel: usize,
-    ) -> impl Future<Output = Result<Option<f64>, Error>> + MaybeSend + '_ {
-        async move { self.gain(direction, channel) }
-    }
-
-    fn async_gain_range(
-        &self,
-        direction: Direction,
-        channel: usize,
-    ) -> impl Future<Output = Result<Range, Error>> + MaybeSend + '_ {
-        async move { self.gain_range(direction, channel) }
-    }
-
-    fn async_set_gain_element<'a>(
-        &'a self,
-        direction: Direction,
-        channel: usize,
-        name: &'a str,
+        name: &str,
         gain: f64,
-    ) -> impl Future<Output = Result<(), Error>> + MaybeSend + 'a {
-        async move { self.set_gain_element(direction, channel, name, gain) }
+    ) -> Result<(), Error> {
+        self.set_gain_element(direction, channel, name, gain)
     }
 
-    fn async_gain_element<'a>(
-        &'a self,
+    async fn async_gain_element(
+        &self,
         direction: Direction,
         channel: usize,
-        name: &'a str,
-    ) -> impl Future<Output = Result<Option<f64>, Error>> + MaybeSend + 'a {
-        async move { self.gain_element(direction, channel, name) }
+        name: &str,
+    ) -> Result<Option<f64>, Error> {
+        self.gain_element(direction, channel, name)
     }
 
-    fn async_gain_element_range<'a>(
-        &'a self,
+    async fn async_gain_element_range(
+        &self,
         direction: Direction,
         channel: usize,
-        name: &'a str,
-    ) -> impl Future<Output = Result<Range, Error>> + MaybeSend + 'a {
-        async move { self.gain_element_range(direction, channel, name) }
+        name: &str,
+    ) -> Result<Range, Error> {
+        self.gain_element_range(direction, channel, name)
     }
 }
 
@@ -676,66 +647,62 @@ impl FrequencyControl for Dummy {
 }
 
 impl AsyncFrequencyControl for Dummy {
-    fn async_frequency_range(
+    async fn async_frequency_range(
         &self,
         direction: Direction,
         channel: usize,
-    ) -> impl Future<Output = Result<Range, Error>> + MaybeSend + '_ {
-        async move { self.frequency_range(direction, channel) }
+    ) -> Result<Range, Error> {
+        self.frequency_range(direction, channel)
     }
 
-    fn async_frequency(
-        &self,
-        direction: Direction,
-        channel: usize,
-    ) -> impl Future<Output = Result<f64, Error>> + MaybeSend + '_ {
-        async move { self.frequency(direction, channel) }
+    async fn async_frequency(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
+        self.frequency(direction, channel)
     }
 
-    fn async_set_frequency(
+    async fn async_set_frequency(
         &self,
         direction: Direction,
         channel: usize,
         frequency: f64,
         args: Args,
-    ) -> impl Future<Output = Result<(), Error>> + MaybeSend + '_ {
-        async move { self.set_frequency(direction, channel, frequency, args) }
+    ) -> Result<(), Error> {
+        self.set_frequency(direction, channel, frequency, args)
     }
 
-    fn async_frequency_components(
+    async fn async_frequency_components(
         &self,
         direction: Direction,
         channel: usize,
-    ) -> impl Future<Output = Result<Vec<String>, Error>> + MaybeSend + '_ {
-        async move { self.frequency_components(direction, channel) }
+    ) -> Result<Vec<String>, Error> {
+        self.frequency_components(direction, channel)
     }
 
-    fn async_component_frequency_range<'a>(
-        &'a self,
+    async fn async_component_frequency_range(
+        &self,
         direction: Direction,
         channel: usize,
-        name: &'a str,
-    ) -> impl Future<Output = Result<Range, Error>> + MaybeSend + 'a {
-        async move { self.component_frequency_range(direction, channel, name) }
+        name: &str,
+    ) -> Result<Range, Error> {
+        self.component_frequency_range(direction, channel, name)
     }
 
-    fn async_component_frequency<'a>(
-        &'a self,
+    async fn async_component_frequency(
+        &self,
         direction: Direction,
         channel: usize,
-        name: &'a str,
-    ) -> impl Future<Output = Result<f64, Error>> + MaybeSend + 'a {
-        async move { self.component_frequency(direction, channel, name) }
+        name: &str,
+    ) -> Result<f64, Error> {
+        self.component_frequency(direction, channel, name)
     }
 
-    fn async_set_component_frequency<'a>(
-        &'a self,
+    async fn async_set_component_frequency(
+        &self,
         direction: Direction,
         channel: usize,
-        name: &'a str,
+        name: &str,
         frequency: f64,
-    ) -> impl Future<Output = Result<(), Error>> + MaybeSend + 'a {
-        async move { self.set_component_frequency(direction, channel, name, frequency) }
+    ) -> Result<(), Error> {
+        self.set_component_frequency(direction, channel, name, frequency)
     }
 }
 
@@ -775,29 +742,25 @@ impl SampleRateControl for Dummy {
 }
 
 impl AsyncSampleRateControl for Dummy {
-    fn async_sample_rate(
-        &self,
-        direction: Direction,
-        channel: usize,
-    ) -> impl Future<Output = Result<f64, Error>> + MaybeSend + '_ {
-        async move { self.sample_rate(direction, channel) }
+    async fn async_sample_rate(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
+        self.sample_rate(direction, channel)
     }
 
-    fn async_set_sample_rate(
+    async fn async_set_sample_rate(
         &self,
         direction: Direction,
         channel: usize,
         rate: f64,
-    ) -> impl Future<Output = Result<(), Error>> + MaybeSend + '_ {
-        async move { self.set_sample_rate(direction, channel, rate) }
+    ) -> Result<(), Error> {
+        self.set_sample_rate(direction, channel, rate)
     }
 
-    fn async_get_sample_rate_range(
+    async fn async_get_sample_rate_range(
         &self,
         direction: Direction,
         channel: usize,
-    ) -> impl Future<Output = Result<Range, Error>> + MaybeSend + '_ {
-        async move { self.get_sample_rate_range(direction, channel) }
+    ) -> Result<Range, Error> {
+        self.get_sample_rate_range(direction, channel)
     }
 }
 
@@ -832,29 +795,25 @@ impl BandwidthControl for Dummy {
 }
 
 impl AsyncBandwidthControl for Dummy {
-    fn async_bandwidth(
-        &self,
-        direction: Direction,
-        channel: usize,
-    ) -> impl Future<Output = Result<f64, Error>> + MaybeSend + '_ {
-        async move { self.bandwidth(direction, channel) }
+    async fn async_bandwidth(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
+        self.bandwidth(direction, channel)
     }
 
-    fn async_set_bandwidth(
+    async fn async_set_bandwidth(
         &self,
         direction: Direction,
         channel: usize,
         bandwidth: f64,
-    ) -> impl Future<Output = Result<(), Error>> + MaybeSend + '_ {
-        async move { self.set_bandwidth(direction, channel, bandwidth) }
+    ) -> Result<(), Error> {
+        self.set_bandwidth(direction, channel, bandwidth)
     }
 
-    fn async_get_bandwidth_range(
+    async fn async_get_bandwidth_range(
         &self,
         direction: Direction,
         channel: usize,
-    ) -> impl Future<Output = Result<Range, Error>> + MaybeSend + '_ {
-        async move { self.get_bandwidth_range(direction, channel) }
+    ) -> Result<Range, Error> {
+        self.get_bandwidth_range(direction, channel)
     }
 }
 
@@ -884,30 +843,24 @@ impl crate::RxStreamer for RxStreamer {
 }
 
 impl crate::AsyncRxStreamer for RxStreamer {
-    fn mtu(&self) -> impl Future<Output = Result<usize, Error>> + MaybeSend + '_ {
-        async { <Self as crate::RxStreamer>::mtu(self) }
+    async fn mtu(&self) -> Result<usize, Error> {
+        <Self as crate::RxStreamer>::mtu(self)
     }
 
-    fn activate_at(
-        &mut self,
-        time_ns: Option<i64>,
-    ) -> impl Future<Output = Result<(), Error>> + MaybeSend + '_ {
-        async move { <Self as crate::RxStreamer>::activate_at(self, time_ns) }
+    async fn activate_at(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
+        <Self as crate::RxStreamer>::activate_at(self, time_ns)
     }
 
-    fn deactivate_at(
-        &mut self,
-        time_ns: Option<i64>,
-    ) -> impl Future<Output = Result<(), Error>> + MaybeSend + '_ {
-        async move { <Self as crate::RxStreamer>::deactivate_at(self, time_ns) }
+    async fn deactivate_at(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
+        <Self as crate::RxStreamer>::deactivate_at(self, time_ns)
     }
 
-    fn read<'a>(
+    async fn read<'a>(
         &'a mut self,
         buffers: &'a mut [&'a mut [num_complex::Complex32]],
         timeout_us: i64,
-    ) -> impl Future<Output = Result<usize, Error>> + MaybeSend + 'a {
-        async move { <Self as crate::RxStreamer>::read(self, buffers, timeout_us) }
+    ) -> Result<usize, Error> {
+        <Self as crate::RxStreamer>::read(self, buffers, timeout_us)
     }
 }
 
@@ -946,44 +899,36 @@ impl crate::TxStreamer for TxStreamer {
 }
 
 impl crate::AsyncTxStreamer for TxStreamer {
-    fn mtu(&self) -> impl Future<Output = Result<usize, Error>> + MaybeSend + '_ {
-        async { <Self as crate::TxStreamer>::mtu(self) }
+    async fn mtu(&self) -> Result<usize, Error> {
+        <Self as crate::TxStreamer>::mtu(self)
     }
 
-    fn activate_at(
-        &mut self,
-        time_ns: Option<i64>,
-    ) -> impl Future<Output = Result<(), Error>> + MaybeSend + '_ {
-        async move { <Self as crate::TxStreamer>::activate_at(self, time_ns) }
+    async fn activate_at(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
+        <Self as crate::TxStreamer>::activate_at(self, time_ns)
     }
 
-    fn deactivate_at(
-        &mut self,
-        time_ns: Option<i64>,
-    ) -> impl Future<Output = Result<(), Error>> + MaybeSend + '_ {
-        async move { <Self as crate::TxStreamer>::deactivate_at(self, time_ns) }
+    async fn deactivate_at(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
+        <Self as crate::TxStreamer>::deactivate_at(self, time_ns)
     }
 
-    fn write<'a>(
+    async fn write<'a>(
         &'a mut self,
         buffers: &'a [&'a [num_complex::Complex32]],
         at_ns: Option<i64>,
         end_burst: bool,
         timeout_us: i64,
-    ) -> impl Future<Output = Result<usize, Error>> + MaybeSend + 'a {
-        async move { <Self as crate::TxStreamer>::write(self, buffers, at_ns, end_burst, timeout_us) }
+    ) -> Result<usize, Error> {
+        <Self as crate::TxStreamer>::write(self, buffers, at_ns, end_burst, timeout_us)
     }
 
-    fn write_all<'a>(
+    async fn write_all<'a>(
         &'a mut self,
         buffers: &'a [&'a [num_complex::Complex32]],
         at_ns: Option<i64>,
         end_burst: bool,
         timeout_us: i64,
-    ) -> impl Future<Output = Result<(), Error>> + MaybeSend + 'a {
-        async move {
-            <Self as crate::TxStreamer>::write_all(self, buffers, at_ns, end_burst, timeout_us)
-        }
+    ) -> Result<(), Error> {
+        <Self as crate::TxStreamer>::write_all(self, buffers, at_ns, end_burst, timeout_us)
     }
 }
 
@@ -992,11 +937,11 @@ impl AsyncTypedDeviceBackend for Dummy {
         Driver::Dummy
     }
 
-    fn async_probe(args: &Args) -> impl Future<Output = Result<Vec<Args>, Error>> + MaybeSend + '_ {
-        async move { Self::probe(args) }
+    async fn async_probe(args: &Args) -> Result<Vec<Args>, Error> {
+        Self::probe(args)
     }
 
-    fn async_open(args: &Args) -> impl Future<Output = Result<Self, Error>> + MaybeSend + '_ {
-        async move { Self::open(args.clone()) }
+    async fn async_open(args: &Args) -> Result<Self, Error> {
+        Self::open(args.clone())
     }
 }

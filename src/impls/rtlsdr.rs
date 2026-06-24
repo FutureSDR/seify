@@ -7,6 +7,7 @@ use std::any::Any;
 use std::sync::Arc;
 use std::sync::Mutex;
 
+use crate::dev::DynDeviceBackend;
 use crate::AgcControl;
 use crate::AntennaControl;
 use crate::Args;
@@ -17,7 +18,6 @@ use crate::DeviceInfo;
 use crate::Direction;
 use crate::Direction::*;
 use crate::Driver;
-use crate::DynDeviceBackend;
 use crate::Error;
 use crate::FrequencyControl;
 use crate::GainControl;
@@ -489,7 +489,7 @@ impl DynDeviceBackend for RtlSdr {
         Some(self)
     }
 
-    fn rx_device(&self) -> Option<&dyn crate::ErasedRxDevice> {
+    fn rx_device(&self) -> Option<&dyn crate::dev::ErasedRxDevice> {
         Some(self)
     }
 

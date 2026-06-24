@@ -2,6 +2,7 @@
 use num_complex::Complex32;
 use std::sync::OnceLock;
 
+use crate::dev::DynDeviceBackend;
 use crate::AgcControl;
 use crate::AntennaControl;
 use crate::Args;
@@ -12,7 +13,6 @@ use crate::DeviceInfo;
 use crate::Direction;
 use crate::Driver;
 use crate::DriverError;
-use crate::DynDeviceBackend;
 use crate::Error;
 use crate::FrequencyControl;
 use crate::GainControl;
@@ -126,11 +126,11 @@ impl DynDeviceBackend for Soapy {
         Some(self)
     }
 
-    fn rx_device(&self) -> Option<&dyn crate::ErasedRxDevice> {
+    fn rx_device(&self) -> Option<&dyn crate::dev::ErasedRxDevice> {
         Some(self)
     }
 
-    fn tx_device(&self) -> Option<&dyn crate::ErasedTxDevice> {
+    fn tx_device(&self) -> Option<&dyn crate::dev::ErasedTxDevice> {
         Some(self)
     }
 

@@ -9,14 +9,15 @@ use futures::future::{FutureExt, LocalBoxFuture};
 
 /// Boxed future used by Seify's asynchronous API.
 ///
-/// This is [`BoxFuture`] on native targets and [`LocalBoxFuture`] on `wasm32`.
+/// This is [`BoxFuture`] on native targets and
+/// [`LocalBoxFuture`](futures::future::LocalBoxFuture) on `wasm32`.
 #[cfg(not(target_arch = "wasm32"))]
 pub type BoxedFuture<'a, T> = BoxFuture<'a, T>;
 
 /// Boxed future used by Seify's asynchronous API.
 ///
 /// This is [`BoxFuture`](futures::future::BoxFuture) on native targets and
-/// [`LocalBoxFuture`] on `wasm32`.
+/// [`LocalBoxFuture`](futures::future::LocalBoxFuture) on `wasm32`.
 #[cfg(target_arch = "wasm32")]
 pub type BoxedFuture<'a, T> = LocalBoxFuture<'a, T>;
 

@@ -4,8 +4,8 @@ use num_complex::Complex32;
 use seify_hackrfone::Config;
 
 use crate::{
-    AntennaControl, Args, BandwidthControl, Capability, ChannelInfo, DeviceInfo, Direction,
-    DynDeviceBackend, Error, FrequencyControl, GainControl, Range, RangeItem, RxDevice,
+    dev::DynDeviceBackend, AntennaControl, Args, BandwidthControl, Capability, ChannelInfo,
+    DeviceInfo, Direction, Error, FrequencyControl, GainControl, Range, RangeItem, RxDevice,
     SampleRateControl,
 };
 
@@ -467,7 +467,7 @@ impl DynDeviceBackend for HackRfOne {
         Some(self)
     }
 
-    fn rx_device(&self) -> Option<&dyn crate::ErasedRxDevice> {
+    fn rx_device(&self) -> Option<&dyn crate::dev::ErasedRxDevice> {
         Some(self)
     }
 

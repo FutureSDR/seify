@@ -27,6 +27,10 @@ pub type DynAsyncRxStreamer = Box<dyn ErasedAsyncRxStreamer>;
 pub type DynAsyncTxStreamer = Box<dyn ErasedAsyncTxStreamer>;
 
 /// Basic asynchronous device metadata.
+///
+/// Implementations may write these methods as `async fn`. The explicit
+/// `impl Future + MaybeSend` spelling in the trait keeps returned futures
+/// `Send` on native targets while allowing local futures on `wasm32`.
 pub trait AsyncDeviceInfo: MaybeSend + MaybeSync {
     /// Cast to [`Any`] for downcasting.
     fn as_any(&self) -> &dyn Any;
@@ -943,6 +947,11 @@ where
 }
 
 /// Runtime-dispatched asynchronous device backend.
+///
+/// Backend authors usually implement the typed `Async*` capability traits and
+/// return `Some(self)` from the accessors below. The `ErasedAsync*` traits are
+/// blanket adapter traits for runtime dispatch and normally do not need manual
+/// implementations.
 pub trait AsyncDynDeviceBackend: ErasedAsyncDeviceInfo + MaybeSend + MaybeSync {
     /// Return a structured snapshot of the device's runtime capabilities.
     fn async_capabilities(&self) -> BoxedFuture<'_, Result<DeviceCapabilities, Error>> {
@@ -1801,77 +1810,62 @@ impl AsyncDeviceInfo for AsyncDynDevice {
         self.inner.erased_driver()
     }
 
-    fn async_id(&self) -> impl Future<Output = Result<String, Error>> + MaybeSend + '_ {
-        self.inner.erased_async_id()
+    async fn async_id(&self) -> Result<String, Error> {
+        self.inner.erased_async_id().await
     }
 
-    fn async_info(&self) -> impl Future<Output = Result<Args, Error>> + MaybeSend + '_ {
-        self.inner.erased_async_info()
+    async fn async_info(&self) -> Result<Args, Error> {
+        self.inner.erased_async_info().await
     }
 }
 
 impl AsyncChannelInfo for AsyncDynDevice {
-    fn async_num_channels(
-        &self,
-        direction: Direction,
-    ) -> impl Future<Output = Result<usize, Error>> + MaybeSend + '_ {
-        async move {
-            self.inner
-                .async_channel_info()
-                .ok_or_else(|| Error::unsupported(Capability::ChannelInfo))?
-                .erased_async_num_channels(direction)
-                .await
-        }
+    async fn async_num_channels(&self, direction: Direction) -> Result<usize, Error> {
+        self.inner
+            .async_channel_info()
+            .ok_or_else(|| Error::unsupported(Capability::ChannelInfo))?
+            .erased_async_num_channels(direction)
+            .await
     }
 
-    fn async_full_duplex(
-        &self,
-        direction: Direction,
-        channel: usize,
-    ) -> impl Future<Output = Result<bool, Error>> + MaybeSend + '_ {
-        async move {
-            self.inner
-                .async_channel_info()
-                .ok_or_else(|| Error::unsupported(Capability::ChannelInfo))?
-                .erased_async_full_duplex(direction, channel)
-                .await
-        }
+    async fn async_full_duplex(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+        self.inner
+            .async_channel_info()
+            .ok_or_else(|| Error::unsupported(Capability::ChannelInfo))?
+            .erased_async_full_duplex(direction, channel)
+            .await
     }
 }
 
 impl AsyncRxDevice for AsyncDynDevice {
     type RxStreamer = DynAsyncRxStreamer;
 
-    fn async_rx_streamer<'a>(
-        &'a self,
-        channels: &'a [usize],
+    async fn async_rx_streamer(
+        &self,
+        channels: &[usize],
         args: Args,
-    ) -> impl Future<Output = Result<Self::RxStreamer, Error>> + MaybeSend + 'a {
-        async move {
-            self.inner
-                .async_rx_device()
-                .ok_or_else(|| Error::unsupported(Capability::RxStreaming))?
-                .erased_async_rx_streamer(channels, args)
-                .await
-        }
+    ) -> Result<Self::RxStreamer, Error> {
+        self.inner
+            .async_rx_device()
+            .ok_or_else(|| Error::unsupported(Capability::RxStreaming))?
+            .erased_async_rx_streamer(channels, args)
+            .await
     }
 }
 
 impl AsyncTxDevice for AsyncDynDevice {
     type TxStreamer = DynAsyncTxStreamer;
 
-    fn async_tx_streamer<'a>(
-        &'a self,
-        channels: &'a [usize],
+    async fn async_tx_streamer(
+        &self,
+        channels: &[usize],
         args: Args,
-    ) -> impl Future<Output = Result<Self::TxStreamer, Error>> + MaybeSend + 'a {
-        async move {
-            self.inner
-                .async_tx_device()
-                .ok_or_else(|| Error::unsupported(Capability::TxStreaming))?
-                .erased_async_tx_streamer(channels, args)
-                .await
-        }
+    ) -> Result<Self::TxStreamer, Error> {
+        self.inner
+            .async_tx_device()
+            .ok_or_else(|| Error::unsupported(Capability::TxStreaming))?
+            .erased_async_tx_streamer(channels, args)
+            .await
     }
 }
 
@@ -1887,418 +1881,332 @@ impl_dyn_control!(
     AsyncAntennaControl,
     async_antenna_control,
     Capability::Antenna,
-    fn async_antennas(
+    async fn async_antennas(
         &self,
         direction: Direction,
         channel: usize,
-    ) -> impl Future<Output = Result<Vec<String>, Error>> + MaybeSend + '_ {
-        async move {
-            self.inner
-                .async_antenna_control()
-                .ok_or_else(|| Error::unsupported(Capability::Antenna))?
-                .erased_async_antennas(direction, channel)
-                .await
-        }
+    ) -> Result<Vec<String>, Error> {
+        self.inner
+            .async_antenna_control()
+            .ok_or_else(|| Error::unsupported(Capability::Antenna))?
+            .erased_async_antennas(direction, channel)
+            .await
     },
-    fn async_antenna(
+    async fn async_antenna(&self, direction: Direction, channel: usize) -> Result<String, Error> {
+        self.inner
+            .async_antenna_control()
+            .ok_or_else(|| Error::unsupported(Capability::Antenna))?
+            .erased_async_antenna(direction, channel)
+            .await
+    },
+    async fn async_set_antenna(
         &self,
         direction: Direction,
         channel: usize,
-    ) -> impl Future<Output = Result<String, Error>> + MaybeSend + '_ {
-        async move {
-            self.inner
-                .async_antenna_control()
-                .ok_or_else(|| Error::unsupported(Capability::Antenna))?
-                .erased_async_antenna(direction, channel)
-                .await
-        }
-    },
-    fn async_set_antenna<'a>(
-        &'a self,
-        direction: Direction,
-        channel: usize,
-        name: &'a str,
-    ) -> impl Future<Output = Result<(), Error>> + MaybeSend + 'a {
-        async move {
-            self.inner
-                .async_antenna_control()
-                .ok_or_else(|| Error::unsupported(Capability::Antenna))?
-                .erased_async_set_antenna(direction, channel, name)
-                .await
-        }
+        name: &str,
+    ) -> Result<(), Error> {
+        self.inner
+            .async_antenna_control()
+            .ok_or_else(|| Error::unsupported(Capability::Antenna))?
+            .erased_async_set_antenna(direction, channel, name)
+            .await
     }
 );
 
 impl AsyncAgcControl for AsyncDynDevice {
-    fn async_agc_available(
+    async fn async_agc_available(
         &self,
         direction: Direction,
         channel: usize,
-    ) -> impl Future<Output = Result<bool, Error>> + MaybeSend + '_ {
-        async move {
-            self.inner
-                .async_agc_control()
-                .ok_or_else(|| Error::unsupported(Capability::Agc))?
-                .erased_async_agc_available(direction, channel)
-                .await
-        }
+    ) -> Result<bool, Error> {
+        self.inner
+            .async_agc_control()
+            .ok_or_else(|| Error::unsupported(Capability::Agc))?
+            .erased_async_agc_available(direction, channel)
+            .await
     }
 
-    fn async_agc_enabled(
-        &self,
-        direction: Direction,
-        channel: usize,
-    ) -> impl Future<Output = Result<bool, Error>> + MaybeSend + '_ {
-        async move {
-            self.inner
-                .async_agc_control()
-                .ok_or_else(|| Error::unsupported(Capability::Agc))?
-                .erased_async_agc_enabled(direction, channel)
-                .await
-        }
+    async fn async_agc_enabled(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+        self.inner
+            .async_agc_control()
+            .ok_or_else(|| Error::unsupported(Capability::Agc))?
+            .erased_async_agc_enabled(direction, channel)
+            .await
     }
 
-    fn async_set_agc_enabled(
+    async fn async_set_agc_enabled(
         &self,
         direction: Direction,
         channel: usize,
         enabled: bool,
-    ) -> impl Future<Output = Result<(), Error>> + MaybeSend + '_ {
-        async move {
-            self.inner
-                .async_agc_control()
-                .ok_or_else(|| Error::unsupported(Capability::Agc))?
-                .erased_async_set_agc_enabled(direction, channel, enabled)
-                .await
-        }
+    ) -> Result<(), Error> {
+        self.inner
+            .async_agc_control()
+            .ok_or_else(|| Error::unsupported(Capability::Agc))?
+            .erased_async_set_agc_enabled(direction, channel, enabled)
+            .await
     }
 }
 
 impl AsyncGainControl for AsyncDynDevice {
-    fn async_gain_elements(
+    async fn async_gain_elements(
         &self,
         direction: Direction,
         channel: usize,
-    ) -> impl Future<Output = Result<Vec<String>, Error>> + MaybeSend + '_ {
-        async move {
-            self.inner
-                .async_gain_control()
-                .ok_or_else(|| Error::unsupported(Capability::Gain))?
-                .erased_async_gain_elements(direction, channel)
-                .await
-        }
+    ) -> Result<Vec<String>, Error> {
+        self.inner
+            .async_gain_control()
+            .ok_or_else(|| Error::unsupported(Capability::Gain))?
+            .erased_async_gain_elements(direction, channel)
+            .await
     }
-    fn async_set_gain(
+    async fn async_set_gain(
         &self,
         direction: Direction,
         channel: usize,
         gain: f64,
-    ) -> impl Future<Output = Result<(), Error>> + MaybeSend + '_ {
-        async move {
-            self.inner
-                .async_gain_control()
-                .ok_or_else(|| Error::unsupported(Capability::Gain))?
-                .erased_async_set_gain(direction, channel, gain)
-                .await
-        }
+    ) -> Result<(), Error> {
+        self.inner
+            .async_gain_control()
+            .ok_or_else(|| Error::unsupported(Capability::Gain))?
+            .erased_async_set_gain(direction, channel, gain)
+            .await
     }
-    fn async_gain(
+    async fn async_gain(&self, direction: Direction, channel: usize) -> Result<Option<f64>, Error> {
+        self.inner
+            .async_gain_control()
+            .ok_or_else(|| Error::unsupported(Capability::Gain))?
+            .erased_async_gain(direction, channel)
+            .await
+    }
+    async fn async_gain_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
+        self.inner
+            .async_gain_control()
+            .ok_or_else(|| Error::unsupported(Capability::Gain))?
+            .erased_async_gain_range(direction, channel)
+            .await
+    }
+    async fn async_set_gain_element(
         &self,
         direction: Direction,
         channel: usize,
-    ) -> impl Future<Output = Result<Option<f64>, Error>> + MaybeSend + '_ {
-        async move {
-            self.inner
-                .async_gain_control()
-                .ok_or_else(|| Error::unsupported(Capability::Gain))?
-                .erased_async_gain(direction, channel)
-                .await
-        }
-    }
-    fn async_gain_range(
-        &self,
-        direction: Direction,
-        channel: usize,
-    ) -> impl Future<Output = Result<Range, Error>> + MaybeSend + '_ {
-        async move {
-            self.inner
-                .async_gain_control()
-                .ok_or_else(|| Error::unsupported(Capability::Gain))?
-                .erased_async_gain_range(direction, channel)
-                .await
-        }
-    }
-    fn async_set_gain_element<'a>(
-        &'a self,
-        direction: Direction,
-        channel: usize,
-        name: &'a str,
+        name: &str,
         gain: f64,
-    ) -> impl Future<Output = Result<(), Error>> + MaybeSend + 'a {
-        async move {
-            self.inner
-                .async_gain_control()
-                .ok_or_else(|| Error::unsupported(Capability::Gain))?
-                .erased_async_set_gain_element(direction, channel, name, gain)
-                .await
-        }
+    ) -> Result<(), Error> {
+        self.inner
+            .async_gain_control()
+            .ok_or_else(|| Error::unsupported(Capability::Gain))?
+            .erased_async_set_gain_element(direction, channel, name, gain)
+            .await
     }
-    fn async_gain_element<'a>(
-        &'a self,
+    async fn async_gain_element(
+        &self,
         direction: Direction,
         channel: usize,
-        name: &'a str,
-    ) -> impl Future<Output = Result<Option<f64>, Error>> + MaybeSend + 'a {
-        async move {
-            self.inner
-                .async_gain_control()
-                .ok_or_else(|| Error::unsupported(Capability::Gain))?
-                .erased_async_gain_element(direction, channel, name)
-                .await
-        }
+        name: &str,
+    ) -> Result<Option<f64>, Error> {
+        self.inner
+            .async_gain_control()
+            .ok_or_else(|| Error::unsupported(Capability::Gain))?
+            .erased_async_gain_element(direction, channel, name)
+            .await
     }
-    fn async_gain_element_range<'a>(
-        &'a self,
+    async fn async_gain_element_range(
+        &self,
         direction: Direction,
         channel: usize,
-        name: &'a str,
-    ) -> impl Future<Output = Result<Range, Error>> + MaybeSend + 'a {
-        async move {
-            self.inner
-                .async_gain_control()
-                .ok_or_else(|| Error::unsupported(Capability::Gain))?
-                .erased_async_gain_element_range(direction, channel, name)
-                .await
-        }
+        name: &str,
+    ) -> Result<Range, Error> {
+        self.inner
+            .async_gain_control()
+            .ok_or_else(|| Error::unsupported(Capability::Gain))?
+            .erased_async_gain_element_range(direction, channel, name)
+            .await
     }
 }
 
 impl AsyncFrequencyControl for AsyncDynDevice {
-    fn async_frequency_range(
+    async fn async_frequency_range(
         &self,
         direction: Direction,
         channel: usize,
-    ) -> impl Future<Output = Result<Range, Error>> + MaybeSend + '_ {
-        async move {
-            self.inner
-                .async_frequency_control()
-                .ok_or_else(|| Error::unsupported(Capability::Frequency))?
-                .erased_async_frequency_range(direction, channel)
-                .await
-        }
+    ) -> Result<Range, Error> {
+        self.inner
+            .async_frequency_control()
+            .ok_or_else(|| Error::unsupported(Capability::Frequency))?
+            .erased_async_frequency_range(direction, channel)
+            .await
     }
-    fn async_frequency(
-        &self,
-        direction: Direction,
-        channel: usize,
-    ) -> impl Future<Output = Result<f64, Error>> + MaybeSend + '_ {
-        async move {
-            self.inner
-                .async_frequency_control()
-                .ok_or_else(|| Error::unsupported(Capability::Frequency))?
-                .erased_async_frequency(direction, channel)
-                .await
-        }
+    async fn async_frequency(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
+        self.inner
+            .async_frequency_control()
+            .ok_or_else(|| Error::unsupported(Capability::Frequency))?
+            .erased_async_frequency(direction, channel)
+            .await
     }
-    fn async_set_frequency(
+    async fn async_set_frequency(
         &self,
         direction: Direction,
         channel: usize,
         frequency: f64,
         args: Args,
-    ) -> impl Future<Output = Result<(), Error>> + MaybeSend + '_ {
-        async move {
-            self.inner
-                .async_frequency_control()
-                .ok_or_else(|| Error::unsupported(Capability::Frequency))?
-                .erased_async_set_frequency(direction, channel, frequency, args)
-                .await
-        }
+    ) -> Result<(), Error> {
+        self.inner
+            .async_frequency_control()
+            .ok_or_else(|| Error::unsupported(Capability::Frequency))?
+            .erased_async_set_frequency(direction, channel, frequency, args)
+            .await
     }
-    fn async_frequency_components(
+    async fn async_frequency_components(
         &self,
         direction: Direction,
         channel: usize,
-    ) -> impl Future<Output = Result<Vec<String>, Error>> + MaybeSend + '_ {
-        async move {
-            self.inner
-                .async_frequency_control()
-                .ok_or_else(|| Error::unsupported(Capability::Frequency))?
-                .erased_async_frequency_components(direction, channel)
-                .await
-        }
+    ) -> Result<Vec<String>, Error> {
+        self.inner
+            .async_frequency_control()
+            .ok_or_else(|| Error::unsupported(Capability::Frequency))?
+            .erased_async_frequency_components(direction, channel)
+            .await
     }
-    fn async_component_frequency_range<'a>(
-        &'a self,
+    async fn async_component_frequency_range(
+        &self,
         direction: Direction,
         channel: usize,
-        name: &'a str,
-    ) -> impl Future<Output = Result<Range, Error>> + MaybeSend + 'a {
-        async move {
-            self.inner
-                .async_frequency_control()
-                .ok_or_else(|| Error::unsupported(Capability::Frequency))?
-                .erased_async_component_frequency_range(direction, channel, name)
-                .await
-        }
+        name: &str,
+    ) -> Result<Range, Error> {
+        self.inner
+            .async_frequency_control()
+            .ok_or_else(|| Error::unsupported(Capability::Frequency))?
+            .erased_async_component_frequency_range(direction, channel, name)
+            .await
     }
-    fn async_component_frequency<'a>(
-        &'a self,
+    async fn async_component_frequency(
+        &self,
         direction: Direction,
         channel: usize,
-        name: &'a str,
-    ) -> impl Future<Output = Result<f64, Error>> + MaybeSend + 'a {
-        async move {
-            self.inner
-                .async_frequency_control()
-                .ok_or_else(|| Error::unsupported(Capability::Frequency))?
-                .erased_async_component_frequency(direction, channel, name)
-                .await
-        }
+        name: &str,
+    ) -> Result<f64, Error> {
+        self.inner
+            .async_frequency_control()
+            .ok_or_else(|| Error::unsupported(Capability::Frequency))?
+            .erased_async_component_frequency(direction, channel, name)
+            .await
     }
-    fn async_set_component_frequency<'a>(
-        &'a self,
+    async fn async_set_component_frequency(
+        &self,
         direction: Direction,
         channel: usize,
-        name: &'a str,
+        name: &str,
         frequency: f64,
-    ) -> impl Future<Output = Result<(), Error>> + MaybeSend + 'a {
-        async move {
-            self.inner
-                .async_frequency_control()
-                .ok_or_else(|| Error::unsupported(Capability::Frequency))?
-                .erased_async_set_component_frequency(direction, channel, name, frequency)
-                .await
-        }
+    ) -> Result<(), Error> {
+        self.inner
+            .async_frequency_control()
+            .ok_or_else(|| Error::unsupported(Capability::Frequency))?
+            .erased_async_set_component_frequency(direction, channel, name, frequency)
+            .await
     }
 }
 
 impl AsyncSampleRateControl for AsyncDynDevice {
-    fn async_sample_rate(
-        &self,
-        direction: Direction,
-        channel: usize,
-    ) -> impl Future<Output = Result<f64, Error>> + MaybeSend + '_ {
-        async move {
-            self.inner
-                .async_sample_rate_control()
-                .ok_or_else(|| Error::unsupported(Capability::SampleRate))?
-                .erased_async_sample_rate(direction, channel)
-                .await
-        }
+    async fn async_sample_rate(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
+        self.inner
+            .async_sample_rate_control()
+            .ok_or_else(|| Error::unsupported(Capability::SampleRate))?
+            .erased_async_sample_rate(direction, channel)
+            .await
     }
-    fn async_set_sample_rate(
+    async fn async_set_sample_rate(
         &self,
         direction: Direction,
         channel: usize,
         rate: f64,
-    ) -> impl Future<Output = Result<(), Error>> + MaybeSend + '_ {
-        async move {
-            self.inner
-                .async_sample_rate_control()
-                .ok_or_else(|| Error::unsupported(Capability::SampleRate))?
-                .erased_async_set_sample_rate(direction, channel, rate)
-                .await
-        }
+    ) -> Result<(), Error> {
+        self.inner
+            .async_sample_rate_control()
+            .ok_or_else(|| Error::unsupported(Capability::SampleRate))?
+            .erased_async_set_sample_rate(direction, channel, rate)
+            .await
     }
-    fn async_get_sample_rate_range(
+    async fn async_get_sample_rate_range(
         &self,
         direction: Direction,
         channel: usize,
-    ) -> impl Future<Output = Result<Range, Error>> + MaybeSend + '_ {
-        async move {
-            self.inner
-                .async_sample_rate_control()
-                .ok_or_else(|| Error::unsupported(Capability::SampleRate))?
-                .erased_async_get_sample_rate_range(direction, channel)
-                .await
-        }
+    ) -> Result<Range, Error> {
+        self.inner
+            .async_sample_rate_control()
+            .ok_or_else(|| Error::unsupported(Capability::SampleRate))?
+            .erased_async_get_sample_rate_range(direction, channel)
+            .await
     }
 }
 
 impl AsyncBandwidthControl for AsyncDynDevice {
-    fn async_bandwidth(
-        &self,
-        direction: Direction,
-        channel: usize,
-    ) -> impl Future<Output = Result<f64, Error>> + MaybeSend + '_ {
-        async move {
-            self.inner
-                .async_bandwidth_control()
-                .ok_or_else(|| Error::unsupported(Capability::Bandwidth))?
-                .erased_async_bandwidth(direction, channel)
-                .await
-        }
+    async fn async_bandwidth(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
+        self.inner
+            .async_bandwidth_control()
+            .ok_or_else(|| Error::unsupported(Capability::Bandwidth))?
+            .erased_async_bandwidth(direction, channel)
+            .await
     }
-    fn async_set_bandwidth(
+    async fn async_set_bandwidth(
         &self,
         direction: Direction,
         channel: usize,
         bandwidth: f64,
-    ) -> impl Future<Output = Result<(), Error>> + MaybeSend + '_ {
-        async move {
-            self.inner
-                .async_bandwidth_control()
-                .ok_or_else(|| Error::unsupported(Capability::Bandwidth))?
-                .erased_async_set_bandwidth(direction, channel, bandwidth)
-                .await
-        }
+    ) -> Result<(), Error> {
+        self.inner
+            .async_bandwidth_control()
+            .ok_or_else(|| Error::unsupported(Capability::Bandwidth))?
+            .erased_async_set_bandwidth(direction, channel, bandwidth)
+            .await
     }
-    fn async_get_bandwidth_range(
+    async fn async_get_bandwidth_range(
         &self,
         direction: Direction,
         channel: usize,
-    ) -> impl Future<Output = Result<Range, Error>> + MaybeSend + '_ {
-        async move {
-            self.inner
-                .async_bandwidth_control()
-                .ok_or_else(|| Error::unsupported(Capability::Bandwidth))?
-                .erased_async_get_bandwidth_range(direction, channel)
-                .await
-        }
+    ) -> Result<Range, Error> {
+        self.inner
+            .async_bandwidth_control()
+            .ok_or_else(|| Error::unsupported(Capability::Bandwidth))?
+            .erased_async_get_bandwidth_range(direction, channel)
+            .await
     }
 }
 
 impl AsyncDcOffsetControl for AsyncDynDevice {
-    fn async_dc_offset_available(
+    async fn async_dc_offset_available(
         &self,
         direction: Direction,
         channel: usize,
-    ) -> impl Future<Output = Result<bool, Error>> + MaybeSend + '_ {
-        async move {
-            self.inner
-                .async_dc_offset_control()
-                .ok_or_else(|| Error::unsupported(Capability::DcOffset))?
-                .erased_async_dc_offset_available(direction, channel)
-                .await
-        }
+    ) -> Result<bool, Error> {
+        self.inner
+            .async_dc_offset_control()
+            .ok_or_else(|| Error::unsupported(Capability::DcOffset))?
+            .erased_async_dc_offset_available(direction, channel)
+            .await
     }
-    fn async_dc_offset_enabled(
+    async fn async_dc_offset_enabled(
         &self,
         direction: Direction,
         channel: usize,
-    ) -> impl Future<Output = Result<bool, Error>> + MaybeSend + '_ {
-        async move {
-            self.inner
-                .async_dc_offset_control()
-                .ok_or_else(|| Error::unsupported(Capability::DcOffset))?
-                .erased_async_dc_offset_enabled(direction, channel)
-                .await
-        }
+    ) -> Result<bool, Error> {
+        self.inner
+            .async_dc_offset_control()
+            .ok_or_else(|| Error::unsupported(Capability::DcOffset))?
+            .erased_async_dc_offset_enabled(direction, channel)
+            .await
     }
-    fn async_set_dc_offset_enabled(
+    async fn async_set_dc_offset_enabled(
         &self,
         direction: Direction,
         channel: usize,
         enabled: bool,
-    ) -> impl Future<Output = Result<(), Error>> + MaybeSend + '_ {
-        async move {
-            self.inner
-                .async_dc_offset_control()
-                .ok_or_else(|| Error::unsupported(Capability::DcOffset))?
-                .erased_async_set_dc_offset_enabled(direction, channel, enabled)
-                .await
-        }
+    ) -> Result<(), Error> {
+        self.inner
+            .async_dc_offset_control()
+            .ok_or_else(|| Error::unsupported(Capability::DcOffset))?
+            .erased_async_set_dc_offset_enabled(direction, channel, enabled)
+            .await
     }
 }
 
@@ -2507,6 +2415,10 @@ pub trait AsyncDriverBackend: MaybeSend + MaybeSync {
 }
 
 /// Typed asynchronous driver implementation that can be opened directly.
+///
+/// Implementations may use `async fn` for `async_probe` and `async_open`; the
+/// explicit trait return type enforces Seify's target-dependent `MaybeSend`
+/// future bound.
 pub trait AsyncTypedDeviceBackend: AsyncDynDeviceBackend + Sized + 'static {
     /// Driver implemented by this backend.
     fn driver() -> Driver;
@@ -2711,12 +2623,12 @@ mod wasm_non_send_compile_check {
             Driver::Dummy
         }
 
-        fn async_id(&self) -> impl Future<Output = Result<String, Error>> + MaybeSend + '_ {
-            async { Ok("wasm-local".to_string()) }
+        async fn async_id(&self) -> Result<String, Error> {
+            Ok("wasm-local".to_string())
         }
 
-        fn async_info(&self) -> impl Future<Output = Result<Args, Error>> + MaybeSend + '_ {
-            async { Ok(Args::new()) }
+        async fn async_info(&self) -> Result<Args, Error> {
+            Ok(Args::new())
         }
     }
 
@@ -2731,77 +2643,62 @@ mod wasm_non_send_compile_check {
     }
 
     impl AsyncChannelInfo for LocalOnly {
-        fn async_num_channels(
-            &self,
-            direction: Direction,
-        ) -> impl Future<Output = Result<usize, Error>> + MaybeSend + '_ {
-            async move {
-                Ok(match direction {
-                    Direction::Rx => 1,
-                    Direction::Tx => 0,
-                })
-            }
+        async fn async_num_channels(&self, direction: Direction) -> Result<usize, Error> {
+            Ok(match direction {
+                Direction::Rx => 1,
+                Direction::Tx => 0,
+            })
         }
 
-        fn async_full_duplex(
+        async fn async_full_duplex(
             &self,
             _direction: Direction,
             _channel: usize,
-        ) -> impl Future<Output = Result<bool, Error>> + MaybeSend + '_ {
-            async { Ok(false) }
+        ) -> Result<bool, Error> {
+            Ok(false)
         }
     }
 
     impl AsyncRxDevice for LocalOnly {
         type RxStreamer = LocalRxStreamer;
 
-        fn async_rx_streamer<'a>(
-            &'a self,
-            channels: &'a [usize],
+        async fn async_rx_streamer(
+            &self,
+            channels: &[usize],
             _args: Args,
-        ) -> impl Future<Output = Result<Self::RxStreamer, Error>> + MaybeSend + 'a {
-            async move {
-                match channels {
-                    &[0] => Ok(LocalRxStreamer {
-                        reads: self.reads.clone(),
-                    }),
-                    _ => Err(Error::invalid_argument("channels", "unsupported channel")),
-                }
+        ) -> Result<Self::RxStreamer, Error> {
+            match channels {
+                &[0] => Ok(LocalRxStreamer {
+                    reads: self.reads.clone(),
+                }),
+                _ => Err(Error::invalid_argument("channels", "unsupported channel")),
             }
         }
     }
 
     impl AsyncRxStreamer for LocalRxStreamer {
-        fn mtu(&self) -> impl Future<Output = Result<usize, Error>> + MaybeSend + '_ {
-            async { Ok(4) }
+        async fn mtu(&self) -> Result<usize, Error> {
+            Ok(4)
         }
 
-        fn activate_at(
-            &mut self,
-            _time_ns: Option<i64>,
-        ) -> impl Future<Output = Result<(), Error>> + MaybeSend + '_ {
-            async { Ok(()) }
+        async fn activate_at(&mut self, _time_ns: Option<i64>) -> Result<(), Error> {
+            Ok(())
         }
 
-        fn deactivate_at(
-            &mut self,
-            _time_ns: Option<i64>,
-        ) -> impl Future<Output = Result<(), Error>> + MaybeSend + '_ {
-            async { Ok(()) }
+        async fn deactivate_at(&mut self, _time_ns: Option<i64>) -> Result<(), Error> {
+            Ok(())
         }
 
-        fn read<'a>(
+        async fn read<'a>(
             &'a mut self,
             buffers: &'a mut [&'a mut [Complex32]],
             _timeout_us: i64,
-        ) -> impl Future<Output = Result<usize, Error>> + MaybeSend + 'a {
-            async move {
-                *self.reads.borrow_mut() += 1;
-                for buffer in buffers.iter_mut() {
-                    buffer.fill(Complex32::new(0.0, 0.0));
-                }
-                Ok(buffers.first().map(|buffer| buffer.len()).unwrap_or(0))
+        ) -> Result<usize, Error> {
+            *self.reads.borrow_mut() += 1;
+            for buffer in buffers.iter_mut() {
+                buffer.fill(Complex32::new(0.0, 0.0));
             }
+            Ok(buffers.first().map(|buffer| buffer.len()).unwrap_or(0))
         }
     }
 

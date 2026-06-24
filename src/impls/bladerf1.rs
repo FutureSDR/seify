@@ -1,6 +1,6 @@
 use crate::{
-    AgcControl, AntennaControl, Args, BandwidthControl, Capability, ChannelInfo, DeviceInfo,
-    Direction, DriverError, DynDeviceBackend, Error, FrequencyControl, GainControl, Range,
+    dev::DynDeviceBackend, AgcControl, AntennaControl, Args, BandwidthControl, Capability,
+    ChannelInfo, DeviceInfo, Direction, DriverError, Error, FrequencyControl, GainControl, Range,
     RangeItem, RxDevice, SampleRateControl, TxDevice,
 };
 use libbladerf_rs::bladerf1::hardware::lms6002d::dc_calibration::DcCalModule;
@@ -763,11 +763,11 @@ impl DynDeviceBackend for BladeRf {
         Some(self)
     }
 
-    fn rx_device(&self) -> Option<&dyn crate::ErasedRxDevice> {
+    fn rx_device(&self) -> Option<&dyn crate::dev::ErasedRxDevice> {
         Some(self)
     }
 
-    fn tx_device(&self) -> Option<&dyn crate::ErasedTxDevice> {
+    fn tx_device(&self) -> Option<&dyn crate::dev::ErasedTxDevice> {
         Some(self)
     }
 

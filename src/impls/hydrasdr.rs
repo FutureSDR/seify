@@ -12,9 +12,9 @@ use num_complex::Complex32;
 
 use crate::Direction::*;
 use crate::{
-    AgcControl, AntennaControl, Args, BandwidthControl, Capability, ChannelInfo, DeviceInfo,
-    Direction, Driver, DynDeviceBackend, Error, FrequencyControl, GainControl, Range, RangeItem,
-    RxDevice, SampleRateControl,
+    dev::DynDeviceBackend, AgcControl, AntennaControl, Args, BandwidthControl, Capability,
+    ChannelInfo, DeviceInfo, Direction, Driver, Error, FrequencyControl, GainControl, Range,
+    RangeItem, RxDevice, SampleRateControl,
 };
 
 const MTU: usize = 262_144 / 8;
@@ -602,7 +602,7 @@ impl DynDeviceBackend for HydraSdr {
         Some(self)
     }
 
-    fn rx_device(&self) -> Option<&dyn crate::ErasedRxDevice> {
+    fn rx_device(&self) -> Option<&dyn crate::dev::ErasedRxDevice> {
         Some(self)
     }
 

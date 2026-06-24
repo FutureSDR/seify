@@ -55,9 +55,7 @@ pub use async_device::AsyncDcOffset;
 pub use async_device::AsyncDcOffsetControl;
 pub use async_device::AsyncDevice;
 pub use async_device::AsyncDeviceInfo;
-pub use async_device::AsyncDriverBackend;
 pub use async_device::AsyncDynDevice;
-pub use async_device::AsyncDynDeviceBackend;
 pub use async_device::AsyncFrequency;
 pub use async_device::AsyncFrequencyControl;
 pub use async_device::AsyncGain;
@@ -69,20 +67,8 @@ pub use async_device::AsyncSampleRate;
 pub use async_device::AsyncSampleRateControl;
 pub use async_device::AsyncTxChannel;
 pub use async_device::AsyncTxDevice;
-pub use async_device::AsyncTypedDeviceBackend;
 pub use async_device::DynAsyncRxStreamer;
 pub use async_device::DynAsyncTxStreamer;
-pub use async_device::ErasedAsyncAgcControl;
-pub use async_device::ErasedAsyncAntennaControl;
-pub use async_device::ErasedAsyncBandwidthControl;
-pub use async_device::ErasedAsyncChannelInfo;
-pub use async_device::ErasedAsyncDcOffsetControl;
-pub use async_device::ErasedAsyncDeviceInfo;
-pub use async_device::ErasedAsyncFrequencyControl;
-pub use async_device::ErasedAsyncGainControl;
-pub use async_device::ErasedAsyncRxDevice;
-pub use async_device::ErasedAsyncSampleRateControl;
-pub use async_device::ErasedAsyncTxDevice;
 pub use device::Agc;
 pub use device::AgcControl;
 pub use device::Antenna;
@@ -98,11 +84,8 @@ pub use device::Device;
 pub use device::DeviceCapabilities;
 pub use device::DeviceInfo;
 pub use device::DynDevice;
-pub use device::DynDeviceBackend;
 pub use device::DynRxStreamer;
 pub use device::DynTxStreamer;
-pub use device::ErasedRxDevice;
-pub use device::ErasedTxDevice;
 pub use device::Frequency;
 pub use device::FrequencyComponent;
 pub use device::FrequencyControl;
@@ -120,9 +103,7 @@ pub mod impls;
 
 mod registry;
 pub use registry::DeviceDescriptor;
-pub use registry::DriverBackend;
 pub use registry::Registry;
-pub use registry::TypedDeviceBackend;
 
 mod range;
 pub use range::Range;
@@ -132,10 +113,42 @@ mod async_streamer;
 mod streamer;
 pub use async_streamer::AsyncRxStreamer;
 pub use async_streamer::AsyncTxStreamer;
-pub use async_streamer::ErasedAsyncRxStreamer;
-pub use async_streamer::ErasedAsyncTxStreamer;
 pub use streamer::RxStreamer;
 pub use streamer::TxStreamer;
+
+/// Device development traits and type-erased runtime-dispatch adapters.
+///
+/// These items are public so external driver backends can implement Seify's
+/// runtime-dispatched APIs. Applications should normally use the top-level
+/// device, channel, control, and streamer APIs instead.
+///
+/// Async backend implementations can use `async fn` for the typed async traits;
+/// the trait definitions keep explicit `MaybeSend` future bounds for native and
+/// `wasm32` compatibility. The `Erased*` traits are runtime-dispatch adapters
+/// and are usually reached through blanket implementations.
+pub mod dev {
+    pub use crate::async_device::AsyncDriverBackend;
+    pub use crate::async_device::AsyncDynDeviceBackend;
+    pub use crate::async_device::AsyncTypedDeviceBackend;
+    pub use crate::async_device::ErasedAsyncAgcControl;
+    pub use crate::async_device::ErasedAsyncAntennaControl;
+    pub use crate::async_device::ErasedAsyncBandwidthControl;
+    pub use crate::async_device::ErasedAsyncChannelInfo;
+    pub use crate::async_device::ErasedAsyncDcOffsetControl;
+    pub use crate::async_device::ErasedAsyncDeviceInfo;
+    pub use crate::async_device::ErasedAsyncFrequencyControl;
+    pub use crate::async_device::ErasedAsyncGainControl;
+    pub use crate::async_device::ErasedAsyncRxDevice;
+    pub use crate::async_device::ErasedAsyncSampleRateControl;
+    pub use crate::async_device::ErasedAsyncTxDevice;
+    pub use crate::async_streamer::ErasedAsyncRxStreamer;
+    pub use crate::async_streamer::ErasedAsyncTxStreamer;
+    pub use crate::device::DynDeviceBackend;
+    pub use crate::device::ErasedRxDevice;
+    pub use crate::device::ErasedTxDevice;
+    pub use crate::registry::DriverBackend;
+    pub use crate::registry::TypedDeviceBackend;
+}
 
 use serde::{Deserialize, Serialize};
 
