@@ -2,15 +2,25 @@
 use std::sync::Arc;
 use std::sync::Mutex;
 
+use crate::AgcControl;
+use crate::AntennaControl;
 use crate::Args;
-use crate::DeviceTrait;
+use crate::BandwidthControl;
+use crate::ChannelInfo;
+use crate::DcOffsetControl;
+use crate::DeviceInfo;
 use crate::Direction;
 use crate::Direction::Rx;
 use crate::Direction::Tx;
 use crate::Driver;
 use crate::Error;
+use crate::FrequencyControl;
+use crate::GainControl;
 use crate::Range;
 use crate::RangeItem;
+use crate::RxDevice;
+use crate::SampleRateControl;
+use crate::TxDevice;
 
 /// Dummy Device
 #[derive(Clone)]
@@ -64,10 +74,7 @@ impl Dummy {
     }
 }
 
-impl DeviceTrait for Dummy {
-    type RxStreamer = RxStreamer;
-    type TxStreamer = TxStreamer;
-
+impl DeviceInfo for Dummy {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
@@ -89,7 +96,9 @@ impl DeviceTrait for Dummy {
         a.set("driver", "dummy");
         Ok(a)
     }
+}
 
+impl ChannelInfo for Dummy {
     fn num_channels(&self, _direction: Direction) -> Result<usize, Error> {
         Ok(1)
     }
@@ -97,6 +106,10 @@ impl DeviceTrait for Dummy {
     fn full_duplex(&self, _direction: Direction, _channel: usize) -> Result<bool, Error> {
         Ok(true)
     }
+}
+
+impl RxDevice for Dummy {
+    type RxStreamer = RxStreamer;
 
     fn rx_streamer(&self, channels: &[usize], _args: Args) -> Result<Self::RxStreamer, Error> {
         match channels {
@@ -104,6 +117,10 @@ impl DeviceTrait for Dummy {
             _ => Err(Error::ValueError),
         }
     }
+}
+
+impl TxDevice for Dummy {
+    type TxStreamer = TxStreamer;
 
     fn tx_streamer(&self, channels: &[usize], _args: Args) -> Result<Self::TxStreamer, Error> {
         match channels {
@@ -111,7 +128,9 @@ impl DeviceTrait for Dummy {
             _ => Err(Error::ValueError),
         }
     }
+}
 
+impl AntennaControl for Dummy {
     fn antennas(&self, _direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
         if channel == 0 {
             Ok(vec!["A".to_string()])
@@ -134,15 +153,9 @@ impl DeviceTrait for Dummy {
             _ => Err(Error::ValueError),
         }
     }
+}
 
-    fn gain_elements(&self, _direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
-        if channel == 0 {
-            Ok(vec!["RF".to_string()])
-        } else {
-            Err(Error::ValueError)
-        }
-    }
-
+impl AgcControl for Dummy {
     fn supports_agc(&self, _direction: Direction, channel: usize) -> Result<bool, Error> {
         if channel == 0 {
             Ok(true)
@@ -170,6 +183,16 @@ impl DeviceTrait for Dummy {
             (0, Rx) => Ok(*self.rx_agc.lock().unwrap()),
             (0, Tx) => Ok(*self.tx_agc.lock().unwrap()),
             _ => Err(Error::ValueError),
+        }
+    }
+}
+
+impl GainControl for Dummy {
+    fn gain_elements(&self, _direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
+        if channel == 0 {
+            Ok(vec!["RF".to_string()])
+        } else {
+            Err(Error::ValueError)
         }
     }
 
@@ -268,7 +291,9 @@ impl DeviceTrait for Dummy {
             Err(Error::ValueError)
         }
     }
+}
 
+impl FrequencyControl for Dummy {
     fn frequency_range(&self, _direction: Direction, channel: usize) -> Result<Range, Error> {
         if channel == 0 {
             Ok(Range::new(vec![RangeItem::Interval(0.0, f64::MAX)]))
@@ -366,7 +391,9 @@ impl DeviceTrait for Dummy {
             Err(Error::ValueError)
         }
     }
+}
 
+impl SampleRateControl for Dummy {
     fn sample_rate(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
         match (channel, direction) {
             (0, Rx) => Ok(*self.rx_rate.lock().unwrap()),
@@ -399,7 +426,9 @@ impl DeviceTrait for Dummy {
             Err(Error::ValueError)
         }
     }
+}
 
+impl BandwidthControl for Dummy {
     fn bandwidth(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
         match (channel, direction) {
             (0, Rx) => Ok(*self.rx_bw.lock().unwrap()),
@@ -427,7 +456,9 @@ impl DeviceTrait for Dummy {
             Err(Error::ValueError)
         }
     }
+}
 
+impl DcOffsetControl for Dummy {
     fn has_dc_offset_mode(&self, _direction: Direction, channel: usize) -> Result<bool, Error> {
         if channel == 0 {
             Ok(false)

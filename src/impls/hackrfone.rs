@@ -213,11 +213,7 @@ impl crate::TxStreamer for TxStreamer {
     }
 }
 
-impl crate::DeviceTrait for HackRfOne {
-    type RxStreamer = RxStreamer;
-
-    type TxStreamer = TxStreamer;
-
+impl crate::DynDeviceBackend for HackRfOne {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
@@ -248,19 +244,19 @@ impl crate::DeviceTrait for HackRfOne {
         Ok(false)
     }
 
-    fn rx_streamer(&self, channels: &[usize], _args: Args) -> Result<Self::RxStreamer, Error> {
+    fn rx_streamer(&self, channels: &[usize], _args: Args) -> Result<crate::DynRxStreamer, Error> {
         if channels != [0] {
             Err(Error::ValueError)
         } else {
-            Ok(RxStreamer::new(Arc::clone(&self.inner)))
+            Ok(Box::new(RxStreamer::new(Arc::clone(&self.inner))))
         }
     }
 
-    fn tx_streamer(&self, channels: &[usize], _args: Args) -> Result<Self::TxStreamer, Error> {
+    fn tx_streamer(&self, channels: &[usize], _args: Args) -> Result<crate::DynTxStreamer, Error> {
         if channels != [0] {
             Err(Error::ValueError)
         } else {
-            Ok(TxStreamer::new(Arc::clone(&self.inner)))
+            Ok(Box::new(TxStreamer::new(Arc::clone(&self.inner))))
         }
     }
 

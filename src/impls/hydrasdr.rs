@@ -11,7 +11,7 @@ use hydrasdr_rs::{
 use num_complex::Complex32;
 
 use crate::Direction::*;
-use crate::{Args, DeviceTrait, Direction, Driver, Error, Range, RangeItem};
+use crate::{Args, Direction, Driver, DynDeviceBackend, Error, Range, RangeItem};
 
 const MTU: usize = 262_144 / 8;
 const DEFAULT_SAMPLE_RATE_MIN: f64 = 10_000.0;
@@ -118,10 +118,7 @@ impl HydraSdr {
     }
 }
 
-impl DeviceTrait for HydraSdr {
-    type RxStreamer = RxStreamer;
-    type TxStreamer = TxDummy;
-
+impl DynDeviceBackend for HydraSdr {
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -169,18 +166,18 @@ impl DeviceTrait for HydraSdr {
         Ok(false)
     }
 
-    fn rx_streamer(&self, channels: &[usize], _args: Args) -> Result<Self::RxStreamer, Error> {
+    fn rx_streamer(&self, channels: &[usize], _args: Args) -> Result<crate::DynRxStreamer, Error> {
         if channels != [0] {
             return Err(Error::ValueError);
         }
         self.ensure_rx_config_idle()?;
-        Ok(RxStreamer::new(
+        Ok(Box::new(RxStreamer::new(
             Arc::clone(&self.dev),
             Arc::clone(&self.inner),
-        ))
+        )))
     }
 
-    fn tx_streamer(&self, _channels: &[usize], _args: Args) -> Result<Self::TxStreamer, Error> {
+    fn tx_streamer(&self, _channels: &[usize], _args: Args) -> Result<crate::DynTxStreamer, Error> {
         Err(Error::NotSupported)
     }
 

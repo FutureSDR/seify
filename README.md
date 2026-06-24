@@ -15,7 +15,7 @@ A clear path towards a great Rust SDR driver ecosystem.
 
 ## Hardware Drivers
 
-To add a new SDR driver, add a struct, implementing the `DeviceTrait` in the `src/impls` folder and add feature-gated logic for the driver to the probing/enumeration logic in `src/device.rs`.
+To add a new SDR driver, add a struct in the `src/impls` folder, implement the capability traits it actually supports, and add feature-gated logic for the driver to the probing/enumeration logic in `src/device.rs`.
 
 At the moment, Seify is designed to commit the driver implementations upstream, i.e., there is no plugin system.
 This will probably be added but is no priority at the moment.

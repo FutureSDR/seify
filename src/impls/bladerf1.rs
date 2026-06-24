@@ -401,10 +401,7 @@ impl crate::TxStreamer for TxStreamer {
     }
 }
 
-impl crate::DeviceTrait for BladeRf {
-    type RxStreamer = RxStreamer;
-    type TxStreamer = TxStreamer;
-
+impl crate::DynDeviceBackend for BladeRf {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
@@ -442,7 +439,7 @@ impl crate::DeviceTrait for BladeRf {
         Ok(true)
     }
 
-    fn rx_streamer(&self, channels: &[usize], _args: Args) -> Result<Self::RxStreamer, Error> {
+    fn rx_streamer(&self, channels: &[usize], _args: Args) -> Result<crate::DynRxStreamer, Error> {
         if channels != [0] {
             log::error!("BladeRF1 only supports one RX channel!");
             return Err(Error::ValueError);
@@ -455,15 +452,15 @@ impl crate::DeviceTrait for BladeRf {
             .format(SampleFormat::Sc16Q11)
             .build()
             .map_err(bladerf_err)?;
-        Ok(RxStreamer {
+        Ok(Box::new(RxStreamer {
             streamer: Some(streamer),
             dev: Arc::clone(&self.inner),
             format: SampleFormat::Sc16Q11,
             pending: None,
-        })
+        }))
     }
 
-    fn tx_streamer(&self, channels: &[usize], _args: Args) -> Result<Self::TxStreamer, Error> {
+    fn tx_streamer(&self, channels: &[usize], _args: Args) -> Result<crate::DynTxStreamer, Error> {
         if channels != [0] {
             log::error!("BladeRF1 only supports one TX channel!");
             return Err(Error::ValueError);
@@ -476,11 +473,11 @@ impl crate::DeviceTrait for BladeRf {
             .format(SampleFormat::Sc16Q11)
             .build()
             .map_err(bladerf_err)?;
-        Ok(TxStreamer {
+        Ok(Box::new(TxStreamer {
             streamer: Some(streamer),
             dev: Arc::clone(&self.inner),
             format: SampleFormat::Sc16Q11,
-        })
+        }))
     }
 
     fn antennas(&self, _direction: Direction, _channel: usize) -> Result<Vec<String>, Error> {

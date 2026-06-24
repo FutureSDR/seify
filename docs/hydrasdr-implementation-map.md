@@ -9,7 +9,7 @@ on `hydrasdr_rs::device::HydraSdr` and `hydrasdr_rs::discovery`.
 
 Seify:
 
-- `src/device.rs`: `DeviceTrait`, `Device<T>`, `GenericDevice`, feature-gated
+- `src/device.rs`: capability traits, `Device<T>`, `DynDevice`, feature-gated
   driver probing/opening.
 - `src/streamer.rs`: `RxStreamer`/`TxStreamer` pull-stream contracts.
 - `src/lib.rs`: `Error`, `Driver`, `Direction`, `enumerate_with_args`.
@@ -39,7 +39,7 @@ Add a Seify feature named `hydrasdr`:
 - `lib.rs`: add `Error::HydraSdr(#[from] hydrasdr_rs::Error)` under the same
   target/feature gate, add `Driver::HydraSdr`, and parse aliases `hydrasdr`,
   `hydrasdr-rs`, `hydra`, and `rfone`.
-- `enumerate_with_args` and `Device<GenericDevice>::from_args` get the same
+- `enumerate_with_args` and `Device<DynDevice>::from_args` get the same
   feature-gated blocks as `RtlSdr`/`HackRfOne`.
 
 ## Device identity and args

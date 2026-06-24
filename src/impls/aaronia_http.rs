@@ -12,10 +12,10 @@ use std::time::SystemTime;
 use ureq::Agent;
 
 use crate::Args;
-use crate::DeviceTrait;
 use crate::Direction;
 use crate::Direction::*;
 use crate::Driver;
+use crate::DynDeviceBackend;
 use crate::Error;
 use crate::Range;
 use crate::RangeItem;
@@ -149,10 +149,7 @@ impl AaroniaHttp {
     }
 }
 
-impl DeviceTrait for AaroniaHttp {
-    type RxStreamer = RxStreamer;
-    type TxStreamer = TxStreamer;
-
+impl DynDeviceBackend for AaroniaHttp {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
@@ -188,22 +185,22 @@ impl DeviceTrait for AaroniaHttp {
         }
     }
 
-    fn rx_streamer(&self, channels: &[usize], _args: Args) -> Result<Self::RxStreamer, Error> {
+    fn rx_streamer(&self, channels: &[usize], _args: Args) -> Result<crate::DynRxStreamer, Error> {
         if channels == [0] {
-            Ok(RxStreamer {
+            Ok(Box::new(RxStreamer {
                 url: self.url.clone(),
                 agent: self.agent.clone(),
                 items_left: 0,
                 reader: None,
-            })
+            }))
         } else {
             Err(Error::ValueError)
         }
     }
 
-    fn tx_streamer(&self, channels: &[usize], _args: Args) -> Result<Self::TxStreamer, Error> {
+    fn tx_streamer(&self, channels: &[usize], _args: Args) -> Result<crate::DynTxStreamer, Error> {
         if channels == [0] {
-            Ok(TxStreamer {
+            Ok(Box::new(TxStreamer {
                 url: self.tx_url.clone(),
                 agent: self.agent.clone(),
                 frequency: self.tx_frequency.clone(),
@@ -212,7 +209,7 @@ impl DeviceTrait for AaroniaHttp {
                     .duration_since(SystemTime::UNIX_EPOCH)
                     .unwrap()
                     .as_secs_f64(),
-            })
+            }))
         } else {
             Err(Error::ValueError)
         }

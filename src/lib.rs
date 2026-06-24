@@ -2,9 +2,25 @@ mod args;
 pub use args::Args;
 
 mod device;
+pub use device::AgcControl;
+pub use device::AntennaControl;
+pub use device::BandwidthControl;
+pub use device::ChannelCapabilities;
+pub use device::ChannelControls;
+pub use device::ChannelInfo;
+pub use device::DcOffsetControl;
 pub use device::Device;
-pub use device::DeviceTrait;
-pub use device::GenericDevice;
+pub use device::DeviceCapabilities;
+pub use device::DeviceInfo;
+pub use device::DynDevice;
+pub use device::DynDeviceBackend;
+pub use device::DynRxStreamer;
+pub use device::DynTxStreamer;
+pub use device::FrequencyControl;
+pub use device::GainControl;
+pub use device::RxDevice;
+pub use device::SampleRateControl;
+pub use device::TxDevice;
 
 pub mod impls;
 

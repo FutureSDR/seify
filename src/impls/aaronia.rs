@@ -13,7 +13,7 @@ use aaronia_rtsa::DeviceInfo;
 use aaronia_rtsa::Packet;
 
 use crate::Args;
-use crate::DeviceTrait;
+use crate::DynDeviceBackend;
 use crate::Direction;
 use crate::Direction::*;
 use crate::Driver;
@@ -105,10 +105,7 @@ impl Aaronia {
     }
 }
 
-impl DeviceTrait for Aaronia {
-    type RxStreamer = RxStreamer;
-    type TxStreamer = TxStreamer;
-
+impl DynDeviceBackend for Aaronia {
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -148,9 +145,9 @@ impl DeviceTrait for Aaronia {
         &self,
         channels: &[usize],
         args: crate::Args,
-    ) -> Result<Self::RxStreamer, Error> {
+    ) -> Result<crate::DynRxStreamer, Error> {
         if channels == [0] {
-            Ok(RxStreamer::new(self.dev.clone()))
+            Ok(Box::new(RxStreamer::new(self.dev.clone())))
         } else {
             Err(Error::ValueError)
         }
@@ -160,9 +157,9 @@ impl DeviceTrait for Aaronia {
         &self,
         channels: &[usize],
         args: crate::Args,
-    ) -> Result<Self::TxStreamer, Error> {
+    ) -> Result<crate::DynTxStreamer, Error> {
         if channels == [0] {
-            Ok(TxStreamer::new(self.dev.clone()))
+            Ok(Box::new(TxStreamer::new(self.dev.clone())))
         } else {
             Err(Error::ValueError)
         }

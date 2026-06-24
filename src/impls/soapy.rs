@@ -2,13 +2,23 @@
 use num_complex::Complex32;
 use std::sync::OnceLock;
 
+use crate::AgcControl;
+use crate::AntennaControl;
 use crate::Args;
-use crate::DeviceTrait;
+use crate::BandwidthControl;
+use crate::ChannelInfo;
+use crate::DcOffsetControl;
+use crate::DeviceInfo;
 use crate::Direction;
 use crate::Driver;
 use crate::Error;
+use crate::FrequencyControl;
+use crate::GainControl;
 use crate::Range;
 use crate::RangeItem;
+use crate::RxDevice;
+use crate::SampleRateControl;
+use crate::TxDevice;
 
 /// Soapy Device
 #[derive(Clone)]
@@ -85,10 +95,7 @@ impl Soapy {
     }
 }
 
-impl DeviceTrait for Soapy {
-    type RxStreamer = RxStreamer;
-    type TxStreamer = TxStreamer;
-
+impl DeviceInfo for Soapy {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
@@ -108,7 +115,9 @@ impl DeviceTrait for Soapy {
     fn info(&self) -> Result<Args, Error> {
         Ok(self.args.clone())
     }
+}
 
+impl ChannelInfo for Soapy {
     fn num_channels(&self, direction: Direction) -> Result<usize, Error> {
         Ok(self.dev.num_channels(direction.into())?)
     }
@@ -116,6 +125,10 @@ impl DeviceTrait for Soapy {
     fn full_duplex(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
         Ok(self.dev.full_duplex(direction.into(), channel)?)
     }
+}
+
+impl RxDevice for Soapy {
+    type RxStreamer = RxStreamer;
 
     fn rx_streamer(&self, channels: &[usize], args: Args) -> Result<Self::RxStreamer, Error> {
         Ok(RxStreamer {
@@ -124,6 +137,10 @@ impl DeviceTrait for Soapy {
                 .rx_stream_args(channels, soapysdr::Args::try_from(args)?)?,
         })
     }
+}
+
+impl TxDevice for Soapy {
+    type TxStreamer = TxStreamer;
 
     fn tx_streamer(&self, channels: &[usize], args: Args) -> Result<Self::TxStreamer, Error> {
         Ok(TxStreamer {
@@ -132,7 +149,9 @@ impl DeviceTrait for Soapy {
                 .tx_stream_args(channels, soapysdr::Args::try_from(args)?)?,
         })
     }
+}
 
+impl AntennaControl for Soapy {
     fn antennas(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
         Ok(self.dev.antennas(direction.into(), channel)?)
     }
@@ -144,11 +163,9 @@ impl DeviceTrait for Soapy {
     fn set_antenna(&self, direction: Direction, channel: usize, name: &str) -> Result<(), Error> {
         Ok(self.dev.set_antenna(direction.into(), channel, name)?)
     }
+}
 
-    fn gain_elements(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
-        Ok(self.dev.list_gains(direction.into(), channel)?)
-    }
-
+impl AgcControl for Soapy {
     fn supports_agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
         Ok(self.dev.has_gain_mode(direction.into(), channel)?)
     }
@@ -159,6 +176,12 @@ impl DeviceTrait for Soapy {
 
     fn agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
         Ok(self.dev.gain_mode(direction.into(), channel)?)
+    }
+}
+
+impl GainControl for Soapy {
+    fn gain_elements(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
+        Ok(self.dev.list_gains(direction.into(), channel)?)
     }
 
     fn set_gain(&self, direction: Direction, channel: usize, gain: f64) -> Result<(), Error> {
@@ -218,7 +241,9 @@ impl DeviceTrait for Soapy {
             .gain_element_range(direction.into(), channel, name)?;
         Ok(range.into())
     }
+}
 
+impl FrequencyControl for Soapy {
     fn frequency_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
         let range = self.dev.frequency_range(direction.into(), channel)?;
         Ok(range.into())
@@ -289,7 +314,9 @@ impl DeviceTrait for Soapy {
             soapysdr::Args::new(),
         )?)
     }
+}
 
+impl SampleRateControl for Soapy {
     fn sample_rate(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
         Ok(self.dev.sample_rate(direction.into(), channel)?)
     }
@@ -307,7 +334,9 @@ impl DeviceTrait for Soapy {
         let range = self.dev.get_sample_rate_range(direction.into(), channel)?;
         Ok(range.into())
     }
+}
 
+impl BandwidthControl for Soapy {
     fn bandwidth(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
         Ok(self.dev.bandwidth(direction.into(), channel)?)
     }
@@ -320,7 +349,9 @@ impl DeviceTrait for Soapy {
         let range = self.dev.bandwidth_range(direction.into(), channel)?;
         Ok(range.into())
     }
+}
 
+impl DcOffsetControl for Soapy {
     fn has_dc_offset_mode(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
         Ok(self.dev.has_dc_offset_mode(direction.into(), channel)?)
     }
