@@ -1,9 +1,13 @@
 use std::any::Any;
+use std::future::Future;
 
 use crate::async_compat::Shared;
+use crate::async_streamer::{
+    AsyncRxStreamer, AsyncTxStreamer, ErasedAsyncRxStreamer, ErasedAsyncTxStreamer,
+};
 use crate::Args;
-use crate::AsyncBoxFuture;
 use crate::AsyncFutureExt;
+use crate::BoxedFuture;
 use crate::Capability;
 use crate::ChannelCapabilities;
 use crate::ChannelControls;
@@ -15,22 +19,368 @@ use crate::Error;
 use crate::MaybeSend;
 use crate::MaybeSync;
 use crate::Range;
-use crate::{AsyncRxStreamer, AsyncTxStreamer};
 
 /// Type-erased asynchronous RX streamer.
-pub type DynAsyncRxStreamer = Box<dyn AsyncRxStreamer>;
+pub type DynAsyncRxStreamer = Box<dyn ErasedAsyncRxStreamer>;
 
 /// Type-erased asynchronous TX streamer.
-pub type DynAsyncTxStreamer = Box<dyn AsyncTxStreamer>;
+pub type DynAsyncTxStreamer = Box<dyn ErasedAsyncTxStreamer>;
 
-/// Object-safe asynchronous RX streaming capability.
-pub trait ErasedAsyncRxDevice: MaybeSend + MaybeSync {
-    /// Create a type-erased asynchronous RX streamer.
+/// Basic asynchronous device metadata.
+pub trait AsyncDeviceInfo: MaybeSend + MaybeSync {
+    /// Cast to [`Any`] for downcasting.
+    fn as_any(&self) -> &dyn Any;
+    /// Cast to [`Any`] for mutable downcasting.
+    fn as_any_mut(&mut self) -> &mut dyn Any;
+    /// SDR driver.
+    fn driver(&self) -> Driver;
+    /// Identifier for the device, e.g. its serial.
+    fn async_id(&self) -> impl Future<Output = Result<String, Error>> + MaybeSend + '_;
+    /// Device info that can be displayed to the user.
+    fn async_info(&self) -> impl Future<Output = Result<Args, Error>> + MaybeSend + '_;
+}
+
+/// Basic asynchronous channel metadata.
+pub trait AsyncChannelInfo: MaybeSend + MaybeSync {
+    /// Number of supported channels.
+    fn async_num_channels(
+        &self,
+        direction: Direction,
+    ) -> impl Future<Output = Result<usize, Error>> + MaybeSend + '_;
+    /// Full-duplex support.
+    fn async_full_duplex(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> impl Future<Output = Result<bool, Error>> + MaybeSend + '_;
+}
+
+/// Asynchronous RX streaming capability.
+pub trait AsyncRxDevice: MaybeSend + MaybeSync {
+    /// RX streamer implementation.
+    type RxStreamer: AsyncRxStreamer;
+
+    /// Create an RX streamer.
     fn async_rx_streamer<'a>(
         &'a self,
         channels: &'a [usize],
         args: Args,
-    ) -> AsyncBoxFuture<'a, Result<DynAsyncRxStreamer, Error>>;
+    ) -> impl Future<Output = Result<Self::RxStreamer, Error>> + MaybeSend + 'a;
+}
+
+/// Asynchronous TX streaming capability.
+pub trait AsyncTxDevice: MaybeSend + MaybeSync {
+    /// TX streamer implementation.
+    type TxStreamer: AsyncTxStreamer;
+
+    /// Create a TX streamer.
+    fn async_tx_streamer<'a>(
+        &'a self,
+        channels: &'a [usize],
+        args: Args,
+    ) -> impl Future<Output = Result<Self::TxStreamer, Error>> + MaybeSend + 'a;
+}
+
+/// Asynchronous antenna control capability.
+pub trait AsyncAntennaControl: MaybeSend + MaybeSync {
+    /// Return available antenna port names.
+    fn async_antennas(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> impl Future<Output = Result<Vec<String>, Error>> + MaybeSend + '_;
+    /// Return the selected antenna port name.
+    fn async_antenna(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> impl Future<Output = Result<String, Error>> + MaybeSend + '_;
+    /// Select an antenna port by name.
+    fn async_set_antenna<'a>(
+        &'a self,
+        direction: Direction,
+        channel: usize,
+        name: &'a str,
+    ) -> impl Future<Output = Result<(), Error>> + MaybeSend + 'a;
+}
+
+/// Asynchronous automatic gain control capability.
+pub trait AsyncAgcControl: MaybeSend + MaybeSync {
+    /// Return whether automatic gain control is available.
+    fn async_agc_available(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> impl Future<Output = Result<bool, Error>> + MaybeSend + '_;
+    /// Return whether automatic gain control is enabled.
+    fn async_agc_enabled(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> impl Future<Output = Result<bool, Error>> + MaybeSend + '_;
+    /// Enable or disable automatic gain control.
+    fn async_set_agc_enabled(
+        &self,
+        direction: Direction,
+        channel: usize,
+        enabled: bool,
+    ) -> impl Future<Output = Result<(), Error>> + MaybeSend + '_;
+}
+
+/// Asynchronous gain control capability.
+pub trait AsyncGainControl: MaybeSend + MaybeSync {
+    /// Return named gain elements available for the channel.
+    fn async_gain_elements(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> impl Future<Output = Result<Vec<String>, Error>> + MaybeSend + '_;
+    /// Set overall channel gain in dB.
+    fn async_set_gain(
+        &self,
+        direction: Direction,
+        channel: usize,
+        gain: f64,
+    ) -> impl Future<Output = Result<(), Error>> + MaybeSend + '_;
+    /// Return overall channel gain in dB, if available.
+    fn async_gain(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> impl Future<Output = Result<Option<f64>, Error>> + MaybeSend + '_;
+    /// Return supported overall channel gain range in dB.
+    fn async_gain_range(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> impl Future<Output = Result<Range, Error>> + MaybeSend + '_;
+    /// Set a named gain element in dB.
+    fn async_set_gain_element<'a>(
+        &'a self,
+        direction: Direction,
+        channel: usize,
+        name: &'a str,
+        gain: f64,
+    ) -> impl Future<Output = Result<(), Error>> + MaybeSend + 'a;
+    /// Return a named gain element in dB, if available.
+    fn async_gain_element<'a>(
+        &'a self,
+        direction: Direction,
+        channel: usize,
+        name: &'a str,
+    ) -> impl Future<Output = Result<Option<f64>, Error>> + MaybeSend + 'a;
+    /// Return supported range in dB for a named gain element.
+    fn async_gain_element_range<'a>(
+        &'a self,
+        direction: Direction,
+        channel: usize,
+        name: &'a str,
+    ) -> impl Future<Output = Result<Range, Error>> + MaybeSend + 'a;
+}
+
+/// Asynchronous frequency control capability.
+pub trait AsyncFrequencyControl: MaybeSend + MaybeSync {
+    /// Return supported overall tuning range in Hz.
+    fn async_frequency_range(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> impl Future<Output = Result<Range, Error>> + MaybeSend + '_;
+    /// Return current overall channel frequency in Hz.
+    fn async_frequency(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> impl Future<Output = Result<f64, Error>> + MaybeSend + '_;
+    /// Set overall channel frequency in Hz with optional driver arguments.
+    fn async_set_frequency(
+        &self,
+        direction: Direction,
+        channel: usize,
+        frequency: f64,
+        args: Args,
+    ) -> impl Future<Output = Result<(), Error>> + MaybeSend + '_;
+    /// Return named frequency components for the channel.
+    fn async_frequency_components(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> impl Future<Output = Result<Vec<String>, Error>> + MaybeSend + '_;
+    /// Return supported range in Hz for a named frequency component.
+    fn async_component_frequency_range<'a>(
+        &'a self,
+        direction: Direction,
+        channel: usize,
+        name: &'a str,
+    ) -> impl Future<Output = Result<Range, Error>> + MaybeSend + 'a;
+    /// Return current frequency in Hz for a named frequency component.
+    fn async_component_frequency<'a>(
+        &'a self,
+        direction: Direction,
+        channel: usize,
+        name: &'a str,
+    ) -> impl Future<Output = Result<f64, Error>> + MaybeSend + 'a;
+    /// Set frequency in Hz for a named frequency component.
+    fn async_set_component_frequency<'a>(
+        &'a self,
+        direction: Direction,
+        channel: usize,
+        name: &'a str,
+        frequency: f64,
+    ) -> impl Future<Output = Result<(), Error>> + MaybeSend + 'a;
+}
+
+/// Asynchronous sample-rate control capability.
+pub trait AsyncSampleRateControl: MaybeSend + MaybeSync {
+    /// Return current sample rate in samples per second.
+    fn async_sample_rate(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> impl Future<Output = Result<f64, Error>> + MaybeSend + '_;
+    /// Set sample rate in samples per second.
+    fn async_set_sample_rate(
+        &self,
+        direction: Direction,
+        channel: usize,
+        rate: f64,
+    ) -> impl Future<Output = Result<(), Error>> + MaybeSend + '_;
+    /// Return supported sample-rate range in samples per second.
+    fn async_get_sample_rate_range(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> impl Future<Output = Result<Range, Error>> + MaybeSend + '_;
+}
+
+/// Asynchronous bandwidth control capability.
+pub trait AsyncBandwidthControl: MaybeSend + MaybeSync {
+    /// Return current channel bandwidth in Hz.
+    fn async_bandwidth(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> impl Future<Output = Result<f64, Error>> + MaybeSend + '_;
+    /// Set channel bandwidth in Hz.
+    fn async_set_bandwidth(
+        &self,
+        direction: Direction,
+        channel: usize,
+        bandwidth: f64,
+    ) -> impl Future<Output = Result<(), Error>> + MaybeSend + '_;
+    /// Return supported channel bandwidth range in Hz.
+    fn async_get_bandwidth_range(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> impl Future<Output = Result<Range, Error>> + MaybeSend + '_;
+}
+
+/// Asynchronous automatic DC offset correction capability.
+pub trait AsyncDcOffsetControl: MaybeSend + MaybeSync {
+    /// Return whether automatic DC offset correction is available.
+    fn async_dc_offset_available(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> impl Future<Output = Result<bool, Error>> + MaybeSend + '_;
+    /// Return whether automatic DC offset correction is enabled.
+    fn async_dc_offset_enabled(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> impl Future<Output = Result<bool, Error>> + MaybeSend + '_;
+    /// Enable or disable automatic DC offset correction.
+    fn async_set_dc_offset_enabled(
+        &self,
+        direction: Direction,
+        channel: usize,
+        enabled: bool,
+    ) -> impl Future<Output = Result<(), Error>> + MaybeSend + '_;
+}
+
+/// Object-safe asynchronous device metadata.
+pub trait ErasedAsyncDeviceInfo: MaybeSend + MaybeSync {
+    /// Cast to [`Any`] for downcasting.
+    fn erased_as_any(&self) -> &dyn Any;
+    /// Cast to [`Any`] for mutable downcasting.
+    fn erased_as_any_mut(&mut self) -> &mut dyn Any;
+    /// SDR driver.
+    fn erased_driver(&self) -> Driver;
+    /// Identifier for the device, e.g. its serial.
+    fn erased_async_id(&self) -> BoxedFuture<'_, Result<String, Error>>;
+    /// Device info that can be displayed to the user.
+    fn erased_async_info(&self) -> BoxedFuture<'_, Result<Args, Error>>;
+}
+
+impl<T> ErasedAsyncDeviceInfo for T
+where
+    T: AsyncDeviceInfo,
+{
+    fn erased_as_any(&self) -> &dyn Any {
+        AsyncDeviceInfo::as_any(self)
+    }
+
+    fn erased_as_any_mut(&mut self) -> &mut dyn Any {
+        AsyncDeviceInfo::as_any_mut(self)
+    }
+
+    fn erased_driver(&self) -> Driver {
+        AsyncDeviceInfo::driver(self)
+    }
+
+    fn erased_async_id(&self) -> BoxedFuture<'_, Result<String, Error>> {
+        AsyncDeviceInfo::async_id(self).boxed_async()
+    }
+
+    fn erased_async_info(&self) -> BoxedFuture<'_, Result<Args, Error>> {
+        AsyncDeviceInfo::async_info(self).boxed_async()
+    }
+}
+
+/// Object-safe asynchronous channel metadata.
+pub trait ErasedAsyncChannelInfo: MaybeSend + MaybeSync {
+    /// Number of supported channels.
+    fn erased_async_num_channels(
+        &self,
+        direction: Direction,
+    ) -> BoxedFuture<'_, Result<usize, Error>>;
+    /// Full-duplex support.
+    fn erased_async_full_duplex(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> BoxedFuture<'_, Result<bool, Error>>;
+}
+
+impl<T> ErasedAsyncChannelInfo for T
+where
+    T: AsyncChannelInfo,
+{
+    fn erased_async_num_channels(
+        &self,
+        direction: Direction,
+    ) -> BoxedFuture<'_, Result<usize, Error>> {
+        AsyncChannelInfo::async_num_channels(self, direction).boxed_async()
+    }
+
+    fn erased_async_full_duplex(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> BoxedFuture<'_, Result<bool, Error>> {
+        AsyncChannelInfo::async_full_duplex(self, direction, channel).boxed_async()
+    }
+}
+
+/// Object-safe asynchronous RX streaming capability.
+pub trait ErasedAsyncRxDevice: MaybeSend + MaybeSync {
+    /// Create a type-erased asynchronous RX streamer.
+    fn erased_async_rx_streamer<'a>(
+        &'a self,
+        channels: &'a [usize],
+        args: Args,
+    ) -> BoxedFuture<'a, Result<DynAsyncRxStreamer, Error>>;
 }
 
 impl<T> ErasedAsyncRxDevice for T
@@ -38,11 +388,11 @@ where
     T: AsyncRxDevice,
     T::RxStreamer: 'static,
 {
-    fn async_rx_streamer<'a>(
+    fn erased_async_rx_streamer<'a>(
         &'a self,
         channels: &'a [usize],
         args: Args,
-    ) -> AsyncBoxFuture<'a, Result<DynAsyncRxStreamer, Error>> {
+    ) -> BoxedFuture<'a, Result<DynAsyncRxStreamer, Error>> {
         async move {
             Ok(
                 Box::new(AsyncRxDevice::async_rx_streamer(self, channels, args).await?)
@@ -56,11 +406,11 @@ where
 /// Object-safe asynchronous TX streaming capability.
 pub trait ErasedAsyncTxDevice: MaybeSend + MaybeSync {
     /// Create a type-erased asynchronous TX streamer.
-    fn async_tx_streamer<'a>(
+    fn erased_async_tx_streamer<'a>(
         &'a self,
         channels: &'a [usize],
         args: Args,
-    ) -> AsyncBoxFuture<'a, Result<DynAsyncTxStreamer, Error>>;
+    ) -> BoxedFuture<'a, Result<DynAsyncTxStreamer, Error>>;
 }
 
 impl<T> ErasedAsyncTxDevice for T
@@ -68,11 +418,11 @@ where
     T: AsyncTxDevice,
     T::TxStreamer: 'static,
 {
-    fn async_tx_streamer<'a>(
+    fn erased_async_tx_streamer<'a>(
         &'a self,
         channels: &'a [usize],
         args: Args,
-    ) -> AsyncBoxFuture<'a, Result<DynAsyncTxStreamer, Error>> {
+    ) -> BoxedFuture<'a, Result<DynAsyncTxStreamer, Error>> {
         async move {
             Ok(
                 Box::new(AsyncTxDevice::async_tx_streamer(self, channels, args).await?)
@@ -83,15 +433,524 @@ where
     }
 }
 
+/// Object-safe asynchronous antenna control capability.
+pub trait ErasedAsyncAntennaControl: MaybeSend + MaybeSync {
+    /// Return available antenna port names.
+    fn erased_async_antennas(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> BoxedFuture<'_, Result<Vec<String>, Error>>;
+    /// Return the selected antenna port name.
+    fn erased_async_antenna(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> BoxedFuture<'_, Result<String, Error>>;
+    /// Select an antenna port by name.
+    fn erased_async_set_antenna<'a>(
+        &'a self,
+        direction: Direction,
+        channel: usize,
+        name: &'a str,
+    ) -> BoxedFuture<'a, Result<(), Error>>;
+}
+
+impl<T> ErasedAsyncAntennaControl for T
+where
+    T: AsyncAntennaControl,
+{
+    fn erased_async_antennas(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> BoxedFuture<'_, Result<Vec<String>, Error>> {
+        AsyncAntennaControl::async_antennas(self, direction, channel).boxed_async()
+    }
+
+    fn erased_async_antenna(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> BoxedFuture<'_, Result<String, Error>> {
+        AsyncAntennaControl::async_antenna(self, direction, channel).boxed_async()
+    }
+
+    fn erased_async_set_antenna<'a>(
+        &'a self,
+        direction: Direction,
+        channel: usize,
+        name: &'a str,
+    ) -> BoxedFuture<'a, Result<(), Error>> {
+        AsyncAntennaControl::async_set_antenna(self, direction, channel, name).boxed_async()
+    }
+}
+
+/// Object-safe asynchronous automatic gain control capability.
+pub trait ErasedAsyncAgcControl: MaybeSend + MaybeSync {
+    /// Return whether automatic gain control is available.
+    fn erased_async_agc_available(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> BoxedFuture<'_, Result<bool, Error>>;
+    /// Return whether automatic gain control is enabled.
+    fn erased_async_agc_enabled(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> BoxedFuture<'_, Result<bool, Error>>;
+    /// Enable or disable automatic gain control.
+    fn erased_async_set_agc_enabled(
+        &self,
+        direction: Direction,
+        channel: usize,
+        enabled: bool,
+    ) -> BoxedFuture<'_, Result<(), Error>>;
+}
+
+impl<T> ErasedAsyncAgcControl for T
+where
+    T: AsyncAgcControl,
+{
+    fn erased_async_agc_available(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> BoxedFuture<'_, Result<bool, Error>> {
+        AsyncAgcControl::async_agc_available(self, direction, channel).boxed_async()
+    }
+
+    fn erased_async_agc_enabled(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> BoxedFuture<'_, Result<bool, Error>> {
+        AsyncAgcControl::async_agc_enabled(self, direction, channel).boxed_async()
+    }
+
+    fn erased_async_set_agc_enabled(
+        &self,
+        direction: Direction,
+        channel: usize,
+        enabled: bool,
+    ) -> BoxedFuture<'_, Result<(), Error>> {
+        AsyncAgcControl::async_set_agc_enabled(self, direction, channel, enabled).boxed_async()
+    }
+}
+
+/// Object-safe asynchronous gain control capability.
+pub trait ErasedAsyncGainControl: MaybeSend + MaybeSync {
+    /// Return named gain elements available for the channel.
+    fn erased_async_gain_elements(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> BoxedFuture<'_, Result<Vec<String>, Error>>;
+    /// Set overall channel gain in dB.
+    fn erased_async_set_gain(
+        &self,
+        direction: Direction,
+        channel: usize,
+        gain: f64,
+    ) -> BoxedFuture<'_, Result<(), Error>>;
+    /// Return overall channel gain in dB, if available.
+    fn erased_async_gain(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> BoxedFuture<'_, Result<Option<f64>, Error>>;
+    /// Return supported overall channel gain range in dB.
+    fn erased_async_gain_range(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> BoxedFuture<'_, Result<Range, Error>>;
+    /// Set a named gain element in dB.
+    fn erased_async_set_gain_element<'a>(
+        &'a self,
+        direction: Direction,
+        channel: usize,
+        name: &'a str,
+        gain: f64,
+    ) -> BoxedFuture<'a, Result<(), Error>>;
+    /// Return a named gain element in dB, if available.
+    fn erased_async_gain_element<'a>(
+        &'a self,
+        direction: Direction,
+        channel: usize,
+        name: &'a str,
+    ) -> BoxedFuture<'a, Result<Option<f64>, Error>>;
+    /// Return supported range in dB for a named gain element.
+    fn erased_async_gain_element_range<'a>(
+        &'a self,
+        direction: Direction,
+        channel: usize,
+        name: &'a str,
+    ) -> BoxedFuture<'a, Result<Range, Error>>;
+}
+
+impl<T> ErasedAsyncGainControl for T
+where
+    T: AsyncGainControl,
+{
+    fn erased_async_gain_elements(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> BoxedFuture<'_, Result<Vec<String>, Error>> {
+        AsyncGainControl::async_gain_elements(self, direction, channel).boxed_async()
+    }
+
+    fn erased_async_set_gain(
+        &self,
+        direction: Direction,
+        channel: usize,
+        gain: f64,
+    ) -> BoxedFuture<'_, Result<(), Error>> {
+        AsyncGainControl::async_set_gain(self, direction, channel, gain).boxed_async()
+    }
+
+    fn erased_async_gain(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> BoxedFuture<'_, Result<Option<f64>, Error>> {
+        AsyncGainControl::async_gain(self, direction, channel).boxed_async()
+    }
+
+    fn erased_async_gain_range(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> BoxedFuture<'_, Result<Range, Error>> {
+        AsyncGainControl::async_gain_range(self, direction, channel).boxed_async()
+    }
+
+    fn erased_async_set_gain_element<'a>(
+        &'a self,
+        direction: Direction,
+        channel: usize,
+        name: &'a str,
+        gain: f64,
+    ) -> BoxedFuture<'a, Result<(), Error>> {
+        AsyncGainControl::async_set_gain_element(self, direction, channel, name, gain).boxed_async()
+    }
+
+    fn erased_async_gain_element<'a>(
+        &'a self,
+        direction: Direction,
+        channel: usize,
+        name: &'a str,
+    ) -> BoxedFuture<'a, Result<Option<f64>, Error>> {
+        AsyncGainControl::async_gain_element(self, direction, channel, name).boxed_async()
+    }
+
+    fn erased_async_gain_element_range<'a>(
+        &'a self,
+        direction: Direction,
+        channel: usize,
+        name: &'a str,
+    ) -> BoxedFuture<'a, Result<Range, Error>> {
+        AsyncGainControl::async_gain_element_range(self, direction, channel, name).boxed_async()
+    }
+}
+
+/// Object-safe asynchronous frequency control capability.
+pub trait ErasedAsyncFrequencyControl: MaybeSend + MaybeSync {
+    /// Return supported overall tuning range in Hz.
+    fn erased_async_frequency_range(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> BoxedFuture<'_, Result<Range, Error>>;
+    /// Return current overall channel frequency in Hz.
+    fn erased_async_frequency(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> BoxedFuture<'_, Result<f64, Error>>;
+    /// Set overall channel frequency in Hz with optional driver arguments.
+    fn erased_async_set_frequency(
+        &self,
+        direction: Direction,
+        channel: usize,
+        frequency: f64,
+        args: Args,
+    ) -> BoxedFuture<'_, Result<(), Error>>;
+    /// Return named frequency components for the channel.
+    fn erased_async_frequency_components(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> BoxedFuture<'_, Result<Vec<String>, Error>>;
+    /// Return supported range in Hz for a named frequency component.
+    fn erased_async_component_frequency_range<'a>(
+        &'a self,
+        direction: Direction,
+        channel: usize,
+        name: &'a str,
+    ) -> BoxedFuture<'a, Result<Range, Error>>;
+    /// Return current frequency in Hz for a named frequency component.
+    fn erased_async_component_frequency<'a>(
+        &'a self,
+        direction: Direction,
+        channel: usize,
+        name: &'a str,
+    ) -> BoxedFuture<'a, Result<f64, Error>>;
+    /// Set frequency in Hz for a named frequency component.
+    fn erased_async_set_component_frequency<'a>(
+        &'a self,
+        direction: Direction,
+        channel: usize,
+        name: &'a str,
+        frequency: f64,
+    ) -> BoxedFuture<'a, Result<(), Error>>;
+}
+
+impl<T> ErasedAsyncFrequencyControl for T
+where
+    T: AsyncFrequencyControl,
+{
+    fn erased_async_frequency_range(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> BoxedFuture<'_, Result<Range, Error>> {
+        AsyncFrequencyControl::async_frequency_range(self, direction, channel).boxed_async()
+    }
+
+    fn erased_async_frequency(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> BoxedFuture<'_, Result<f64, Error>> {
+        AsyncFrequencyControl::async_frequency(self, direction, channel).boxed_async()
+    }
+
+    fn erased_async_set_frequency(
+        &self,
+        direction: Direction,
+        channel: usize,
+        frequency: f64,
+        args: Args,
+    ) -> BoxedFuture<'_, Result<(), Error>> {
+        AsyncFrequencyControl::async_set_frequency(self, direction, channel, frequency, args)
+            .boxed_async()
+    }
+
+    fn erased_async_frequency_components(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> BoxedFuture<'_, Result<Vec<String>, Error>> {
+        AsyncFrequencyControl::async_frequency_components(self, direction, channel).boxed_async()
+    }
+
+    fn erased_async_component_frequency_range<'a>(
+        &'a self,
+        direction: Direction,
+        channel: usize,
+        name: &'a str,
+    ) -> BoxedFuture<'a, Result<Range, Error>> {
+        AsyncFrequencyControl::async_component_frequency_range(self, direction, channel, name)
+            .boxed_async()
+    }
+
+    fn erased_async_component_frequency<'a>(
+        &'a self,
+        direction: Direction,
+        channel: usize,
+        name: &'a str,
+    ) -> BoxedFuture<'a, Result<f64, Error>> {
+        AsyncFrequencyControl::async_component_frequency(self, direction, channel, name)
+            .boxed_async()
+    }
+
+    fn erased_async_set_component_frequency<'a>(
+        &'a self,
+        direction: Direction,
+        channel: usize,
+        name: &'a str,
+        frequency: f64,
+    ) -> BoxedFuture<'a, Result<(), Error>> {
+        AsyncFrequencyControl::async_set_component_frequency(
+            self, direction, channel, name, frequency,
+        )
+        .boxed_async()
+    }
+}
+
+/// Object-safe asynchronous sample-rate control capability.
+pub trait ErasedAsyncSampleRateControl: MaybeSend + MaybeSync {
+    /// Return current sample rate in samples per second.
+    fn erased_async_sample_rate(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> BoxedFuture<'_, Result<f64, Error>>;
+    /// Set sample rate in samples per second.
+    fn erased_async_set_sample_rate(
+        &self,
+        direction: Direction,
+        channel: usize,
+        rate: f64,
+    ) -> BoxedFuture<'_, Result<(), Error>>;
+    /// Return supported sample-rate range in samples per second.
+    fn erased_async_get_sample_rate_range(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> BoxedFuture<'_, Result<Range, Error>>;
+}
+
+impl<T> ErasedAsyncSampleRateControl for T
+where
+    T: AsyncSampleRateControl,
+{
+    fn erased_async_sample_rate(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> BoxedFuture<'_, Result<f64, Error>> {
+        AsyncSampleRateControl::async_sample_rate(self, direction, channel).boxed_async()
+    }
+
+    fn erased_async_set_sample_rate(
+        &self,
+        direction: Direction,
+        channel: usize,
+        rate: f64,
+    ) -> BoxedFuture<'_, Result<(), Error>> {
+        AsyncSampleRateControl::async_set_sample_rate(self, direction, channel, rate).boxed_async()
+    }
+
+    fn erased_async_get_sample_rate_range(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> BoxedFuture<'_, Result<Range, Error>> {
+        AsyncSampleRateControl::async_get_sample_rate_range(self, direction, channel).boxed_async()
+    }
+}
+
+/// Object-safe asynchronous bandwidth control capability.
+pub trait ErasedAsyncBandwidthControl: MaybeSend + MaybeSync {
+    /// Return current channel bandwidth in Hz.
+    fn erased_async_bandwidth(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> BoxedFuture<'_, Result<f64, Error>>;
+    /// Set channel bandwidth in Hz.
+    fn erased_async_set_bandwidth(
+        &self,
+        direction: Direction,
+        channel: usize,
+        bandwidth: f64,
+    ) -> BoxedFuture<'_, Result<(), Error>>;
+    /// Return supported channel bandwidth range in Hz.
+    fn erased_async_get_bandwidth_range(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> BoxedFuture<'_, Result<Range, Error>>;
+}
+
+impl<T> ErasedAsyncBandwidthControl for T
+where
+    T: AsyncBandwidthControl,
+{
+    fn erased_async_bandwidth(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> BoxedFuture<'_, Result<f64, Error>> {
+        AsyncBandwidthControl::async_bandwidth(self, direction, channel).boxed_async()
+    }
+
+    fn erased_async_set_bandwidth(
+        &self,
+        direction: Direction,
+        channel: usize,
+        bandwidth: f64,
+    ) -> BoxedFuture<'_, Result<(), Error>> {
+        AsyncBandwidthControl::async_set_bandwidth(self, direction, channel, bandwidth)
+            .boxed_async()
+    }
+
+    fn erased_async_get_bandwidth_range(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> BoxedFuture<'_, Result<Range, Error>> {
+        AsyncBandwidthControl::async_get_bandwidth_range(self, direction, channel).boxed_async()
+    }
+}
+
+/// Object-safe asynchronous automatic DC offset correction capability.
+pub trait ErasedAsyncDcOffsetControl: MaybeSend + MaybeSync {
+    /// Return whether automatic DC offset correction is available.
+    fn erased_async_dc_offset_available(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> BoxedFuture<'_, Result<bool, Error>>;
+    /// Return whether automatic DC offset correction is enabled.
+    fn erased_async_dc_offset_enabled(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> BoxedFuture<'_, Result<bool, Error>>;
+    /// Enable or disable automatic DC offset correction.
+    fn erased_async_set_dc_offset_enabled(
+        &self,
+        direction: Direction,
+        channel: usize,
+        enabled: bool,
+    ) -> BoxedFuture<'_, Result<(), Error>>;
+}
+
+impl<T> ErasedAsyncDcOffsetControl for T
+where
+    T: AsyncDcOffsetControl,
+{
+    fn erased_async_dc_offset_available(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> BoxedFuture<'_, Result<bool, Error>> {
+        AsyncDcOffsetControl::async_dc_offset_available(self, direction, channel).boxed_async()
+    }
+
+    fn erased_async_dc_offset_enabled(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> BoxedFuture<'_, Result<bool, Error>> {
+        AsyncDcOffsetControl::async_dc_offset_enabled(self, direction, channel).boxed_async()
+    }
+
+    fn erased_async_set_dc_offset_enabled(
+        &self,
+        direction: Direction,
+        channel: usize,
+        enabled: bool,
+    ) -> BoxedFuture<'_, Result<(), Error>> {
+        AsyncDcOffsetControl::async_set_dc_offset_enabled(self, direction, channel, enabled)
+            .boxed_async()
+    }
+}
+
 /// Runtime-dispatched asynchronous device backend.
-pub trait AsyncDynDeviceBackend: AsyncDeviceInfo + MaybeSend + MaybeSync {
+pub trait AsyncDynDeviceBackend: ErasedAsyncDeviceInfo + MaybeSend + MaybeSync {
     /// Return a structured snapshot of the device's runtime capabilities.
-    fn async_capabilities(&self) -> AsyncBoxFuture<'_, Result<DeviceCapabilities, Error>> {
+    fn async_capabilities(&self) -> BoxedFuture<'_, Result<DeviceCapabilities, Error>> {
         async { async_device_capabilities(self).await }.boxed_async()
     }
 
     /// Return channel metadata capability, if exposed.
-    fn async_channel_info(&self) -> Option<&dyn AsyncChannelInfo> {
+    fn async_channel_info(&self) -> Option<&dyn ErasedAsyncChannelInfo> {
         None
     }
 
@@ -106,37 +965,37 @@ pub trait AsyncDynDeviceBackend: AsyncDeviceInfo + MaybeSend + MaybeSync {
     }
 
     /// Return antenna control capability, if exposed.
-    fn async_antenna_control(&self) -> Option<&dyn AsyncAntennaControl> {
+    fn async_antenna_control(&self) -> Option<&dyn ErasedAsyncAntennaControl> {
         None
     }
 
     /// Return automatic gain control capability, if exposed.
-    fn async_agc_control(&self) -> Option<&dyn AsyncAgcControl> {
+    fn async_agc_control(&self) -> Option<&dyn ErasedAsyncAgcControl> {
         None
     }
 
     /// Return gain control capability, if exposed.
-    fn async_gain_control(&self) -> Option<&dyn AsyncGainControl> {
+    fn async_gain_control(&self) -> Option<&dyn ErasedAsyncGainControl> {
         None
     }
 
     /// Return frequency control capability, if exposed.
-    fn async_frequency_control(&self) -> Option<&dyn AsyncFrequencyControl> {
+    fn async_frequency_control(&self) -> Option<&dyn ErasedAsyncFrequencyControl> {
         None
     }
 
     /// Return sample-rate control capability, if exposed.
-    fn async_sample_rate_control(&self) -> Option<&dyn AsyncSampleRateControl> {
+    fn async_sample_rate_control(&self) -> Option<&dyn ErasedAsyncSampleRateControl> {
         None
     }
 
     /// Return bandwidth control capability, if exposed.
-    fn async_bandwidth_control(&self) -> Option<&dyn AsyncBandwidthControl> {
+    fn async_bandwidth_control(&self) -> Option<&dyn ErasedAsyncBandwidthControl> {
         None
     }
 
     /// Return DC offset control capability, if exposed.
-    fn async_dc_offset_control(&self) -> Option<&dyn AsyncDcOffsetControl> {
+    fn async_dc_offset_control(&self) -> Option<&dyn ErasedAsyncDcOffsetControl> {
         None
     }
 }
@@ -145,276 +1004,6 @@ pub trait AsyncDynDeviceBackend: AsyncDeviceInfo + MaybeSend + MaybeSync {
 #[derive(Clone)]
 pub struct AsyncDynDevice {
     inner: Shared<dyn AsyncDynDeviceBackend>,
-}
-
-/// Basic asynchronous device metadata.
-pub trait AsyncDeviceInfo: MaybeSend + MaybeSync {
-    /// Cast to [`Any`] for downcasting.
-    fn as_any(&self) -> &dyn Any;
-    /// Cast to [`Any`] for mutable downcasting.
-    fn as_any_mut(&mut self) -> &mut dyn Any;
-    /// SDR driver.
-    fn driver(&self) -> Driver;
-    /// Identifier for the device, e.g. its serial.
-    fn async_id(&self) -> AsyncBoxFuture<'_, Result<String, Error>>;
-    /// Device info that can be displayed to the user.
-    fn async_info(&self) -> AsyncBoxFuture<'_, Result<Args, Error>>;
-}
-
-/// Basic asynchronous channel metadata.
-pub trait AsyncChannelInfo: MaybeSend + MaybeSync {
-    /// Number of supported channels.
-    fn async_num_channels(&self, direction: Direction) -> AsyncBoxFuture<'_, Result<usize, Error>>;
-    /// Full-duplex support.
-    fn async_full_duplex(
-        &self,
-        direction: Direction,
-        channel: usize,
-    ) -> AsyncBoxFuture<'_, Result<bool, Error>>;
-}
-
-/// Asynchronous RX streaming capability.
-pub trait AsyncRxDevice: MaybeSend + MaybeSync {
-    /// RX streamer implementation.
-    type RxStreamer: AsyncRxStreamer;
-
-    /// Create an RX streamer.
-    fn async_rx_streamer<'a>(
-        &'a self,
-        channels: &'a [usize],
-        args: Args,
-    ) -> AsyncBoxFuture<'a, Result<Self::RxStreamer, Error>>;
-}
-
-/// Asynchronous TX streaming capability.
-pub trait AsyncTxDevice: MaybeSend + MaybeSync {
-    /// TX streamer implementation.
-    type TxStreamer: AsyncTxStreamer;
-
-    /// Create a TX streamer.
-    fn async_tx_streamer<'a>(
-        &'a self,
-        channels: &'a [usize],
-        args: Args,
-    ) -> AsyncBoxFuture<'a, Result<Self::TxStreamer, Error>>;
-}
-
-/// Asynchronous antenna control capability.
-pub trait AsyncAntennaControl: MaybeSend + MaybeSync {
-    /// Return available antenna port names.
-    fn async_antennas(
-        &self,
-        direction: Direction,
-        channel: usize,
-    ) -> AsyncBoxFuture<'_, Result<Vec<String>, Error>>;
-    /// Return the selected antenna port name.
-    fn async_antenna(
-        &self,
-        direction: Direction,
-        channel: usize,
-    ) -> AsyncBoxFuture<'_, Result<String, Error>>;
-    /// Select an antenna port by name.
-    fn async_set_antenna<'a>(
-        &'a self,
-        direction: Direction,
-        channel: usize,
-        name: &'a str,
-    ) -> AsyncBoxFuture<'a, Result<(), Error>>;
-}
-
-/// Asynchronous automatic gain control capability.
-pub trait AsyncAgcControl: MaybeSend + MaybeSync {
-    /// Return whether automatic gain control is available.
-    fn async_agc_available(
-        &self,
-        direction: Direction,
-        channel: usize,
-    ) -> AsyncBoxFuture<'_, Result<bool, Error>>;
-    /// Return whether automatic gain control is enabled.
-    fn async_agc_enabled(
-        &self,
-        direction: Direction,
-        channel: usize,
-    ) -> AsyncBoxFuture<'_, Result<bool, Error>>;
-    /// Enable or disable automatic gain control.
-    fn async_set_agc_enabled(
-        &self,
-        direction: Direction,
-        channel: usize,
-        enabled: bool,
-    ) -> AsyncBoxFuture<'_, Result<(), Error>>;
-}
-
-/// Asynchronous gain control capability.
-pub trait AsyncGainControl: MaybeSend + MaybeSync {
-    /// Return named gain elements available for the channel.
-    fn async_gain_elements(
-        &self,
-        direction: Direction,
-        channel: usize,
-    ) -> AsyncBoxFuture<'_, Result<Vec<String>, Error>>;
-    /// Set overall channel gain in dB.
-    fn async_set_gain(
-        &self,
-        direction: Direction,
-        channel: usize,
-        gain: f64,
-    ) -> AsyncBoxFuture<'_, Result<(), Error>>;
-    /// Return overall channel gain in dB, if available.
-    fn async_gain(
-        &self,
-        direction: Direction,
-        channel: usize,
-    ) -> AsyncBoxFuture<'_, Result<Option<f64>, Error>>;
-    /// Return supported overall channel gain range in dB.
-    fn async_gain_range(
-        &self,
-        direction: Direction,
-        channel: usize,
-    ) -> AsyncBoxFuture<'_, Result<Range, Error>>;
-    /// Set a named gain element in dB.
-    fn async_set_gain_element<'a>(
-        &'a self,
-        direction: Direction,
-        channel: usize,
-        name: &'a str,
-        gain: f64,
-    ) -> AsyncBoxFuture<'a, Result<(), Error>>;
-    /// Return a named gain element in dB, if available.
-    fn async_gain_element<'a>(
-        &'a self,
-        direction: Direction,
-        channel: usize,
-        name: &'a str,
-    ) -> AsyncBoxFuture<'a, Result<Option<f64>, Error>>;
-    /// Return supported range in dB for a named gain element.
-    fn async_gain_element_range<'a>(
-        &'a self,
-        direction: Direction,
-        channel: usize,
-        name: &'a str,
-    ) -> AsyncBoxFuture<'a, Result<Range, Error>>;
-}
-
-/// Asynchronous frequency control capability.
-pub trait AsyncFrequencyControl: MaybeSend + MaybeSync {
-    /// Return supported overall tuning range in Hz.
-    fn async_frequency_range(
-        &self,
-        direction: Direction,
-        channel: usize,
-    ) -> AsyncBoxFuture<'_, Result<Range, Error>>;
-    /// Return current overall channel frequency in Hz.
-    fn async_frequency(
-        &self,
-        direction: Direction,
-        channel: usize,
-    ) -> AsyncBoxFuture<'_, Result<f64, Error>>;
-    /// Set overall channel frequency in Hz with optional driver arguments.
-    fn async_set_frequency(
-        &self,
-        direction: Direction,
-        channel: usize,
-        frequency: f64,
-        args: Args,
-    ) -> AsyncBoxFuture<'_, Result<(), Error>>;
-    /// Return named frequency components for the channel.
-    fn async_frequency_components(
-        &self,
-        direction: Direction,
-        channel: usize,
-    ) -> AsyncBoxFuture<'_, Result<Vec<String>, Error>>;
-    /// Return supported range in Hz for a named frequency component.
-    fn async_component_frequency_range<'a>(
-        &'a self,
-        direction: Direction,
-        channel: usize,
-        name: &'a str,
-    ) -> AsyncBoxFuture<'a, Result<Range, Error>>;
-    /// Return current frequency in Hz for a named frequency component.
-    fn async_component_frequency<'a>(
-        &'a self,
-        direction: Direction,
-        channel: usize,
-        name: &'a str,
-    ) -> AsyncBoxFuture<'a, Result<f64, Error>>;
-    /// Set frequency in Hz for a named frequency component.
-    fn async_set_component_frequency<'a>(
-        &'a self,
-        direction: Direction,
-        channel: usize,
-        name: &'a str,
-        frequency: f64,
-    ) -> AsyncBoxFuture<'a, Result<(), Error>>;
-}
-
-/// Asynchronous sample-rate control capability.
-pub trait AsyncSampleRateControl: MaybeSend + MaybeSync {
-    /// Return current sample rate in samples per second.
-    fn async_sample_rate(
-        &self,
-        direction: Direction,
-        channel: usize,
-    ) -> AsyncBoxFuture<'_, Result<f64, Error>>;
-    /// Set sample rate in samples per second.
-    fn async_set_sample_rate(
-        &self,
-        direction: Direction,
-        channel: usize,
-        rate: f64,
-    ) -> AsyncBoxFuture<'_, Result<(), Error>>;
-    /// Return supported sample-rate range in samples per second.
-    fn async_get_sample_rate_range(
-        &self,
-        direction: Direction,
-        channel: usize,
-    ) -> AsyncBoxFuture<'_, Result<Range, Error>>;
-}
-
-/// Asynchronous bandwidth control capability.
-pub trait AsyncBandwidthControl: MaybeSend + MaybeSync {
-    /// Return current channel bandwidth in Hz.
-    fn async_bandwidth(
-        &self,
-        direction: Direction,
-        channel: usize,
-    ) -> AsyncBoxFuture<'_, Result<f64, Error>>;
-    /// Set channel bandwidth in Hz.
-    fn async_set_bandwidth(
-        &self,
-        direction: Direction,
-        channel: usize,
-        bandwidth: f64,
-    ) -> AsyncBoxFuture<'_, Result<(), Error>>;
-    /// Return supported channel bandwidth range in Hz.
-    fn async_get_bandwidth_range(
-        &self,
-        direction: Direction,
-        channel: usize,
-    ) -> AsyncBoxFuture<'_, Result<Range, Error>>;
-}
-
-/// Asynchronous automatic DC offset correction capability.
-pub trait AsyncDcOffsetControl: MaybeSend + MaybeSync {
-    /// Return whether automatic DC offset correction is available.
-    fn async_dc_offset_available(
-        &self,
-        direction: Direction,
-        channel: usize,
-    ) -> AsyncBoxFuture<'_, Result<bool, Error>>;
-    /// Return whether automatic DC offset correction is enabled.
-    fn async_dc_offset_enabled(
-        &self,
-        direction: Direction,
-        channel: usize,
-    ) -> AsyncBoxFuture<'_, Result<bool, Error>>;
-    /// Enable or disable automatic DC offset correction.
-    fn async_set_dc_offset_enabled(
-        &self,
-        direction: Direction,
-        channel: usize,
-        enabled: bool,
-    ) -> AsyncBoxFuture<'_, Result<(), Error>>;
 }
 
 async fn async_device_capabilities<D>(dev: &D) -> Result<DeviceCapabilities, Error>
@@ -437,7 +1026,7 @@ where
     let Some(channel_info) = dev.async_channel_info() else {
         return Ok(Vec::new());
     };
-    let channels = match channel_info.async_num_channels(direction).await {
+    let channels = match channel_info.erased_async_num_channels(direction).await {
         Ok(channels) => channels,
         Err(e) if e.is_unsupported() => 0,
         Err(e) => return Err(e),
@@ -448,45 +1037,47 @@ where
         out.push(ChannelCapabilities {
             channel,
             full_duplex: optional_capability(
-                channel_info.async_full_duplex(direction, channel).await,
+                channel_info
+                    .erased_async_full_duplex(direction, channel)
+                    .await,
             )?,
             controls: ChannelControls {
                 antennas: optional_capability_async(dev.async_antenna_control(), |cap| {
-                    cap.async_antennas(direction, channel)
+                    cap.erased_async_antennas(direction, channel)
                 })
                 .await?,
                 agc: capability_available_async(dev.async_agc_control(), |cap| {
-                    cap.async_agc_available(direction, channel)
+                    cap.erased_async_agc_available(direction, channel)
                 })
                 .await?,
                 gain_elements: optional_capability_async(dev.async_gain_control(), |cap| {
-                    cap.async_gain_elements(direction, channel)
+                    cap.erased_async_gain_elements(direction, channel)
                 })
                 .await?,
                 gain_range: optional_capability_async(dev.async_gain_control(), |cap| {
-                    cap.async_gain_range(direction, channel)
+                    cap.erased_async_gain_range(direction, channel)
                 })
                 .await?,
                 frequency_components: optional_capability_async(
                     dev.async_frequency_control(),
-                    |cap| cap.async_frequency_components(direction, channel),
+                    |cap| cap.erased_async_frequency_components(direction, channel),
                 )
                 .await?,
                 frequency_range: optional_capability_async(dev.async_frequency_control(), |cap| {
-                    cap.async_frequency_range(direction, channel)
+                    cap.erased_async_frequency_range(direction, channel)
                 })
                 .await?,
                 sample_rate_range: optional_capability_async(
                     dev.async_sample_rate_control(),
-                    |cap| cap.async_get_sample_rate_range(direction, channel),
+                    |cap| cap.erased_async_get_sample_rate_range(direction, channel),
                 )
                 .await?,
                 bandwidth_range: optional_capability_async(dev.async_bandwidth_control(), |cap| {
-                    cap.async_get_bandwidth_range(direction, channel)
+                    cap.erased_async_get_bandwidth_range(direction, channel)
                 })
                 .await?,
                 dc_offset: capability_available_async(dev.async_dc_offset_control(), |cap| {
-                    cap.async_dc_offset_available(direction, channel)
+                    cap.erased_async_dc_offset_available(direction, channel)
                 })
                 .await?,
             },
@@ -506,7 +1097,7 @@ fn optional_capability<T>(result: Result<T, Error>) -> Result<Option<T>, Error> 
 
 async fn optional_capability_async<C: ?Sized, T>(
     cap: Option<&C>,
-    f: impl for<'a> FnOnce(&'a C) -> AsyncBoxFuture<'a, Result<T, Error>>,
+    f: impl for<'a> FnOnce(&'a C) -> BoxedFuture<'a, Result<T, Error>>,
 ) -> Result<Option<T>, Error> {
     match cap {
         Some(cap) => optional_capability(f(cap).await),
@@ -516,7 +1107,7 @@ async fn optional_capability_async<C: ?Sized, T>(
 
 async fn capability_available_async<C: ?Sized>(
     cap: Option<&C>,
-    f: impl for<'a> FnOnce(&'a C) -> AsyncBoxFuture<'a, Result<bool, Error>>,
+    f: impl for<'a> FnOnce(&'a C) -> BoxedFuture<'a, Result<bool, Error>>,
 ) -> Result<bool, Error> {
     match cap {
         Some(cap) => match f(cap).await {
@@ -589,17 +1180,20 @@ impl<'a, T: AsyncAntennaControl + ?Sized> AsyncAntenna<'a, T> {
     }
 
     /// Selectable antenna ports.
-    pub fn ports(&self) -> AsyncBoxFuture<'_, Result<Vec<String>, Error>> {
+    pub fn ports(&self) -> impl Future<Output = Result<Vec<String>, Error>> + MaybeSend + '_ {
         self.dev.async_antennas(self.direction, self.channel)
     }
 
     /// Currently selected antenna.
-    pub fn selected(&self) -> AsyncBoxFuture<'_, Result<String, Error>> {
+    pub fn selected(&self) -> impl Future<Output = Result<String, Error>> + MaybeSend + '_ {
         self.dev.async_antenna(self.direction, self.channel)
     }
 
     /// Select an antenna port.
-    pub fn select<'b>(&'b self, name: &'b str) -> AsyncBoxFuture<'b, Result<(), Error>> {
+    pub fn select<'b>(
+        &'b self,
+        name: &'b str,
+    ) -> impl Future<Output = Result<(), Error>> + MaybeSend + 'b {
         self.dev
             .async_set_antenna(self.direction, self.channel, name)
     }
@@ -634,35 +1228,36 @@ impl<'a, T: AsyncAgcControl + ?Sized> AsyncAgc<'a, T> {
     }
 
     /// Return whether automatic gain control is enabled.
-    pub fn enabled(&self) -> AsyncBoxFuture<'_, Result<bool, Error>> {
+    pub fn enabled(&self) -> impl Future<Output = Result<bool, Error>> + MaybeSend + '_ {
         async move {
             self.ensure_available().await?;
             self.dev
                 .async_agc_enabled(self.direction, self.channel)
                 .await
         }
-        .boxed_async()
     }
 
     /// Enable automatic gain control.
-    pub fn enable(&self) -> AsyncBoxFuture<'_, Result<(), Error>> {
+    pub fn enable(&self) -> impl Future<Output = Result<(), Error>> + MaybeSend + '_ {
         self.set_enabled(true)
     }
 
     /// Disable automatic gain control.
-    pub fn disable(&self) -> AsyncBoxFuture<'_, Result<(), Error>> {
+    pub fn disable(&self) -> impl Future<Output = Result<(), Error>> + MaybeSend + '_ {
         self.set_enabled(false)
     }
 
     /// Set whether automatic gain control is enabled.
-    pub fn set_enabled(&self, enabled: bool) -> AsyncBoxFuture<'_, Result<(), Error>> {
+    pub fn set_enabled(
+        &self,
+        enabled: bool,
+    ) -> impl Future<Output = Result<(), Error>> + MaybeSend + '_ {
         async move {
             self.ensure_available().await?;
             self.dev
                 .async_set_agc_enabled(self.direction, self.channel, enabled)
                 .await
         }
-        .boxed_async()
     }
 }
 
@@ -683,22 +1278,22 @@ impl<'a, T: AsyncGainControl + ?Sized> AsyncGain<'a, T> {
     }
 
     /// Named gain elements.
-    pub fn elements(&self) -> AsyncBoxFuture<'_, Result<Vec<String>, Error>> {
+    pub fn elements(&self) -> impl Future<Output = Result<Vec<String>, Error>> + MaybeSend + '_ {
         self.dev.async_gain_elements(self.direction, self.channel)
     }
 
     /// Overall gain.
-    pub fn value(&self) -> AsyncBoxFuture<'_, Result<Option<f64>, Error>> {
+    pub fn value(&self) -> impl Future<Output = Result<Option<f64>, Error>> + MaybeSend + '_ {
         self.dev.async_gain(self.direction, self.channel)
     }
 
     /// Set overall gain.
-    pub fn set(&self, gain: f64) -> AsyncBoxFuture<'_, Result<(), Error>> {
+    pub fn set(&self, gain: f64) -> impl Future<Output = Result<(), Error>> + MaybeSend + '_ {
         self.dev.async_set_gain(self.direction, self.channel, gain)
     }
 
     /// Overall gain range.
-    pub fn range(&self) -> AsyncBoxFuture<'_, Result<Range, Error>> {
+    pub fn range(&self) -> impl Future<Output = Result<Range, Error>> + MaybeSend + '_ {
         self.dev.async_gain_range(self.direction, self.channel)
     }
 
@@ -723,19 +1318,19 @@ pub struct AsyncGainElement<'a, T: AsyncGainControl + ?Sized> {
 
 impl<'a, T: AsyncGainControl + ?Sized> AsyncGainElement<'a, T> {
     /// Gain element value.
-    pub fn value(&self) -> AsyncBoxFuture<'_, Result<Option<f64>, Error>> {
+    pub fn value(&self) -> impl Future<Output = Result<Option<f64>, Error>> + MaybeSend + '_ {
         self.dev
             .async_gain_element(self.direction, self.channel, &self.name)
     }
 
     /// Set gain element value.
-    pub fn set(&self, gain: f64) -> AsyncBoxFuture<'_, Result<(), Error>> {
+    pub fn set(&self, gain: f64) -> impl Future<Output = Result<(), Error>> + MaybeSend + '_ {
         self.dev
             .async_set_gain_element(self.direction, self.channel, &self.name, gain)
     }
 
     /// Gain element range.
-    pub fn range(&self) -> AsyncBoxFuture<'_, Result<Range, Error>> {
+    pub fn range(&self) -> impl Future<Output = Result<Range, Error>> + MaybeSend + '_ {
         self.dev
             .async_gain_element_range(self.direction, self.channel, &self.name)
     }
@@ -758,12 +1353,12 @@ impl<'a, T: AsyncFrequencyControl + ?Sized> AsyncFrequency<'a, T> {
     }
 
     /// Overall frequency.
-    pub fn value(&self) -> AsyncBoxFuture<'_, Result<f64, Error>> {
+    pub fn value(&self) -> impl Future<Output = Result<f64, Error>> + MaybeSend + '_ {
         self.dev.async_frequency(self.direction, self.channel)
     }
 
     /// Set overall frequency.
-    pub fn set(&self, frequency: f64) -> AsyncBoxFuture<'_, Result<(), Error>> {
+    pub fn set(&self, frequency: f64) -> impl Future<Output = Result<(), Error>> + MaybeSend + '_ {
         self.set_with_args(frequency, Args::new())
     }
 
@@ -772,18 +1367,18 @@ impl<'a, T: AsyncFrequencyControl + ?Sized> AsyncFrequency<'a, T> {
         &self,
         frequency: f64,
         args: Args,
-    ) -> AsyncBoxFuture<'_, Result<(), Error>> {
+    ) -> impl Future<Output = Result<(), Error>> + MaybeSend + '_ {
         self.dev
             .async_set_frequency(self.direction, self.channel, frequency, args)
     }
 
     /// Overall frequency range.
-    pub fn range(&self) -> AsyncBoxFuture<'_, Result<Range, Error>> {
+    pub fn range(&self) -> impl Future<Output = Result<Range, Error>> + MaybeSend + '_ {
         self.dev.async_frequency_range(self.direction, self.channel)
     }
 
     /// Named frequency components.
-    pub fn components(&self) -> AsyncBoxFuture<'_, Result<Vec<String>, Error>> {
+    pub fn components(&self) -> impl Future<Output = Result<Vec<String>, Error>> + MaybeSend + '_ {
         self.dev
             .async_frequency_components(self.direction, self.channel)
     }
@@ -809,19 +1404,19 @@ pub struct AsyncFrequencyComponent<'a, T: AsyncFrequencyControl + ?Sized> {
 
 impl<'a, T: AsyncFrequencyControl + ?Sized> AsyncFrequencyComponent<'a, T> {
     /// Frequency component value.
-    pub fn value(&self) -> AsyncBoxFuture<'_, Result<f64, Error>> {
+    pub fn value(&self) -> impl Future<Output = Result<f64, Error>> + MaybeSend + '_ {
         self.dev
             .async_component_frequency(self.direction, self.channel, &self.name)
     }
 
     /// Set frequency component value.
-    pub fn set(&self, frequency: f64) -> AsyncBoxFuture<'_, Result<(), Error>> {
+    pub fn set(&self, frequency: f64) -> impl Future<Output = Result<(), Error>> + MaybeSend + '_ {
         self.dev
             .async_set_component_frequency(self.direction, self.channel, &self.name, frequency)
     }
 
     /// Frequency component range.
-    pub fn range(&self) -> AsyncBoxFuture<'_, Result<Range, Error>> {
+    pub fn range(&self) -> impl Future<Output = Result<Range, Error>> + MaybeSend + '_ {
         self.dev
             .async_component_frequency_range(self.direction, self.channel, &self.name)
     }
@@ -844,18 +1439,18 @@ impl<'a, T: AsyncSampleRateControl + ?Sized> AsyncSampleRate<'a, T> {
     }
 
     /// Sample rate.
-    pub fn value(&self) -> AsyncBoxFuture<'_, Result<f64, Error>> {
+    pub fn value(&self) -> impl Future<Output = Result<f64, Error>> + MaybeSend + '_ {
         self.dev.async_sample_rate(self.direction, self.channel)
     }
 
     /// Set sample rate.
-    pub fn set(&self, rate: f64) -> AsyncBoxFuture<'_, Result<(), Error>> {
+    pub fn set(&self, rate: f64) -> impl Future<Output = Result<(), Error>> + MaybeSend + '_ {
         self.dev
             .async_set_sample_rate(self.direction, self.channel, rate)
     }
 
     /// Sample-rate range.
-    pub fn range(&self) -> AsyncBoxFuture<'_, Result<Range, Error>> {
+    pub fn range(&self) -> impl Future<Output = Result<Range, Error>> + MaybeSend + '_ {
         self.dev
             .async_get_sample_rate_range(self.direction, self.channel)
     }
@@ -878,18 +1473,18 @@ impl<'a, T: AsyncBandwidthControl + ?Sized> AsyncBandwidth<'a, T> {
     }
 
     /// Bandwidth.
-    pub fn value(&self) -> AsyncBoxFuture<'_, Result<f64, Error>> {
+    pub fn value(&self) -> impl Future<Output = Result<f64, Error>> + MaybeSend + '_ {
         self.dev.async_bandwidth(self.direction, self.channel)
     }
 
     /// Set bandwidth.
-    pub fn set(&self, bandwidth: f64) -> AsyncBoxFuture<'_, Result<(), Error>> {
+    pub fn set(&self, bandwidth: f64) -> impl Future<Output = Result<(), Error>> + MaybeSend + '_ {
         self.dev
             .async_set_bandwidth(self.direction, self.channel, bandwidth)
     }
 
     /// Bandwidth range.
-    pub fn range(&self) -> AsyncBoxFuture<'_, Result<Range, Error>> {
+    pub fn range(&self) -> impl Future<Output = Result<Range, Error>> + MaybeSend + '_ {
         self.dev
             .async_get_bandwidth_range(self.direction, self.channel)
     }
@@ -924,35 +1519,36 @@ impl<'a, T: AsyncDcOffsetControl + ?Sized> AsyncDcOffset<'a, T> {
     }
 
     /// Return whether automatic DC offset correction is enabled.
-    pub fn enabled(&self) -> AsyncBoxFuture<'_, Result<bool, Error>> {
+    pub fn enabled(&self) -> impl Future<Output = Result<bool, Error>> + MaybeSend + '_ {
         async move {
             self.ensure_available().await?;
             self.dev
                 .async_dc_offset_enabled(self.direction, self.channel)
                 .await
         }
-        .boxed_async()
     }
 
     /// Enable automatic DC offset correction.
-    pub fn enable(&self) -> AsyncBoxFuture<'_, Result<(), Error>> {
+    pub fn enable(&self) -> impl Future<Output = Result<(), Error>> + MaybeSend + '_ {
         self.set_enabled(true)
     }
 
     /// Disable automatic DC offset correction.
-    pub fn disable(&self) -> AsyncBoxFuture<'_, Result<(), Error>> {
+    pub fn disable(&self) -> impl Future<Output = Result<(), Error>> + MaybeSend + '_ {
         self.set_enabled(false)
     }
 
     /// Set whether automatic DC offset correction is enabled.
-    pub fn set_enabled(&self, enabled: bool) -> AsyncBoxFuture<'_, Result<(), Error>> {
+    pub fn set_enabled(
+        &self,
+        enabled: bool,
+    ) -> impl Future<Output = Result<(), Error>> + MaybeSend + '_ {
         async move {
             self.ensure_available().await?;
             self.dev
                 .async_set_dc_offset_enabled(self.direction, self.channel, enabled)
                 .await
         }
-        .boxed_async()
     }
 }
 
@@ -989,7 +1585,7 @@ where
     T: AsyncTypedDeviceBackend,
 {
     /// Open a typed asynchronous device matching `args`.
-    pub fn from_args<A>(args: A) -> AsyncBoxFuture<'static, Result<Self, Error>>
+    pub fn from_args<A>(args: A) -> impl Future<Output = Result<Self, Error>> + MaybeSend + 'static
     where
         A: TryInto<Args> + MaybeSend + 'static,
     {
@@ -1009,7 +1605,6 @@ where
             }
             Ok(Self::from_impl(T::async_open(&args).await?))
         }
-        .boxed_async()
     }
 }
 
@@ -1030,30 +1625,29 @@ impl<T: AsyncDeviceInfo> AsyncDevice<T> {
     }
 
     /// Identifier for the device, e.g. its serial.
-    pub fn id(&self) -> AsyncBoxFuture<'_, Result<String, Error>> {
+    pub fn id(&self) -> impl Future<Output = Result<String, Error>> + MaybeSend + '_ {
         self.dev.async_id()
     }
 
     /// Device info that can be displayed to the user.
-    pub fn info(&self) -> AsyncBoxFuture<'_, Result<Args, Error>> {
+    pub fn info(&self) -> impl Future<Output = Result<Args, Error>> + MaybeSend + '_ {
         self.dev.async_info()
     }
 }
 
 impl AsyncDynDevice {
     /// Open the first discovered runtime-dispatched asynchronous device.
-    pub fn new() -> AsyncBoxFuture<'static, Result<Self, Error>> {
+    pub fn new() -> impl Future<Output = Result<Self, Error>> + MaybeSend + 'static {
         async {
             let registry = AsyncRegistry::default();
             let descriptors = registry.probe(Args::new()).await?;
             let descriptor = descriptors.first().ok_or(Error::DeviceNotFound)?;
             registry.open(descriptor).await
         }
-        .boxed_async()
     }
 
     /// Open a runtime-dispatched asynchronous device matching `args`.
-    pub fn from_args<A>(args: A) -> AsyncBoxFuture<'static, Result<Self, Error>>
+    pub fn from_args<A>(args: A) -> impl Future<Output = Result<Self, Error>> + MaybeSend + 'static
     where
         A: TryInto<Args> + MaybeSend + 'static,
     {
@@ -1061,7 +1655,6 @@ impl AsyncDynDevice {
             let registry = AsyncRegistry::default();
             registry.open_args(args).await
         }
-        .boxed_async()
     }
 
     /// Create a runtime-dispatched asynchronous device from an implementation.
@@ -1078,59 +1671,65 @@ impl AsyncDynDevice {
 
     /// Try to downcast to a concrete device implementation.
     pub fn downcast_ref<D: AsyncDeviceInfo + 'static>(&self) -> Option<&D> {
-        self.inner.as_any().downcast_ref::<D>()
+        self.inner.erased_as_any().downcast_ref::<D>()
     }
 
     /// Try to downcast mutably to a concrete device implementation.
     pub fn downcast_mut<D: AsyncDeviceInfo + 'static>(&mut self) -> Option<&mut D> {
         Shared::get_mut(&mut self.inner)?
-            .as_any_mut()
+            .erased_as_any_mut()
             .downcast_mut::<D>()
     }
 
     /// SDR driver.
     pub fn driver(&self) -> Driver {
-        self.inner.driver()
+        self.inner.erased_driver()
     }
 
     /// Identifier for the device, e.g. its serial.
-    pub fn id(&self) -> AsyncBoxFuture<'_, Result<String, Error>> {
-        self.inner.async_id()
+    pub fn id(&self) -> impl Future<Output = Result<String, Error>> + MaybeSend + '_ {
+        self.inner.erased_async_id()
     }
 
     /// Device info that can be displayed to the user.
-    pub fn info(&self) -> AsyncBoxFuture<'_, Result<Args, Error>> {
-        self.inner.async_info()
+    pub fn info(&self) -> impl Future<Output = Result<Args, Error>> + MaybeSend + '_ {
+        self.inner.erased_async_info()
     }
 
     /// Structured runtime capabilities for the device.
-    pub fn capabilities(&self) -> AsyncBoxFuture<'_, Result<DeviceCapabilities, Error>> {
+    pub fn capabilities(
+        &self,
+    ) -> impl Future<Output = Result<DeviceCapabilities, Error>> + MaybeSend + '_ {
         self.inner.async_capabilities()
     }
 
     /// RX channel handle.
-    pub fn rx(&self, index: usize) -> AsyncBoxFuture<'_, Result<AsyncRxChannel<'_, Self>, Error>> {
+    pub fn rx(
+        &self,
+        index: usize,
+    ) -> impl Future<Output = Result<AsyncRxChannel<'_, Self>, Error>> + MaybeSend + '_ {
         async move {
             async_ensure_channel(self, Direction::Rx, index).await?;
             Ok(AsyncRxChannel::new(self, index))
         }
-        .boxed_async()
     }
 
     /// TX channel handle.
-    pub fn tx(&self, index: usize) -> AsyncBoxFuture<'_, Result<AsyncTxChannel<'_, Self>, Error>> {
+    pub fn tx(
+        &self,
+        index: usize,
+    ) -> impl Future<Output = Result<AsyncTxChannel<'_, Self>, Error>> + MaybeSend + '_ {
         async move {
             async_ensure_channel(self, Direction::Tx, index).await?;
             Ok(AsyncTxChannel::new(self, index))
         }
-        .boxed_async()
     }
 
     /// Create an RX streamer.
     pub fn rx_streamer<'a>(
         &'a self,
         channels: &'a [usize],
-    ) -> AsyncBoxFuture<'a, Result<DynAsyncRxStreamer, Error>> {
+    ) -> impl Future<Output = Result<DynAsyncRxStreamer, Error>> + MaybeSend + 'a {
         self.rx_streamer_with_args(channels, Args::new())
     }
 
@@ -1139,7 +1738,7 @@ impl AsyncDynDevice {
         &'a self,
         channels: &'a [usize],
         args: A,
-    ) -> AsyncBoxFuture<'a, Result<DynAsyncRxStreamer, Error>>
+    ) -> impl Future<Output = Result<DynAsyncRxStreamer, Error>> + MaybeSend + 'a
     where
         A: TryInto<Args> + MaybeSend + 'a,
     {
@@ -1155,14 +1754,13 @@ impl AsyncDynDevice {
             )
             .await
         }
-        .boxed_async()
     }
 
     /// Create a TX streamer.
     pub fn tx_streamer<'a>(
         &'a self,
         channels: &'a [usize],
-    ) -> AsyncBoxFuture<'a, Result<DynAsyncTxStreamer, Error>> {
+    ) -> impl Future<Output = Result<DynAsyncTxStreamer, Error>> + MaybeSend + 'a {
         self.tx_streamer_with_args(channels, Args::new())
     }
 
@@ -1171,7 +1769,7 @@ impl AsyncDynDevice {
         &'a self,
         channels: &'a [usize],
         args: A,
-    ) -> AsyncBoxFuture<'a, Result<DynAsyncTxStreamer, Error>>
+    ) -> impl Future<Output = Result<DynAsyncTxStreamer, Error>> + MaybeSend + 'a
     where
         A: TryInto<Args> + MaybeSend + 'a,
     {
@@ -1187,7 +1785,6 @@ impl AsyncDynDevice {
             )
             .await
         }
-        .boxed_async()
     }
 }
 
@@ -1201,43 +1798,44 @@ impl AsyncDeviceInfo for AsyncDynDevice {
     }
 
     fn driver(&self) -> Driver {
-        self.inner.driver()
+        self.inner.erased_driver()
     }
 
-    fn async_id(&self) -> AsyncBoxFuture<'_, Result<String, Error>> {
-        self.inner.async_id()
+    fn async_id(&self) -> impl Future<Output = Result<String, Error>> + MaybeSend + '_ {
+        self.inner.erased_async_id()
     }
 
-    fn async_info(&self) -> AsyncBoxFuture<'_, Result<Args, Error>> {
-        self.inner.async_info()
+    fn async_info(&self) -> impl Future<Output = Result<Args, Error>> + MaybeSend + '_ {
+        self.inner.erased_async_info()
     }
 }
 
 impl AsyncChannelInfo for AsyncDynDevice {
-    fn async_num_channels(&self, direction: Direction) -> AsyncBoxFuture<'_, Result<usize, Error>> {
+    fn async_num_channels(
+        &self,
+        direction: Direction,
+    ) -> impl Future<Output = Result<usize, Error>> + MaybeSend + '_ {
         async move {
             self.inner
                 .async_channel_info()
                 .ok_or_else(|| Error::unsupported(Capability::ChannelInfo))?
-                .async_num_channels(direction)
+                .erased_async_num_channels(direction)
                 .await
         }
-        .boxed_async()
     }
 
     fn async_full_duplex(
         &self,
         direction: Direction,
         channel: usize,
-    ) -> AsyncBoxFuture<'_, Result<bool, Error>> {
+    ) -> impl Future<Output = Result<bool, Error>> + MaybeSend + '_ {
         async move {
             self.inner
                 .async_channel_info()
                 .ok_or_else(|| Error::unsupported(Capability::ChannelInfo))?
-                .async_full_duplex(direction, channel)
+                .erased_async_full_duplex(direction, channel)
                 .await
         }
-        .boxed_async()
     }
 }
 
@@ -1248,15 +1846,14 @@ impl AsyncRxDevice for AsyncDynDevice {
         &'a self,
         channels: &'a [usize],
         args: Args,
-    ) -> AsyncBoxFuture<'a, Result<Self::RxStreamer, Error>> {
+    ) -> impl Future<Output = Result<Self::RxStreamer, Error>> + MaybeSend + 'a {
         async move {
             self.inner
                 .async_rx_device()
                 .ok_or_else(|| Error::unsupported(Capability::RxStreaming))?
-                .async_rx_streamer(channels, args)
+                .erased_async_rx_streamer(channels, args)
                 .await
         }
-        .boxed_async()
     }
 }
 
@@ -1267,15 +1864,14 @@ impl AsyncTxDevice for AsyncDynDevice {
         &'a self,
         channels: &'a [usize],
         args: Args,
-    ) -> AsyncBoxFuture<'a, Result<Self::TxStreamer, Error>> {
+    ) -> impl Future<Output = Result<Self::TxStreamer, Error>> + MaybeSend + 'a {
         async move {
             self.inner
                 .async_tx_device()
                 .ok_or_else(|| Error::unsupported(Capability::TxStreaming))?
-                .async_tx_streamer(channels, args)
+                .erased_async_tx_streamer(channels, args)
                 .await
         }
-        .boxed_async()
     }
 }
 
@@ -1295,44 +1891,41 @@ impl_dyn_control!(
         &self,
         direction: Direction,
         channel: usize,
-    ) -> AsyncBoxFuture<'_, Result<Vec<String>, Error>> {
+    ) -> impl Future<Output = Result<Vec<String>, Error>> + MaybeSend + '_ {
         async move {
             self.inner
                 .async_antenna_control()
                 .ok_or_else(|| Error::unsupported(Capability::Antenna))?
-                .async_antennas(direction, channel)
+                .erased_async_antennas(direction, channel)
                 .await
         }
-        .boxed_async()
     },
     fn async_antenna(
         &self,
         direction: Direction,
         channel: usize,
-    ) -> AsyncBoxFuture<'_, Result<String, Error>> {
+    ) -> impl Future<Output = Result<String, Error>> + MaybeSend + '_ {
         async move {
             self.inner
                 .async_antenna_control()
                 .ok_or_else(|| Error::unsupported(Capability::Antenna))?
-                .async_antenna(direction, channel)
+                .erased_async_antenna(direction, channel)
                 .await
         }
-        .boxed_async()
     },
     fn async_set_antenna<'a>(
         &'a self,
         direction: Direction,
         channel: usize,
         name: &'a str,
-    ) -> AsyncBoxFuture<'a, Result<(), Error>> {
+    ) -> impl Future<Output = Result<(), Error>> + MaybeSend + 'a {
         async move {
             self.inner
                 .async_antenna_control()
                 .ok_or_else(|| Error::unsupported(Capability::Antenna))?
-                .async_set_antenna(direction, channel, name)
+                .erased_async_set_antenna(direction, channel, name)
                 .await
         }
-        .boxed_async()
     }
 );
 
@@ -1341,30 +1934,28 @@ impl AsyncAgcControl for AsyncDynDevice {
         &self,
         direction: Direction,
         channel: usize,
-    ) -> AsyncBoxFuture<'_, Result<bool, Error>> {
+    ) -> impl Future<Output = Result<bool, Error>> + MaybeSend + '_ {
         async move {
             self.inner
                 .async_agc_control()
                 .ok_or_else(|| Error::unsupported(Capability::Agc))?
-                .async_agc_available(direction, channel)
+                .erased_async_agc_available(direction, channel)
                 .await
         }
-        .boxed_async()
     }
 
     fn async_agc_enabled(
         &self,
         direction: Direction,
         channel: usize,
-    ) -> AsyncBoxFuture<'_, Result<bool, Error>> {
+    ) -> impl Future<Output = Result<bool, Error>> + MaybeSend + '_ {
         async move {
             self.inner
                 .async_agc_control()
                 .ok_or_else(|| Error::unsupported(Capability::Agc))?
-                .async_agc_enabled(direction, channel)
+                .erased_async_agc_enabled(direction, channel)
                 .await
         }
-        .boxed_async()
     }
 
     fn async_set_agc_enabled(
@@ -1372,15 +1963,14 @@ impl AsyncAgcControl for AsyncDynDevice {
         direction: Direction,
         channel: usize,
         enabled: bool,
-    ) -> AsyncBoxFuture<'_, Result<(), Error>> {
+    ) -> impl Future<Output = Result<(), Error>> + MaybeSend + '_ {
         async move {
             self.inner
                 .async_agc_control()
                 .ok_or_else(|| Error::unsupported(Capability::Agc))?
-                .async_set_agc_enabled(direction, channel, enabled)
+                .erased_async_set_agc_enabled(direction, channel, enabled)
                 .await
         }
-        .boxed_async()
     }
 }
 
@@ -1389,58 +1979,54 @@ impl AsyncGainControl for AsyncDynDevice {
         &self,
         direction: Direction,
         channel: usize,
-    ) -> AsyncBoxFuture<'_, Result<Vec<String>, Error>> {
+    ) -> impl Future<Output = Result<Vec<String>, Error>> + MaybeSend + '_ {
         async move {
             self.inner
                 .async_gain_control()
                 .ok_or_else(|| Error::unsupported(Capability::Gain))?
-                .async_gain_elements(direction, channel)
+                .erased_async_gain_elements(direction, channel)
                 .await
         }
-        .boxed_async()
     }
     fn async_set_gain(
         &self,
         direction: Direction,
         channel: usize,
         gain: f64,
-    ) -> AsyncBoxFuture<'_, Result<(), Error>> {
+    ) -> impl Future<Output = Result<(), Error>> + MaybeSend + '_ {
         async move {
             self.inner
                 .async_gain_control()
                 .ok_or_else(|| Error::unsupported(Capability::Gain))?
-                .async_set_gain(direction, channel, gain)
+                .erased_async_set_gain(direction, channel, gain)
                 .await
         }
-        .boxed_async()
     }
     fn async_gain(
         &self,
         direction: Direction,
         channel: usize,
-    ) -> AsyncBoxFuture<'_, Result<Option<f64>, Error>> {
+    ) -> impl Future<Output = Result<Option<f64>, Error>> + MaybeSend + '_ {
         async move {
             self.inner
                 .async_gain_control()
                 .ok_or_else(|| Error::unsupported(Capability::Gain))?
-                .async_gain(direction, channel)
+                .erased_async_gain(direction, channel)
                 .await
         }
-        .boxed_async()
     }
     fn async_gain_range(
         &self,
         direction: Direction,
         channel: usize,
-    ) -> AsyncBoxFuture<'_, Result<Range, Error>> {
+    ) -> impl Future<Output = Result<Range, Error>> + MaybeSend + '_ {
         async move {
             self.inner
                 .async_gain_control()
                 .ok_or_else(|| Error::unsupported(Capability::Gain))?
-                .async_gain_range(direction, channel)
+                .erased_async_gain_range(direction, channel)
                 .await
         }
-        .boxed_async()
     }
     fn async_set_gain_element<'a>(
         &'a self,
@@ -1448,45 +2034,42 @@ impl AsyncGainControl for AsyncDynDevice {
         channel: usize,
         name: &'a str,
         gain: f64,
-    ) -> AsyncBoxFuture<'a, Result<(), Error>> {
+    ) -> impl Future<Output = Result<(), Error>> + MaybeSend + 'a {
         async move {
             self.inner
                 .async_gain_control()
                 .ok_or_else(|| Error::unsupported(Capability::Gain))?
-                .async_set_gain_element(direction, channel, name, gain)
+                .erased_async_set_gain_element(direction, channel, name, gain)
                 .await
         }
-        .boxed_async()
     }
     fn async_gain_element<'a>(
         &'a self,
         direction: Direction,
         channel: usize,
         name: &'a str,
-    ) -> AsyncBoxFuture<'a, Result<Option<f64>, Error>> {
+    ) -> impl Future<Output = Result<Option<f64>, Error>> + MaybeSend + 'a {
         async move {
             self.inner
                 .async_gain_control()
                 .ok_or_else(|| Error::unsupported(Capability::Gain))?
-                .async_gain_element(direction, channel, name)
+                .erased_async_gain_element(direction, channel, name)
                 .await
         }
-        .boxed_async()
     }
     fn async_gain_element_range<'a>(
         &'a self,
         direction: Direction,
         channel: usize,
         name: &'a str,
-    ) -> AsyncBoxFuture<'a, Result<Range, Error>> {
+    ) -> impl Future<Output = Result<Range, Error>> + MaybeSend + 'a {
         async move {
             self.inner
                 .async_gain_control()
                 .ok_or_else(|| Error::unsupported(Capability::Gain))?
-                .async_gain_element_range(direction, channel, name)
+                .erased_async_gain_element_range(direction, channel, name)
                 .await
         }
-        .boxed_async()
     }
 }
 
@@ -1495,29 +2078,27 @@ impl AsyncFrequencyControl for AsyncDynDevice {
         &self,
         direction: Direction,
         channel: usize,
-    ) -> AsyncBoxFuture<'_, Result<Range, Error>> {
+    ) -> impl Future<Output = Result<Range, Error>> + MaybeSend + '_ {
         async move {
             self.inner
                 .async_frequency_control()
                 .ok_or_else(|| Error::unsupported(Capability::Frequency))?
-                .async_frequency_range(direction, channel)
+                .erased_async_frequency_range(direction, channel)
                 .await
         }
-        .boxed_async()
     }
     fn async_frequency(
         &self,
         direction: Direction,
         channel: usize,
-    ) -> AsyncBoxFuture<'_, Result<f64, Error>> {
+    ) -> impl Future<Output = Result<f64, Error>> + MaybeSend + '_ {
         async move {
             self.inner
                 .async_frequency_control()
                 .ok_or_else(|| Error::unsupported(Capability::Frequency))?
-                .async_frequency(direction, channel)
+                .erased_async_frequency(direction, channel)
                 .await
         }
-        .boxed_async()
     }
     fn async_set_frequency(
         &self,
@@ -1525,59 +2106,55 @@ impl AsyncFrequencyControl for AsyncDynDevice {
         channel: usize,
         frequency: f64,
         args: Args,
-    ) -> AsyncBoxFuture<'_, Result<(), Error>> {
+    ) -> impl Future<Output = Result<(), Error>> + MaybeSend + '_ {
         async move {
             self.inner
                 .async_frequency_control()
                 .ok_or_else(|| Error::unsupported(Capability::Frequency))?
-                .async_set_frequency(direction, channel, frequency, args)
+                .erased_async_set_frequency(direction, channel, frequency, args)
                 .await
         }
-        .boxed_async()
     }
     fn async_frequency_components(
         &self,
         direction: Direction,
         channel: usize,
-    ) -> AsyncBoxFuture<'_, Result<Vec<String>, Error>> {
+    ) -> impl Future<Output = Result<Vec<String>, Error>> + MaybeSend + '_ {
         async move {
             self.inner
                 .async_frequency_control()
                 .ok_or_else(|| Error::unsupported(Capability::Frequency))?
-                .async_frequency_components(direction, channel)
+                .erased_async_frequency_components(direction, channel)
                 .await
         }
-        .boxed_async()
     }
     fn async_component_frequency_range<'a>(
         &'a self,
         direction: Direction,
         channel: usize,
         name: &'a str,
-    ) -> AsyncBoxFuture<'a, Result<Range, Error>> {
+    ) -> impl Future<Output = Result<Range, Error>> + MaybeSend + 'a {
         async move {
             self.inner
                 .async_frequency_control()
                 .ok_or_else(|| Error::unsupported(Capability::Frequency))?
-                .async_component_frequency_range(direction, channel, name)
+                .erased_async_component_frequency_range(direction, channel, name)
                 .await
         }
-        .boxed_async()
     }
     fn async_component_frequency<'a>(
         &'a self,
         direction: Direction,
         channel: usize,
         name: &'a str,
-    ) -> AsyncBoxFuture<'a, Result<f64, Error>> {
+    ) -> impl Future<Output = Result<f64, Error>> + MaybeSend + 'a {
         async move {
             self.inner
                 .async_frequency_control()
                 .ok_or_else(|| Error::unsupported(Capability::Frequency))?
-                .async_component_frequency(direction, channel, name)
+                .erased_async_component_frequency(direction, channel, name)
                 .await
         }
-        .boxed_async()
     }
     fn async_set_component_frequency<'a>(
         &'a self,
@@ -1585,15 +2162,14 @@ impl AsyncFrequencyControl for AsyncDynDevice {
         channel: usize,
         name: &'a str,
         frequency: f64,
-    ) -> AsyncBoxFuture<'a, Result<(), Error>> {
+    ) -> impl Future<Output = Result<(), Error>> + MaybeSend + 'a {
         async move {
             self.inner
                 .async_frequency_control()
                 .ok_or_else(|| Error::unsupported(Capability::Frequency))?
-                .async_set_component_frequency(direction, channel, name, frequency)
+                .erased_async_set_component_frequency(direction, channel, name, frequency)
                 .await
         }
-        .boxed_async()
     }
 }
 
@@ -1602,44 +2178,41 @@ impl AsyncSampleRateControl for AsyncDynDevice {
         &self,
         direction: Direction,
         channel: usize,
-    ) -> AsyncBoxFuture<'_, Result<f64, Error>> {
+    ) -> impl Future<Output = Result<f64, Error>> + MaybeSend + '_ {
         async move {
             self.inner
                 .async_sample_rate_control()
                 .ok_or_else(|| Error::unsupported(Capability::SampleRate))?
-                .async_sample_rate(direction, channel)
+                .erased_async_sample_rate(direction, channel)
                 .await
         }
-        .boxed_async()
     }
     fn async_set_sample_rate(
         &self,
         direction: Direction,
         channel: usize,
         rate: f64,
-    ) -> AsyncBoxFuture<'_, Result<(), Error>> {
+    ) -> impl Future<Output = Result<(), Error>> + MaybeSend + '_ {
         async move {
             self.inner
                 .async_sample_rate_control()
                 .ok_or_else(|| Error::unsupported(Capability::SampleRate))?
-                .async_set_sample_rate(direction, channel, rate)
+                .erased_async_set_sample_rate(direction, channel, rate)
                 .await
         }
-        .boxed_async()
     }
     fn async_get_sample_rate_range(
         &self,
         direction: Direction,
         channel: usize,
-    ) -> AsyncBoxFuture<'_, Result<Range, Error>> {
+    ) -> impl Future<Output = Result<Range, Error>> + MaybeSend + '_ {
         async move {
             self.inner
                 .async_sample_rate_control()
                 .ok_or_else(|| Error::unsupported(Capability::SampleRate))?
-                .async_get_sample_rate_range(direction, channel)
+                .erased_async_get_sample_rate_range(direction, channel)
                 .await
         }
-        .boxed_async()
     }
 }
 
@@ -1648,44 +2221,41 @@ impl AsyncBandwidthControl for AsyncDynDevice {
         &self,
         direction: Direction,
         channel: usize,
-    ) -> AsyncBoxFuture<'_, Result<f64, Error>> {
+    ) -> impl Future<Output = Result<f64, Error>> + MaybeSend + '_ {
         async move {
             self.inner
                 .async_bandwidth_control()
                 .ok_or_else(|| Error::unsupported(Capability::Bandwidth))?
-                .async_bandwidth(direction, channel)
+                .erased_async_bandwidth(direction, channel)
                 .await
         }
-        .boxed_async()
     }
     fn async_set_bandwidth(
         &self,
         direction: Direction,
         channel: usize,
         bandwidth: f64,
-    ) -> AsyncBoxFuture<'_, Result<(), Error>> {
+    ) -> impl Future<Output = Result<(), Error>> + MaybeSend + '_ {
         async move {
             self.inner
                 .async_bandwidth_control()
                 .ok_or_else(|| Error::unsupported(Capability::Bandwidth))?
-                .async_set_bandwidth(direction, channel, bandwidth)
+                .erased_async_set_bandwidth(direction, channel, bandwidth)
                 .await
         }
-        .boxed_async()
     }
     fn async_get_bandwidth_range(
         &self,
         direction: Direction,
         channel: usize,
-    ) -> AsyncBoxFuture<'_, Result<Range, Error>> {
+    ) -> impl Future<Output = Result<Range, Error>> + MaybeSend + '_ {
         async move {
             self.inner
                 .async_bandwidth_control()
                 .ok_or_else(|| Error::unsupported(Capability::Bandwidth))?
-                .async_get_bandwidth_range(direction, channel)
+                .erased_async_get_bandwidth_range(direction, channel)
                 .await
         }
-        .boxed_async()
     }
 }
 
@@ -1694,64 +2264,65 @@ impl AsyncDcOffsetControl for AsyncDynDevice {
         &self,
         direction: Direction,
         channel: usize,
-    ) -> AsyncBoxFuture<'_, Result<bool, Error>> {
+    ) -> impl Future<Output = Result<bool, Error>> + MaybeSend + '_ {
         async move {
             self.inner
                 .async_dc_offset_control()
                 .ok_or_else(|| Error::unsupported(Capability::DcOffset))?
-                .async_dc_offset_available(direction, channel)
+                .erased_async_dc_offset_available(direction, channel)
                 .await
         }
-        .boxed_async()
     }
     fn async_dc_offset_enabled(
         &self,
         direction: Direction,
         channel: usize,
-    ) -> AsyncBoxFuture<'_, Result<bool, Error>> {
+    ) -> impl Future<Output = Result<bool, Error>> + MaybeSend + '_ {
         async move {
             self.inner
                 .async_dc_offset_control()
                 .ok_or_else(|| Error::unsupported(Capability::DcOffset))?
-                .async_dc_offset_enabled(direction, channel)
+                .erased_async_dc_offset_enabled(direction, channel)
                 .await
         }
-        .boxed_async()
     }
     fn async_set_dc_offset_enabled(
         &self,
         direction: Direction,
         channel: usize,
         enabled: bool,
-    ) -> AsyncBoxFuture<'_, Result<(), Error>> {
+    ) -> impl Future<Output = Result<(), Error>> + MaybeSend + '_ {
         async move {
             self.inner
                 .async_dc_offset_control()
                 .ok_or_else(|| Error::unsupported(Capability::DcOffset))?
-                .async_set_dc_offset_enabled(direction, channel, enabled)
+                .erased_async_set_dc_offset_enabled(direction, channel, enabled)
                 .await
         }
-        .boxed_async()
     }
 }
 
 impl<T: AsyncChannelInfo> AsyncDevice<T> {
     /// RX channel handle.
-    pub fn rx(&self, index: usize) -> AsyncBoxFuture<'_, Result<AsyncRxChannel<'_, T>, Error>> {
+    pub fn rx(
+        &self,
+        index: usize,
+    ) -> impl Future<Output = Result<AsyncRxChannel<'_, T>, Error>> + MaybeSend + '_ {
         async move {
             async_ensure_channel(&self.dev, Direction::Rx, index).await?;
             Ok(AsyncRxChannel::new(&self.dev, index))
         }
-        .boxed_async()
     }
 
     /// TX channel handle.
-    pub fn tx(&self, index: usize) -> AsyncBoxFuture<'_, Result<AsyncTxChannel<'_, T>, Error>> {
+    pub fn tx(
+        &self,
+        index: usize,
+    ) -> impl Future<Output = Result<AsyncTxChannel<'_, T>, Error>> + MaybeSend + '_ {
         async move {
             async_ensure_channel(&self.dev, Direction::Tx, index).await?;
             Ok(AsyncTxChannel::new(&self.dev, index))
         }
-        .boxed_async()
     }
 }
 
@@ -1772,7 +2343,7 @@ impl<T: AsyncRxDevice + AsyncChannelInfo> AsyncDevice<T> {
     pub fn rx_streamer<'a>(
         &'a self,
         channels: &'a [usize],
-    ) -> AsyncBoxFuture<'a, Result<T::RxStreamer, Error>> {
+    ) -> impl Future<Output = Result<T::RxStreamer, Error>> + MaybeSend + 'a {
         self.rx_streamer_with_args(channels, Args::new())
     }
 
@@ -1781,14 +2352,13 @@ impl<T: AsyncRxDevice + AsyncChannelInfo> AsyncDevice<T> {
         &'a self,
         channels: &'a [usize],
         args: Args,
-    ) -> AsyncBoxFuture<'a, Result<T::RxStreamer, Error>> {
+    ) -> impl Future<Output = Result<T::RxStreamer, Error>> + MaybeSend + 'a {
         async move {
             for channel in channels {
                 async_ensure_channel(&self.dev, Direction::Rx, *channel).await?;
             }
             self.dev.async_rx_streamer(channels, args).await
         }
-        .boxed_async()
     }
 }
 
@@ -1797,7 +2367,7 @@ impl<T: AsyncTxDevice + AsyncChannelInfo> AsyncDevice<T> {
     pub fn tx_streamer<'a>(
         &'a self,
         channels: &'a [usize],
-    ) -> AsyncBoxFuture<'a, Result<T::TxStreamer, Error>> {
+    ) -> impl Future<Output = Result<T::TxStreamer, Error>> + MaybeSend + 'a {
         self.tx_streamer_with_args(channels, Args::new())
     }
 
@@ -1806,20 +2376,19 @@ impl<T: AsyncTxDevice + AsyncChannelInfo> AsyncDevice<T> {
         &'a self,
         channels: &'a [usize],
         args: Args,
-    ) -> AsyncBoxFuture<'a, Result<T::TxStreamer, Error>> {
+    ) -> impl Future<Output = Result<T::TxStreamer, Error>> + MaybeSend + 'a {
         async move {
             for channel in channels {
                 async_ensure_channel(&self.dev, Direction::Tx, *channel).await?;
             }
             self.dev.async_tx_streamer(channels, args).await
         }
-        .boxed_async()
     }
 }
 
 impl<'a, T: AsyncRxDevice + ?Sized> AsyncRxChannel<'a, T> {
     /// Create a single-channel RX streamer.
-    pub fn streamer(&self) -> AsyncBoxFuture<'_, Result<T::RxStreamer, Error>> {
+    pub fn streamer(&self) -> impl Future<Output = Result<T::RxStreamer, Error>> + MaybeSend + '_ {
         self.streamer_with_args(Args::new())
     }
 
@@ -1827,18 +2396,17 @@ impl<'a, T: AsyncRxDevice + ?Sized> AsyncRxChannel<'a, T> {
     pub fn streamer_with_args(
         &self,
         args: Args,
-    ) -> AsyncBoxFuture<'_, Result<T::RxStreamer, Error>> {
+    ) -> impl Future<Output = Result<T::RxStreamer, Error>> + MaybeSend + '_ {
         async move {
             let channels = [self.channel];
             self.dev.async_rx_streamer(&channels, args).await
         }
-        .boxed_async()
     }
 }
 
 impl<'a, T: AsyncTxDevice + ?Sized> AsyncTxChannel<'a, T> {
     /// Create a single-channel TX streamer.
-    pub fn streamer(&self) -> AsyncBoxFuture<'_, Result<T::TxStreamer, Error>> {
+    pub fn streamer(&self) -> impl Future<Output = Result<T::TxStreamer, Error>> + MaybeSend + '_ {
         self.streamer_with_args(Args::new())
     }
 
@@ -1846,25 +2414,24 @@ impl<'a, T: AsyncTxDevice + ?Sized> AsyncTxChannel<'a, T> {
     pub fn streamer_with_args(
         &self,
         args: Args,
-    ) -> AsyncBoxFuture<'_, Result<T::TxStreamer, Error>> {
+    ) -> impl Future<Output = Result<T::TxStreamer, Error>> + MaybeSend + '_ {
         async move {
             let channels = [self.channel];
             self.dev.async_tx_streamer(&channels, args).await
         }
-        .boxed_async()
     }
 }
 
 impl<'a, T: AsyncChannelInfo + ?Sized> AsyncRxChannel<'a, T> {
     /// Full-duplex support for this RX channel.
-    pub fn full_duplex(&self) -> AsyncBoxFuture<'_, Result<bool, Error>> {
+    pub fn full_duplex(&self) -> impl Future<Output = Result<bool, Error>> + MaybeSend + '_ {
         self.dev.async_full_duplex(Direction::Rx, self.channel)
     }
 }
 
 impl<'a, T: AsyncChannelInfo + ?Sized> AsyncTxChannel<'a, T> {
     /// Full-duplex support for this TX channel.
-    pub fn full_duplex(&self) -> AsyncBoxFuture<'_, Result<bool, Error>> {
+    pub fn full_duplex(&self) -> impl Future<Output = Result<bool, Error>> + MaybeSend + '_ {
         self.dev.async_full_duplex(Direction::Tx, self.channel)
     }
 }
@@ -1930,15 +2497,13 @@ pub trait AsyncDriverBackend: MaybeSend + MaybeSync {
     /// Driver handled by this backend.
     fn driver(&self) -> Driver;
     /// Probe devices matching `args`.
-    fn probe<'a>(
-        &'a self,
-        args: &'a Args,
-    ) -> AsyncBoxFuture<'a, Result<Vec<DeviceDescriptor>, Error>>;
+    fn probe<'a>(&'a self, args: &'a Args)
+        -> BoxedFuture<'a, Result<Vec<DeviceDescriptor>, Error>>;
     /// Open a previously discovered device descriptor.
     fn open<'a>(
         &'a self,
         descriptor: &'a DeviceDescriptor,
-    ) -> AsyncBoxFuture<'a, Result<AsyncDynDevice, Error>>;
+    ) -> BoxedFuture<'a, Result<AsyncDynDevice, Error>>;
 }
 
 /// Typed asynchronous driver implementation that can be opened directly.
@@ -1946,9 +2511,12 @@ pub trait AsyncTypedDeviceBackend: AsyncDynDeviceBackend + Sized + 'static {
     /// Driver implemented by this backend.
     fn driver() -> Driver;
     /// Probe devices matching `args`.
-    fn async_probe(args: &Args) -> AsyncBoxFuture<'_, Result<Vec<Args>, Error>>;
+    fn async_probe<'a>(
+        args: &'a Args,
+    ) -> impl Future<Output = Result<Vec<Args>, Error>> + MaybeSend + 'a;
     /// Open a typed device matching `args`.
-    fn async_open(args: &Args) -> AsyncBoxFuture<'_, Result<Self, Error>>;
+    fn async_open<'a>(args: &'a Args)
+        -> impl Future<Output = Result<Self, Error>> + MaybeSend + 'a;
 }
 
 /// Registry of asynchronous driver discovery/opening backends.
@@ -1977,7 +2545,7 @@ impl AsyncRegistry {
     pub fn probe<'a, A>(
         &'a self,
         args: A,
-    ) -> AsyncBoxFuture<'a, Result<Vec<DeviceDescriptor>, Error>>
+    ) -> impl Future<Output = Result<Vec<DeviceDescriptor>, Error>> + MaybeSend + 'a
     where
         A: TryInto<Args> + MaybeSend + 'a,
     {
@@ -2010,14 +2578,13 @@ impl AsyncRegistry {
 
             Ok(descriptors)
         }
-        .boxed_async()
     }
 
     /// Open a discovered device descriptor.
     pub fn open<'a>(
         &'a self,
         descriptor: &'a DeviceDescriptor,
-    ) -> AsyncBoxFuture<'a, Result<AsyncDynDevice, Error>> {
+    ) -> impl Future<Output = Result<AsyncDynDevice, Error>> + MaybeSend + 'a {
         async move {
             let driver = descriptor.driver();
             let mut matched_backend = false;
@@ -2046,11 +2613,13 @@ impl AsyncRegistry {
 
             Err(Error::DeviceNotFound)
         }
-        .boxed_async()
     }
 
     /// Open the first asynchronous device matching `args`.
-    pub fn open_args<'a, A>(&'a self, args: A) -> AsyncBoxFuture<'a, Result<AsyncDynDevice, Error>>
+    pub fn open_args<'a, A>(
+        &'a self,
+        args: A,
+    ) -> impl Future<Output = Result<AsyncDynDevice, Error>> + MaybeSend + 'a
     where
         A: TryInto<Args> + MaybeSend + 'a,
     {
@@ -2076,7 +2645,6 @@ impl AsyncRegistry {
 
             Err(Error::DeviceNotFound)
         }
-        .boxed_async()
     }
 }
 
@@ -2143,17 +2711,17 @@ mod wasm_non_send_compile_check {
             Driver::Dummy
         }
 
-        fn async_id(&self) -> AsyncBoxFuture<'_, Result<String, Error>> {
-            async { Ok("wasm-local".to_string()) }.boxed_async()
+        fn async_id(&self) -> impl Future<Output = Result<String, Error>> + MaybeSend + '_ {
+            async { Ok("wasm-local".to_string()) }
         }
 
-        fn async_info(&self) -> AsyncBoxFuture<'_, Result<Args, Error>> {
-            async { Ok(Args::new()) }.boxed_async()
+        fn async_info(&self) -> impl Future<Output = Result<Args, Error>> + MaybeSend + '_ {
+            async { Ok(Args::new()) }
         }
     }
 
     impl AsyncDynDeviceBackend for LocalOnly {
-        fn async_channel_info(&self) -> Option<&dyn AsyncChannelInfo> {
+        fn async_channel_info(&self) -> Option<&dyn ErasedAsyncChannelInfo> {
             Some(self)
         }
 
@@ -2166,22 +2734,21 @@ mod wasm_non_send_compile_check {
         fn async_num_channels(
             &self,
             direction: Direction,
-        ) -> AsyncBoxFuture<'_, Result<usize, Error>> {
+        ) -> impl Future<Output = Result<usize, Error>> + MaybeSend + '_ {
             async move {
                 Ok(match direction {
                     Direction::Rx => 1,
                     Direction::Tx => 0,
                 })
             }
-            .boxed_async()
         }
 
         fn async_full_duplex(
             &self,
             _direction: Direction,
             _channel: usize,
-        ) -> AsyncBoxFuture<'_, Result<bool, Error>> {
-            async { Ok(false) }.boxed_async()
+        ) -> impl Future<Output = Result<bool, Error>> + MaybeSend + '_ {
+            async { Ok(false) }
         }
     }
 
@@ -2192,7 +2759,7 @@ mod wasm_non_send_compile_check {
             &'a self,
             channels: &'a [usize],
             _args: Args,
-        ) -> AsyncBoxFuture<'a, Result<Self::RxStreamer, Error>> {
+        ) -> impl Future<Output = Result<Self::RxStreamer, Error>> + MaybeSend + 'a {
             async move {
                 match channels {
                     &[0] => Ok(LocalRxStreamer {
@@ -2201,31 +2768,33 @@ mod wasm_non_send_compile_check {
                     _ => Err(Error::invalid_argument("channels", "unsupported channel")),
                 }
             }
-            .boxed_async()
         }
     }
 
     impl AsyncRxStreamer for LocalRxStreamer {
-        fn mtu(&self) -> AsyncBoxFuture<'_, Result<usize, Error>> {
-            async { Ok(4) }.boxed_async()
+        fn mtu(&self) -> impl Future<Output = Result<usize, Error>> + MaybeSend + '_ {
+            async { Ok(4) }
         }
 
-        fn activate_at(&mut self, _time_ns: Option<i64>) -> AsyncBoxFuture<'_, Result<(), Error>> {
-            async { Ok(()) }.boxed_async()
+        fn activate_at(
+            &mut self,
+            _time_ns: Option<i64>,
+        ) -> impl Future<Output = Result<(), Error>> + MaybeSend + '_ {
+            async { Ok(()) }
         }
 
         fn deactivate_at(
             &mut self,
             _time_ns: Option<i64>,
-        ) -> AsyncBoxFuture<'_, Result<(), Error>> {
-            async { Ok(()) }.boxed_async()
+        ) -> impl Future<Output = Result<(), Error>> + MaybeSend + '_ {
+            async { Ok(()) }
         }
 
         fn read<'a>(
             &'a mut self,
             buffers: &'a mut [&'a mut [Complex32]],
             _timeout_us: i64,
-        ) -> AsyncBoxFuture<'a, Result<usize, Error>> {
+        ) -> impl Future<Output = Result<usize, Error>> + MaybeSend + 'a {
             async move {
                 *self.reads.borrow_mut() += 1;
                 for buffer in buffers.iter_mut() {
@@ -2233,7 +2802,6 @@ mod wasm_non_send_compile_check {
                 }
                 Ok(buffers.first().map(|buffer| buffer.len()).unwrap_or(0))
             }
-            .boxed_async()
         }
     }
 
@@ -2272,7 +2840,7 @@ where
     fn probe<'a>(
         &'a self,
         args: &'a Args,
-    ) -> AsyncBoxFuture<'a, Result<Vec<DeviceDescriptor>, Error>> {
+    ) -> BoxedFuture<'a, Result<Vec<DeviceDescriptor>, Error>> {
         async move {
             D::async_probe(args).await.map(|descriptors| {
                 descriptors
@@ -2287,7 +2855,7 @@ where
     fn open<'a>(
         &'a self,
         descriptor: &'a DeviceDescriptor,
-    ) -> AsyncBoxFuture<'a, Result<AsyncDynDevice, Error>> {
+    ) -> BoxedFuture<'a, Result<AsyncDynDevice, Error>> {
         async move {
             Ok(AsyncDynDevice::from_impl(
                 D::async_open(descriptor.args()).await?,
