@@ -11,14 +11,24 @@ use std::sync::Arc;
 use std::time::SystemTime;
 use ureq::Agent;
 
+use crate::AgcControl;
+use crate::AntennaControl;
 use crate::Args;
+use crate::BandwidthControl;
+use crate::ChannelInfo;
+use crate::DeviceInfo;
 use crate::Direction;
 use crate::Direction::*;
 use crate::Driver;
 use crate::DynDeviceBackend;
 use crate::Error;
+use crate::FrequencyControl;
+use crate::GainControl;
 use crate::Range;
 use crate::RangeItem;
+use crate::RxDevice;
+use crate::SampleRateControl;
+use crate::TxDevice;
 
 /// Aaronia SpectranV6 driver, using the HTTP interface
 #[derive(Clone)]
@@ -149,15 +159,7 @@ impl AaroniaHttp {
     }
 }
 
-impl DynDeviceBackend for AaroniaHttp {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
-        self
-    }
-
+impl AaroniaHttp {
     fn driver(&self) -> Driver {
         Driver::AaroniaHttp
     }
@@ -182,36 +184,6 @@ impl DynDeviceBackend for AaroniaHttp {
             (Rx, 0 | 1) => Ok(true),
             (Tx, 0) => Ok(true),
             _ => Err(Error::ValueError),
-        }
-    }
-
-    fn rx_streamer(&self, channels: &[usize], _args: Args) -> Result<crate::DynRxStreamer, Error> {
-        if channels == [0] {
-            Ok(Box::new(RxStreamer {
-                url: self.url.clone(),
-                agent: self.agent.clone(),
-                items_left: 0,
-                reader: None,
-            }))
-        } else {
-            Err(Error::ValueError)
-        }
-    }
-
-    fn tx_streamer(&self, channels: &[usize], _args: Args) -> Result<crate::DynTxStreamer, Error> {
-        if channels == [0] {
-            Ok(Box::new(TxStreamer {
-                url: self.tx_url.clone(),
-                agent: self.agent.clone(),
-                frequency: self.tx_frequency.clone(),
-                sample_rate: self.tx_sample_rate.clone(),
-                last_transmission_end_time: SystemTime::now()
-                    .duration_since(SystemTime::UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs_f64(),
-            }))
-        } else {
-            Err(Error::ValueError)
         }
     }
 
@@ -549,22 +521,276 @@ impl DynDeviceBackend for AaroniaHttp {
     fn get_bandwidth_range(&self, _direction: Direction, _channel: usize) -> Result<Range, Error> {
         Err(Error::NotSupported)
     }
+}
 
-    fn has_dc_offset_mode(&self, _direction: Direction, _channel: usize) -> Result<bool, Error> {
-        Err(Error::NotSupported)
+impl DeviceInfo for AaroniaHttp {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
     }
 
-    fn set_dc_offset_mode(
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+
+    fn driver(&self) -> Driver {
+        AaroniaHttp::driver(self)
+    }
+
+    fn id(&self) -> Result<String, Error> {
+        AaroniaHttp::id(self)
+    }
+
+    fn info(&self) -> Result<Args, Error> {
+        AaroniaHttp::info(self)
+    }
+}
+
+impl DynDeviceBackend for AaroniaHttp {
+    fn channel_info(&self) -> Option<&dyn ChannelInfo> {
+        Some(self)
+    }
+
+    fn rx_device(&self) -> Option<&dyn crate::ErasedRxDevice> {
+        Some(self)
+    }
+
+    fn tx_device(&self) -> Option<&dyn crate::ErasedTxDevice> {
+        Some(self)
+    }
+
+    fn antenna_control(&self) -> Option<&dyn AntennaControl> {
+        Some(self)
+    }
+
+    fn agc_control(&self) -> Option<&dyn AgcControl> {
+        Some(self)
+    }
+
+    fn gain_control(&self) -> Option<&dyn GainControl> {
+        Some(self)
+    }
+
+    fn frequency_control(&self) -> Option<&dyn FrequencyControl> {
+        Some(self)
+    }
+
+    fn sample_rate_control(&self) -> Option<&dyn SampleRateControl> {
+        Some(self)
+    }
+
+    fn bandwidth_control(&self) -> Option<&dyn BandwidthControl> {
+        Some(self)
+    }
+}
+
+impl ChannelInfo for AaroniaHttp {
+    fn num_channels(&self, direction: Direction) -> Result<usize, Error> {
+        AaroniaHttp::num_channels(self, direction)
+    }
+
+    fn full_duplex(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+        AaroniaHttp::full_duplex(self, direction, channel)
+    }
+}
+
+impl RxDevice for AaroniaHttp {
+    type RxStreamer = RxStreamer;
+
+    fn rx_streamer(&self, channels: &[usize], _args: Args) -> Result<Self::RxStreamer, Error> {
+        if channels == [0] {
+            Ok(RxStreamer {
+                url: self.url.clone(),
+                agent: self.agent.clone(),
+                items_left: 0,
+                reader: None,
+            })
+        } else {
+            Err(Error::ValueError)
+        }
+    }
+}
+
+impl TxDevice for AaroniaHttp {
+    type TxStreamer = TxStreamer;
+
+    fn tx_streamer(&self, channels: &[usize], _args: Args) -> Result<Self::TxStreamer, Error> {
+        if channels == [0] {
+            Ok(TxStreamer {
+                url: self.tx_url.clone(),
+                agent: self.agent.clone(),
+                frequency: self.tx_frequency.clone(),
+                sample_rate: self.tx_sample_rate.clone(),
+                last_transmission_end_time: SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs_f64(),
+            })
+        } else {
+            Err(Error::ValueError)
+        }
+    }
+}
+
+impl AntennaControl for AaroniaHttp {
+    fn antennas(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
+        AaroniaHttp::antennas(self, direction, channel)
+    }
+
+    fn antenna(&self, direction: Direction, channel: usize) -> Result<String, Error> {
+        AaroniaHttp::antenna(self, direction, channel)
+    }
+
+    fn set_antenna(&self, direction: Direction, channel: usize, name: &str) -> Result<(), Error> {
+        AaroniaHttp::set_antenna(self, direction, channel, name)
+    }
+}
+
+impl AgcControl for AaroniaHttp {
+    fn supports_agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+        AaroniaHttp::supports_agc(self, direction, channel)
+    }
+
+    fn enable_agc(&self, direction: Direction, channel: usize, agc: bool) -> Result<(), Error> {
+        AaroniaHttp::enable_agc(self, direction, channel, agc)
+    }
+
+    fn agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+        AaroniaHttp::agc(self, direction, channel)
+    }
+}
+
+impl GainControl for AaroniaHttp {
+    fn gain_elements(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
+        AaroniaHttp::gain_elements(self, direction, channel)
+    }
+
+    fn set_gain(&self, direction: Direction, channel: usize, gain: f64) -> Result<(), Error> {
+        AaroniaHttp::set_gain(self, direction, channel, gain)
+    }
+
+    fn gain(&self, direction: Direction, channel: usize) -> Result<Option<f64>, Error> {
+        AaroniaHttp::gain(self, direction, channel)
+    }
+
+    fn gain_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
+        AaroniaHttp::gain_range(self, direction, channel)
+    }
+
+    fn set_gain_element(
         &self,
-        _direction: Direction,
-        _channel: usize,
-        _automatic: bool,
+        direction: Direction,
+        channel: usize,
+        name: &str,
+        gain: f64,
     ) -> Result<(), Error> {
-        Err(Error::NotSupported)
+        AaroniaHttp::set_gain_element(self, direction, channel, name, gain)
     }
 
-    fn dc_offset_mode(&self, _direction: Direction, _channel: usize) -> Result<bool, Error> {
-        Err(Error::NotSupported)
+    fn gain_element(
+        &self,
+        direction: Direction,
+        channel: usize,
+        name: &str,
+    ) -> Result<Option<f64>, Error> {
+        AaroniaHttp::gain_element(self, direction, channel, name)
+    }
+
+    fn gain_element_range(
+        &self,
+        direction: Direction,
+        channel: usize,
+        name: &str,
+    ) -> Result<Range, Error> {
+        AaroniaHttp::gain_element_range(self, direction, channel, name)
+    }
+}
+
+impl FrequencyControl for AaroniaHttp {
+    fn frequency_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
+        AaroniaHttp::frequency_range(self, direction, channel)
+    }
+
+    fn frequency(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
+        AaroniaHttp::frequency(self, direction, channel)
+    }
+
+    fn set_frequency(
+        &self,
+        direction: Direction,
+        channel: usize,
+        frequency: f64,
+        args: Args,
+    ) -> Result<(), Error> {
+        AaroniaHttp::set_frequency(self, direction, channel, frequency, args)
+    }
+
+    fn frequency_components(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> Result<Vec<String>, Error> {
+        AaroniaHttp::frequency_components(self, direction, channel)
+    }
+
+    fn component_frequency_range(
+        &self,
+        direction: Direction,
+        channel: usize,
+        name: &str,
+    ) -> Result<Range, Error> {
+        AaroniaHttp::component_frequency_range(self, direction, channel, name)
+    }
+
+    fn component_frequency(
+        &self,
+        direction: Direction,
+        channel: usize,
+        name: &str,
+    ) -> Result<f64, Error> {
+        AaroniaHttp::component_frequency(self, direction, channel, name)
+    }
+
+    fn set_component_frequency(
+        &self,
+        direction: Direction,
+        channel: usize,
+        name: &str,
+        frequency: f64,
+    ) -> Result<(), Error> {
+        AaroniaHttp::set_component_frequency(self, direction, channel, name, frequency)
+    }
+}
+
+impl SampleRateControl for AaroniaHttp {
+    fn sample_rate(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
+        AaroniaHttp::sample_rate(self, direction, channel)
+    }
+
+    fn set_sample_rate(
+        &self,
+        direction: Direction,
+        channel: usize,
+        rate: f64,
+    ) -> Result<(), Error> {
+        AaroniaHttp::set_sample_rate(self, direction, channel, rate)
+    }
+
+    fn get_sample_rate_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
+        AaroniaHttp::get_sample_rate_range(self, direction, channel)
+    }
+}
+
+impl BandwidthControl for AaroniaHttp {
+    fn bandwidth(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
+        AaroniaHttp::bandwidth(self, direction, channel)
+    }
+
+    fn set_bandwidth(&self, direction: Direction, channel: usize, bw: f64) -> Result<(), Error> {
+        AaroniaHttp::set_bandwidth(self, direction, channel, bw)
+    }
+
+    fn get_bandwidth_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
+        AaroniaHttp::get_bandwidth_range(self, direction, channel)
     }
 }
 

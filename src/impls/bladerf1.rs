@@ -1,4 +1,8 @@
-use crate::{Args, Direction, Error, Range, RangeItem};
+use crate::{
+    AgcControl, AntennaControl, Args, BandwidthControl, ChannelInfo, DcOffsetControl, DeviceInfo,
+    Direction, DynDeviceBackend, Error, FrequencyControl, GainControl, Range, RangeItem, RxDevice,
+    SampleRateControl, TxDevice,
+};
 use libbladerf_rs::bladerf1::hardware::lms6002d::dc_calibration::DcCalModule;
 use libbladerf_rs::bladerf1::hardware::lms6002d::gain::GainStage;
 use libbladerf_rs::bladerf1::{
@@ -401,15 +405,7 @@ impl crate::TxStreamer for TxStreamer {
     }
 }
 
-impl crate::DynDeviceBackend for BladeRf {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
-        self
-    }
-
+impl BladeRf {
     fn driver(&self) -> crate::Driver {
         crate::Driver::BladeRf
     }
@@ -437,47 +433,6 @@ impl crate::DynDeviceBackend for BladeRf {
 
     fn full_duplex(&self, _direction: Direction, _channel: usize) -> Result<bool, Error> {
         Ok(true)
-    }
-
-    fn rx_streamer(&self, channels: &[usize], _args: Args) -> Result<crate::DynRxStreamer, Error> {
-        if channels != [0] {
-            log::error!("BladeRF1 only supports one RX channel!");
-            return Err(Error::ValueError);
-        }
-        let mut dev = self.inner.lock().unwrap();
-        let mut session = dev.rf_link_session().map_err(bladerf_err)?;
-        let streamer = RxStream::builder(&mut session)
-            .buffer_size(BUFFER_SIZE)
-            .buffer_count(BUFFER_COUNT)
-            .format(SampleFormat::Sc16Q11)
-            .build()
-            .map_err(bladerf_err)?;
-        Ok(Box::new(RxStreamer {
-            streamer: Some(streamer),
-            dev: Arc::clone(&self.inner),
-            format: SampleFormat::Sc16Q11,
-            pending: None,
-        }))
-    }
-
-    fn tx_streamer(&self, channels: &[usize], _args: Args) -> Result<crate::DynTxStreamer, Error> {
-        if channels != [0] {
-            log::error!("BladeRF1 only supports one TX channel!");
-            return Err(Error::ValueError);
-        }
-        let mut dev = self.inner.lock().unwrap();
-        let mut session = dev.rf_link_session().map_err(bladerf_err)?;
-        let streamer = TxStream::builder(&mut session)
-            .buffer_size(BUFFER_SIZE)
-            .buffer_count(BUFFER_COUNT)
-            .format(SampleFormat::Sc16Q11)
-            .build()
-            .map_err(bladerf_err)?;
-        Ok(Box::new(TxStreamer {
-            streamer: Some(streamer),
-            dev: Arc::clone(&self.inner),
-            format: SampleFormat::Sc16Q11,
-        }))
     }
 
     fn antennas(&self, _direction: Direction, _channel: usize) -> Result<Vec<String>, Error> {
@@ -751,5 +706,310 @@ impl crate::DynDeviceBackend for BladeRf {
 
     fn dc_offset_mode(&self, _direction: Direction, _channel: usize) -> Result<bool, Error> {
         Err(Error::NotSupported)
+    }
+}
+
+impl DeviceInfo for BladeRf {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+
+    fn driver(&self) -> crate::Driver {
+        BladeRf::driver(self)
+    }
+
+    fn id(&self) -> Result<String, Error> {
+        BladeRf::id(self)
+    }
+
+    fn info(&self) -> Result<Args, Error> {
+        BladeRf::info(self)
+    }
+}
+
+impl DynDeviceBackend for BladeRf {
+    fn channel_info(&self) -> Option<&dyn ChannelInfo> {
+        Some(self)
+    }
+
+    fn rx_device(&self) -> Option<&dyn crate::ErasedRxDevice> {
+        Some(self)
+    }
+
+    fn tx_device(&self) -> Option<&dyn crate::ErasedTxDevice> {
+        Some(self)
+    }
+
+    fn antenna_control(&self) -> Option<&dyn AntennaControl> {
+        Some(self)
+    }
+
+    fn agc_control(&self) -> Option<&dyn AgcControl> {
+        Some(self)
+    }
+
+    fn gain_control(&self) -> Option<&dyn GainControl> {
+        Some(self)
+    }
+
+    fn frequency_control(&self) -> Option<&dyn FrequencyControl> {
+        Some(self)
+    }
+
+    fn sample_rate_control(&self) -> Option<&dyn SampleRateControl> {
+        Some(self)
+    }
+
+    fn bandwidth_control(&self) -> Option<&dyn BandwidthControl> {
+        Some(self)
+    }
+
+    fn dc_offset_control(&self) -> Option<&dyn DcOffsetControl> {
+        Some(self)
+    }
+}
+
+impl ChannelInfo for BladeRf {
+    fn num_channels(&self, direction: Direction) -> Result<usize, Error> {
+        BladeRf::num_channels(self, direction)
+    }
+
+    fn full_duplex(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+        BladeRf::full_duplex(self, direction, channel)
+    }
+}
+
+impl RxDevice for BladeRf {
+    type RxStreamer = RxStreamer;
+
+    fn rx_streamer(&self, channels: &[usize], _args: Args) -> Result<Self::RxStreamer, Error> {
+        if channels != [0] {
+            log::error!("BladeRF1 only supports one RX channel!");
+            return Err(Error::ValueError);
+        }
+        let mut dev = self.inner.lock().unwrap();
+        let mut session = dev.rf_link_session().map_err(bladerf_err)?;
+        let streamer = RxStream::builder(&mut session)
+            .buffer_size(BUFFER_SIZE)
+            .buffer_count(BUFFER_COUNT)
+            .format(SampleFormat::Sc16Q11)
+            .build()
+            .map_err(bladerf_err)?;
+        Ok(RxStreamer {
+            streamer: Some(streamer),
+            dev: Arc::clone(&self.inner),
+            format: SampleFormat::Sc16Q11,
+            pending: None,
+        })
+    }
+}
+
+impl TxDevice for BladeRf {
+    type TxStreamer = TxStreamer;
+
+    fn tx_streamer(&self, channels: &[usize], _args: Args) -> Result<Self::TxStreamer, Error> {
+        if channels != [0] {
+            log::error!("BladeRF1 only supports one TX channel!");
+            return Err(Error::ValueError);
+        }
+        let mut dev = self.inner.lock().unwrap();
+        let mut session = dev.rf_link_session().map_err(bladerf_err)?;
+        let streamer = TxStream::builder(&mut session)
+            .buffer_size(BUFFER_SIZE)
+            .buffer_count(BUFFER_COUNT)
+            .format(SampleFormat::Sc16Q11)
+            .build()
+            .map_err(bladerf_err)?;
+        Ok(TxStreamer {
+            streamer: Some(streamer),
+            dev: Arc::clone(&self.inner),
+            format: SampleFormat::Sc16Q11,
+        })
+    }
+}
+
+impl AntennaControl for BladeRf {
+    fn antennas(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
+        BladeRf::antennas(self, direction, channel)
+    }
+
+    fn antenna(&self, direction: Direction, channel: usize) -> Result<String, Error> {
+        BladeRf::antenna(self, direction, channel)
+    }
+
+    fn set_antenna(&self, direction: Direction, channel: usize, name: &str) -> Result<(), Error> {
+        BladeRf::set_antenna(self, direction, channel, name)
+    }
+}
+
+impl AgcControl for BladeRf {
+    fn supports_agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+        BladeRf::supports_agc(self, direction, channel)
+    }
+
+    fn enable_agc(&self, direction: Direction, channel: usize, agc: bool) -> Result<(), Error> {
+        BladeRf::enable_agc(self, direction, channel, agc)
+    }
+
+    fn agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+        BladeRf::agc(self, direction, channel)
+    }
+}
+
+impl GainControl for BladeRf {
+    fn gain_elements(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
+        BladeRf::gain_elements(self, direction, channel)
+    }
+
+    fn set_gain(&self, direction: Direction, channel: usize, gain: f64) -> Result<(), Error> {
+        BladeRf::set_gain(self, direction, channel, gain)
+    }
+
+    fn gain(&self, direction: Direction, channel: usize) -> Result<Option<f64>, Error> {
+        BladeRf::gain(self, direction, channel)
+    }
+
+    fn gain_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
+        BladeRf::gain_range(self, direction, channel)
+    }
+
+    fn set_gain_element(
+        &self,
+        direction: Direction,
+        channel: usize,
+        name: &str,
+        gain: f64,
+    ) -> Result<(), Error> {
+        BladeRf::set_gain_element(self, direction, channel, name, gain)
+    }
+
+    fn gain_element(
+        &self,
+        direction: Direction,
+        channel: usize,
+        name: &str,
+    ) -> Result<Option<f64>, Error> {
+        BladeRf::gain_element(self, direction, channel, name)
+    }
+
+    fn gain_element_range(
+        &self,
+        direction: Direction,
+        channel: usize,
+        name: &str,
+    ) -> Result<Range, Error> {
+        BladeRf::gain_element_range(self, direction, channel, name)
+    }
+}
+
+impl FrequencyControl for BladeRf {
+    fn frequency_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
+        BladeRf::frequency_range(self, direction, channel)
+    }
+
+    fn frequency(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
+        BladeRf::frequency(self, direction, channel)
+    }
+
+    fn set_frequency(
+        &self,
+        direction: Direction,
+        channel: usize,
+        frequency: f64,
+        args: Args,
+    ) -> Result<(), Error> {
+        BladeRf::set_frequency(self, direction, channel, frequency, args)
+    }
+
+    fn frequency_components(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> Result<Vec<String>, Error> {
+        BladeRf::frequency_components(self, direction, channel)
+    }
+
+    fn component_frequency_range(
+        &self,
+        direction: Direction,
+        channel: usize,
+        name: &str,
+    ) -> Result<Range, Error> {
+        BladeRf::component_frequency_range(self, direction, channel, name)
+    }
+
+    fn component_frequency(
+        &self,
+        direction: Direction,
+        channel: usize,
+        name: &str,
+    ) -> Result<f64, Error> {
+        BladeRf::component_frequency(self, direction, channel, name)
+    }
+
+    fn set_component_frequency(
+        &self,
+        direction: Direction,
+        channel: usize,
+        name: &str,
+        frequency: f64,
+    ) -> Result<(), Error> {
+        BladeRf::set_component_frequency(self, direction, channel, name, frequency)
+    }
+}
+
+impl SampleRateControl for BladeRf {
+    fn sample_rate(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
+        BladeRf::sample_rate(self, direction, channel)
+    }
+
+    fn set_sample_rate(
+        &self,
+        direction: Direction,
+        channel: usize,
+        rate: f64,
+    ) -> Result<(), Error> {
+        BladeRf::set_sample_rate(self, direction, channel, rate)
+    }
+
+    fn get_sample_rate_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
+        BladeRf::get_sample_rate_range(self, direction, channel)
+    }
+}
+
+impl BandwidthControl for BladeRf {
+    fn bandwidth(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
+        BladeRf::bandwidth(self, direction, channel)
+    }
+
+    fn set_bandwidth(&self, direction: Direction, channel: usize, bw: f64) -> Result<(), Error> {
+        BladeRf::set_bandwidth(self, direction, channel, bw)
+    }
+
+    fn get_bandwidth_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
+        BladeRf::get_bandwidth_range(self, direction, channel)
+    }
+}
+
+impl DcOffsetControl for BladeRf {
+    fn has_dc_offset_mode(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+        BladeRf::has_dc_offset_mode(self, direction, channel)
+    }
+
+    fn set_dc_offset_mode(
+        &self,
+        direction: Direction,
+        channel: usize,
+        automatic: bool,
+    ) -> Result<(), Error> {
+        BladeRf::set_dc_offset_mode(self, direction, channel, automatic)
+    }
+
+    fn dc_offset_mode(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+        BladeRf::dc_offset_mode(self, direction, channel)
     }
 }

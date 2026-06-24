@@ -1,4 +1,4 @@
-//! Hardware drivers, implementing the [`DynDeviceBackend`](crate::DynDeviceBackend).
+//! Hardware drivers, implementing Seify's capability traits.
 
 #[cfg(all(feature = "aaronia_http", not(target_arch = "wasm32")))]
 pub mod aaronia_http;

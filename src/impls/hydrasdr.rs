@@ -11,7 +11,11 @@ use hydrasdr_rs::{
 use num_complex::Complex32;
 
 use crate::Direction::*;
-use crate::{Args, Direction, Driver, DynDeviceBackend, Error, Range, RangeItem};
+use crate::{
+    AgcControl, AntennaControl, Args, BandwidthControl, ChannelInfo, DcOffsetControl, DeviceInfo,
+    Direction, Driver, DynDeviceBackend, Error, FrequencyControl, GainControl, Range, RangeItem,
+    RxDevice, SampleRateControl,
+};
 
 const MTU: usize = 262_144 / 8;
 const DEFAULT_SAMPLE_RATE_MIN: f64 = 10_000.0;
@@ -134,15 +138,7 @@ impl HydraSdr {
     }
 }
 
-impl DynDeviceBackend for HydraSdr {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
+impl HydraSdr {
     fn driver(&self) -> Driver {
         Driver::HydraSdr
     }
@@ -176,21 +172,6 @@ impl DynDeviceBackend for HydraSdr {
 
     fn full_duplex(&self, _direction: Direction, _channel: usize) -> Result<bool, Error> {
         Ok(false)
-    }
-
-    fn rx_streamer(&self, channels: &[usize], _args: Args) -> Result<crate::DynRxStreamer, Error> {
-        if channels != [0] {
-            return Err(Error::ValueError);
-        }
-        self.ensure_rx_config_idle()?;
-        Ok(Box::new(RxStreamer::new(
-            Arc::clone(&self.dev),
-            Arc::clone(&self.inner),
-        )))
-    }
-
-    fn tx_streamer(&self, _channels: &[usize], _args: Args) -> Result<crate::DynTxStreamer, Error> {
-        Err(Error::NotSupported)
     }
 
     fn antennas(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
@@ -575,6 +556,273 @@ impl DynDeviceBackend for HydraSdr {
     fn dc_offset_mode(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
         check_rx(direction, channel)?;
         Ok(false)
+    }
+}
+
+impl DeviceInfo for HydraSdr {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn driver(&self) -> Driver {
+        HydraSdr::driver(self)
+    }
+
+    fn id(&self) -> Result<String, Error> {
+        HydraSdr::id(self)
+    }
+
+    fn info(&self) -> Result<Args, Error> {
+        HydraSdr::info(self)
+    }
+}
+
+impl DynDeviceBackend for HydraSdr {
+    fn channel_info(&self) -> Option<&dyn ChannelInfo> {
+        Some(self)
+    }
+
+    fn rx_device(&self) -> Option<&dyn crate::ErasedRxDevice> {
+        Some(self)
+    }
+
+    fn antenna_control(&self) -> Option<&dyn AntennaControl> {
+        Some(self)
+    }
+
+    fn agc_control(&self) -> Option<&dyn AgcControl> {
+        Some(self)
+    }
+
+    fn gain_control(&self) -> Option<&dyn GainControl> {
+        Some(self)
+    }
+
+    fn frequency_control(&self) -> Option<&dyn FrequencyControl> {
+        Some(self)
+    }
+
+    fn sample_rate_control(&self) -> Option<&dyn SampleRateControl> {
+        Some(self)
+    }
+
+    fn bandwidth_control(&self) -> Option<&dyn BandwidthControl> {
+        Some(self)
+    }
+
+    fn dc_offset_control(&self) -> Option<&dyn DcOffsetControl> {
+        Some(self)
+    }
+}
+
+impl ChannelInfo for HydraSdr {
+    fn num_channels(&self, direction: Direction) -> Result<usize, Error> {
+        HydraSdr::num_channels(self, direction)
+    }
+
+    fn full_duplex(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+        HydraSdr::full_duplex(self, direction, channel)
+    }
+}
+
+impl RxDevice for HydraSdr {
+    type RxStreamer = RxStreamer;
+
+    fn rx_streamer(&self, channels: &[usize], _args: Args) -> Result<Self::RxStreamer, Error> {
+        if channels != [0] {
+            return Err(Error::ValueError);
+        }
+        self.ensure_rx_config_idle()?;
+        Ok(RxStreamer::new(
+            Arc::clone(&self.dev),
+            Arc::clone(&self.inner),
+        ))
+    }
+}
+
+impl AntennaControl for HydraSdr {
+    fn antennas(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
+        HydraSdr::antennas(self, direction, channel)
+    }
+
+    fn antenna(&self, direction: Direction, channel: usize) -> Result<String, Error> {
+        HydraSdr::antenna(self, direction, channel)
+    }
+
+    fn set_antenna(&self, direction: Direction, channel: usize, name: &str) -> Result<(), Error> {
+        HydraSdr::set_antenna(self, direction, channel, name)
+    }
+}
+
+impl AgcControl for HydraSdr {
+    fn supports_agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+        HydraSdr::supports_agc(self, direction, channel)
+    }
+
+    fn enable_agc(&self, direction: Direction, channel: usize, agc: bool) -> Result<(), Error> {
+        HydraSdr::enable_agc(self, direction, channel, agc)
+    }
+
+    fn agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+        HydraSdr::agc(self, direction, channel)
+    }
+}
+
+impl GainControl for HydraSdr {
+    fn gain_elements(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
+        HydraSdr::gain_elements(self, direction, channel)
+    }
+
+    fn set_gain(&self, direction: Direction, channel: usize, gain: f64) -> Result<(), Error> {
+        HydraSdr::set_gain(self, direction, channel, gain)
+    }
+
+    fn gain(&self, direction: Direction, channel: usize) -> Result<Option<f64>, Error> {
+        HydraSdr::gain(self, direction, channel)
+    }
+
+    fn gain_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
+        HydraSdr::gain_range(self, direction, channel)
+    }
+
+    fn set_gain_element(
+        &self,
+        direction: Direction,
+        channel: usize,
+        name: &str,
+        gain: f64,
+    ) -> Result<(), Error> {
+        HydraSdr::set_gain_element(self, direction, channel, name, gain)
+    }
+
+    fn gain_element(
+        &self,
+        direction: Direction,
+        channel: usize,
+        name: &str,
+    ) -> Result<Option<f64>, Error> {
+        HydraSdr::gain_element(self, direction, channel, name)
+    }
+
+    fn gain_element_range(
+        &self,
+        direction: Direction,
+        channel: usize,
+        name: &str,
+    ) -> Result<Range, Error> {
+        HydraSdr::gain_element_range(self, direction, channel, name)
+    }
+}
+
+impl FrequencyControl for HydraSdr {
+    fn frequency_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
+        HydraSdr::frequency_range(self, direction, channel)
+    }
+
+    fn frequency(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
+        HydraSdr::frequency(self, direction, channel)
+    }
+
+    fn set_frequency(
+        &self,
+        direction: Direction,
+        channel: usize,
+        frequency: f64,
+        args: Args,
+    ) -> Result<(), Error> {
+        HydraSdr::set_frequency(self, direction, channel, frequency, args)
+    }
+
+    fn frequency_components(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> Result<Vec<String>, Error> {
+        HydraSdr::frequency_components(self, direction, channel)
+    }
+
+    fn component_frequency_range(
+        &self,
+        direction: Direction,
+        channel: usize,
+        name: &str,
+    ) -> Result<Range, Error> {
+        HydraSdr::component_frequency_range(self, direction, channel, name)
+    }
+
+    fn component_frequency(
+        &self,
+        direction: Direction,
+        channel: usize,
+        name: &str,
+    ) -> Result<f64, Error> {
+        HydraSdr::component_frequency(self, direction, channel, name)
+    }
+
+    fn set_component_frequency(
+        &self,
+        direction: Direction,
+        channel: usize,
+        name: &str,
+        frequency: f64,
+    ) -> Result<(), Error> {
+        HydraSdr::set_component_frequency(self, direction, channel, name, frequency)
+    }
+}
+
+impl SampleRateControl for HydraSdr {
+    fn sample_rate(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
+        HydraSdr::sample_rate(self, direction, channel)
+    }
+
+    fn set_sample_rate(
+        &self,
+        direction: Direction,
+        channel: usize,
+        rate: f64,
+    ) -> Result<(), Error> {
+        HydraSdr::set_sample_rate(self, direction, channel, rate)
+    }
+
+    fn get_sample_rate_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
+        HydraSdr::get_sample_rate_range(self, direction, channel)
+    }
+}
+
+impl BandwidthControl for HydraSdr {
+    fn bandwidth(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
+        HydraSdr::bandwidth(self, direction, channel)
+    }
+
+    fn set_bandwidth(&self, direction: Direction, channel: usize, bw: f64) -> Result<(), Error> {
+        HydraSdr::set_bandwidth(self, direction, channel, bw)
+    }
+
+    fn get_bandwidth_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
+        HydraSdr::get_bandwidth_range(self, direction, channel)
+    }
+}
+
+impl DcOffsetControl for HydraSdr {
+    fn has_dc_offset_mode(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+        HydraSdr::has_dc_offset_mode(self, direction, channel)
+    }
+
+    fn set_dc_offset_mode(
+        &self,
+        direction: Direction,
+        channel: usize,
+        automatic: bool,
+    ) -> Result<(), Error> {
+        HydraSdr::set_dc_offset_mode(self, direction, channel, automatic)
+    }
+
+    fn dc_offset_mode(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+        HydraSdr::dc_offset_mode(self, direction, channel)
     }
 }
 

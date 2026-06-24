@@ -16,6 +16,8 @@ pub use device::DynDevice;
 pub use device::DynDeviceBackend;
 pub use device::DynRxStreamer;
 pub use device::DynTxStreamer;
+pub use device::ErasedRxDevice;
+pub use device::ErasedTxDevice;
 pub use device::FrequencyControl;
 pub use device::GainControl;
 pub use device::RxDevice;

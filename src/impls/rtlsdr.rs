@@ -8,7 +8,10 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 use crate::AgcControl;
+use crate::AntennaControl;
 use crate::Args;
+use crate::BandwidthControl;
+use crate::ChannelInfo;
 use crate::DeviceInfo;
 use crate::Direction;
 use crate::Direction::*;
@@ -107,15 +110,7 @@ impl RtlSdr {
     }
 }
 
-impl DynDeviceBackend for RtlSdr {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
+impl RtlSdr {
     fn driver(&self) -> crate::Driver {
         Driver::RtlSdr
     }
@@ -137,18 +132,6 @@ impl DynDeviceBackend for RtlSdr {
 
     fn full_duplex(&self, _direction: Direction, _channel: usize) -> Result<bool, Error> {
         Ok(false)
-    }
-
-    fn rx_streamer(&self, channels: &[usize], _args: Args) -> Result<crate::DynRxStreamer, Error> {
-        if channels != [0] {
-            Err(Error::ValueError)
-        } else {
-            Ok(Box::new(RxStreamer::new(self.dev.clone())))
-        }
-    }
-
-    fn tx_streamer(&self, _channels: &[usize], _args: Args) -> Result<crate::DynTxStreamer, Error> {
-        Err(Error::NotSupported)
     }
 
     fn antennas(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
@@ -225,15 +208,15 @@ impl DynDeviceBackend for RtlSdr {
     }
 
     fn set_gain(&self, direction: Direction, channel: usize, gain: f64) -> Result<(), Error> {
-        DynDeviceBackend::set_gain_element(self, direction, channel, "TUNER", gain)
+        RtlSdr::set_gain_element(self, direction, channel, "TUNER", gain)
     }
 
     fn gain(&self, direction: Direction, channel: usize) -> Result<Option<f64>, Error> {
-        DynDeviceBackend::gain_element(self, direction, channel, "TUNER")
+        RtlSdr::gain_element(self, direction, channel, "TUNER")
     }
 
     fn gain_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
-        DynDeviceBackend::gain_element_range(self, direction, channel, "TUNER")
+        RtlSdr::gain_element_range(self, direction, channel, "TUNER")
     }
 
     fn set_gain_element(
@@ -243,7 +226,7 @@ impl DynDeviceBackend for RtlSdr {
         name: &str,
         gain: f64,
     ) -> Result<(), Error> {
-        let r = DynDeviceBackend::gain_range(self, direction, channel)?;
+        let r = RtlSdr::gain_range(self, direction, channel)?;
         if r.contains(gain) && name == "TUNER" {
             let mut inner = self.i.lock().unwrap();
             inner.gain = TunerGain::Manual((gain * 10.0) as i32);
@@ -289,11 +272,11 @@ impl DynDeviceBackend for RtlSdr {
     }
 
     fn frequency_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
-        DynDeviceBackend::component_frequency_range(self, direction, channel, "TUNER")
+        RtlSdr::component_frequency_range(self, direction, channel, "TUNER")
     }
 
     fn frequency(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
-        DynDeviceBackend::component_frequency(self, direction, channel, "TUNER")
+        RtlSdr::component_frequency(self, direction, channel, "TUNER")
     }
 
     fn set_frequency(
@@ -303,7 +286,7 @@ impl DynDeviceBackend for RtlSdr {
         frequency: f64,
         _args: Args,
     ) -> Result<(), Error> {
-        DynDeviceBackend::set_component_frequency(self, direction, channel, "TUNER", frequency)
+        RtlSdr::set_component_frequency(self, direction, channel, "TUNER", frequency)
     }
 
     fn frequency_components(
@@ -359,7 +342,7 @@ impl DynDeviceBackend for RtlSdr {
     ) -> Result<(), Error> {
         if matches!(direction, Rx)
             && channel == 0
-            && DynDeviceBackend::frequency_range(self, direction, channel)?.contains(frequency)
+            && RtlSdr::frequency_range(self, direction, channel)?.contains(frequency)
             && name == "TUNER"
         {
             self.dev.set_center_freq(frequency as u32)?;
@@ -389,7 +372,7 @@ impl DynDeviceBackend for RtlSdr {
     ) -> Result<(), Error> {
         if matches!(direction, Rx)
             && channel == 0
-            && DynDeviceBackend::get_sample_rate_range(self, direction, channel)?.contains(rate)
+            && RtlSdr::get_sample_rate_range(self, direction, channel)?.contains(rate)
         {
             self.dev.set_tuner_bandwidth(rate as u32)?;
             Ok(self.dev.set_sample_rate(rate as u32)?)
@@ -424,23 +407,6 @@ impl DynDeviceBackend for RtlSdr {
     fn get_bandwidth_range(&self, _direction: Direction, _channel: usize) -> Result<Range, Error> {
         Err(Error::NotSupported)
     }
-
-    fn has_dc_offset_mode(&self, _direction: Direction, _channel: usize) -> Result<bool, Error> {
-        Err(Error::NotSupported)
-    }
-
-    fn set_dc_offset_mode(
-        &self,
-        _direction: Direction,
-        _channel: usize,
-        _automatic: bool,
-    ) -> Result<(), Error> {
-        Err(Error::NotSupported)
-    }
-
-    fn dc_offset_mode(&self, _direction: Direction, _channel: usize) -> Result<bool, Error> {
-        Err(Error::NotSupported)
-    }
 }
 
 impl DeviceInfo for RtlSdr {
@@ -453,15 +419,59 @@ impl DeviceInfo for RtlSdr {
     }
 
     fn driver(&self) -> Driver {
-        DynDeviceBackend::driver(self)
+        RtlSdr::driver(self)
     }
 
     fn id(&self) -> Result<String, Error> {
-        DynDeviceBackend::id(self)
+        RtlSdr::id(self)
     }
 
     fn info(&self) -> Result<Args, Error> {
-        DynDeviceBackend::info(self)
+        RtlSdr::info(self)
+    }
+}
+
+impl DynDeviceBackend for RtlSdr {
+    fn channel_info(&self) -> Option<&dyn ChannelInfo> {
+        Some(self)
+    }
+
+    fn rx_device(&self) -> Option<&dyn crate::ErasedRxDevice> {
+        Some(self)
+    }
+
+    fn antenna_control(&self) -> Option<&dyn AntennaControl> {
+        Some(self)
+    }
+
+    fn agc_control(&self) -> Option<&dyn AgcControl> {
+        Some(self)
+    }
+
+    fn gain_control(&self) -> Option<&dyn GainControl> {
+        Some(self)
+    }
+
+    fn frequency_control(&self) -> Option<&dyn FrequencyControl> {
+        Some(self)
+    }
+
+    fn sample_rate_control(&self) -> Option<&dyn SampleRateControl> {
+        Some(self)
+    }
+
+    fn bandwidth_control(&self) -> Option<&dyn BandwidthControl> {
+        Some(self)
+    }
+}
+
+impl ChannelInfo for RtlSdr {
+    fn num_channels(&self, direction: Direction) -> Result<usize, Error> {
+        RtlSdr::num_channels(self, direction)
+    }
+
+    fn full_duplex(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+        RtlSdr::full_duplex(self, direction, channel)
     }
 }
 
@@ -477,35 +487,49 @@ impl RxDevice for RtlSdr {
     }
 }
 
+impl AntennaControl for RtlSdr {
+    fn antennas(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
+        RtlSdr::antennas(self, direction, channel)
+    }
+
+    fn antenna(&self, direction: Direction, channel: usize) -> Result<String, Error> {
+        RtlSdr::antenna(self, direction, channel)
+    }
+
+    fn set_antenna(&self, direction: Direction, channel: usize, name: &str) -> Result<(), Error> {
+        RtlSdr::set_antenna(self, direction, channel, name)
+    }
+}
+
 impl AgcControl for RtlSdr {
     fn supports_agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        DynDeviceBackend::supports_agc(self, direction, channel)
+        RtlSdr::supports_agc(self, direction, channel)
     }
 
     fn enable_agc(&self, direction: Direction, channel: usize, agc: bool) -> Result<(), Error> {
-        DynDeviceBackend::enable_agc(self, direction, channel, agc)
+        RtlSdr::enable_agc(self, direction, channel, agc)
     }
 
     fn agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        DynDeviceBackend::agc(self, direction, channel)
+        RtlSdr::agc(self, direction, channel)
     }
 }
 
 impl GainControl for RtlSdr {
     fn gain_elements(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
-        DynDeviceBackend::gain_elements(self, direction, channel)
+        RtlSdr::gain_elements(self, direction, channel)
     }
 
     fn set_gain(&self, direction: Direction, channel: usize, gain: f64) -> Result<(), Error> {
-        DynDeviceBackend::set_gain(self, direction, channel, gain)
+        RtlSdr::set_gain(self, direction, channel, gain)
     }
 
     fn gain(&self, direction: Direction, channel: usize) -> Result<Option<f64>, Error> {
-        DynDeviceBackend::gain(self, direction, channel)
+        RtlSdr::gain(self, direction, channel)
     }
 
     fn gain_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
-        DynDeviceBackend::gain_range(self, direction, channel)
+        RtlSdr::gain_range(self, direction, channel)
     }
 
     fn set_gain_element(
@@ -515,7 +539,7 @@ impl GainControl for RtlSdr {
         name: &str,
         gain: f64,
     ) -> Result<(), Error> {
-        DynDeviceBackend::set_gain_element(self, direction, channel, name, gain)
+        RtlSdr::set_gain_element(self, direction, channel, name, gain)
     }
 
     fn gain_element(
@@ -524,7 +548,7 @@ impl GainControl for RtlSdr {
         channel: usize,
         name: &str,
     ) -> Result<Option<f64>, Error> {
-        DynDeviceBackend::gain_element(self, direction, channel, name)
+        RtlSdr::gain_element(self, direction, channel, name)
     }
 
     fn gain_element_range(
@@ -533,17 +557,17 @@ impl GainControl for RtlSdr {
         channel: usize,
         name: &str,
     ) -> Result<Range, Error> {
-        DynDeviceBackend::gain_element_range(self, direction, channel, name)
+        RtlSdr::gain_element_range(self, direction, channel, name)
     }
 }
 
 impl FrequencyControl for RtlSdr {
     fn frequency_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
-        DynDeviceBackend::frequency_range(self, direction, channel)
+        RtlSdr::frequency_range(self, direction, channel)
     }
 
     fn frequency(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
-        DynDeviceBackend::frequency(self, direction, channel)
+        RtlSdr::frequency(self, direction, channel)
     }
 
     fn set_frequency(
@@ -553,7 +577,7 @@ impl FrequencyControl for RtlSdr {
         frequency: f64,
         args: Args,
     ) -> Result<(), Error> {
-        DynDeviceBackend::set_frequency(self, direction, channel, frequency, args)
+        RtlSdr::set_frequency(self, direction, channel, frequency, args)
     }
 
     fn frequency_components(
@@ -561,7 +585,7 @@ impl FrequencyControl for RtlSdr {
         direction: Direction,
         channel: usize,
     ) -> Result<Vec<String>, Error> {
-        DynDeviceBackend::frequency_components(self, direction, channel)
+        RtlSdr::frequency_components(self, direction, channel)
     }
 
     fn component_frequency_range(
@@ -570,7 +594,7 @@ impl FrequencyControl for RtlSdr {
         channel: usize,
         name: &str,
     ) -> Result<Range, Error> {
-        DynDeviceBackend::component_frequency_range(self, direction, channel, name)
+        RtlSdr::component_frequency_range(self, direction, channel, name)
     }
 
     fn component_frequency(
@@ -579,7 +603,7 @@ impl FrequencyControl for RtlSdr {
         channel: usize,
         name: &str,
     ) -> Result<f64, Error> {
-        DynDeviceBackend::component_frequency(self, direction, channel, name)
+        RtlSdr::component_frequency(self, direction, channel, name)
     }
 
     fn set_component_frequency(
@@ -589,13 +613,13 @@ impl FrequencyControl for RtlSdr {
         name: &str,
         frequency: f64,
     ) -> Result<(), Error> {
-        DynDeviceBackend::set_component_frequency(self, direction, channel, name, frequency)
+        RtlSdr::set_component_frequency(self, direction, channel, name, frequency)
     }
 }
 
 impl SampleRateControl for RtlSdr {
     fn sample_rate(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
-        DynDeviceBackend::sample_rate(self, direction, channel)
+        RtlSdr::sample_rate(self, direction, channel)
     }
 
     fn set_sample_rate(
@@ -604,11 +628,25 @@ impl SampleRateControl for RtlSdr {
         channel: usize,
         rate: f64,
     ) -> Result<(), Error> {
-        DynDeviceBackend::set_sample_rate(self, direction, channel, rate)
+        RtlSdr::set_sample_rate(self, direction, channel, rate)
     }
 
     fn get_sample_rate_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
-        DynDeviceBackend::get_sample_rate_range(self, direction, channel)
+        RtlSdr::get_sample_rate_range(self, direction, channel)
+    }
+}
+
+impl BandwidthControl for RtlSdr {
+    fn bandwidth(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
+        RtlSdr::bandwidth(self, direction, channel)
+    }
+
+    fn set_bandwidth(&self, direction: Direction, channel: usize, bw: f64) -> Result<(), Error> {
+        RtlSdr::set_bandwidth(self, direction, channel, bw)
+    }
+
+    fn get_bandwidth_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
+        RtlSdr::get_bandwidth_range(self, direction, channel)
     }
 }
 

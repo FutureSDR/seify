@@ -18,468 +18,87 @@ pub type DynRxStreamer = Box<dyn RxStreamer>;
 /// Type-erased TX streamer.
 pub type DynTxStreamer = Box<dyn TxStreamer>;
 
+/// Object-safe RX streaming capability for runtime-dispatched devices.
+pub trait ErasedRxDevice {
+    /// Create a type-erased RX streamer.
+    fn rx_streamer(&self, channels: &[usize], args: Args) -> Result<DynRxStreamer, Error>;
+}
+
+impl<T> ErasedRxDevice for T
+where
+    T: RxDevice,
+    T::RxStreamer: 'static,
+{
+    fn rx_streamer(&self, channels: &[usize], args: Args) -> Result<DynRxStreamer, Error> {
+        Ok(Box::new(RxDevice::rx_streamer(self, channels, args)?))
+    }
+}
+
+/// Object-safe TX streaming capability for runtime-dispatched devices.
+pub trait ErasedTxDevice {
+    /// Create a type-erased TX streamer.
+    fn tx_streamer(&self, channels: &[usize], args: Args) -> Result<DynTxStreamer, Error>;
+}
+
+impl<T> ErasedTxDevice for T
+where
+    T: TxDevice,
+    T::TxStreamer: 'static,
+{
+    fn tx_streamer(&self, channels: &[usize], args: Args) -> Result<DynTxStreamer, Error> {
+        Ok(Box::new(TxDevice::tx_streamer(self, channels, args)?))
+    }
+}
+
 /// Runtime-dispatched device backend.
 ///
-/// This is the backend trait behind [`DynDevice`]. It intentionally uses the
-/// `Dyn` prefix because it is backed by `dyn` trait objects. `Any` names remain
-/// reserved for APIs that directly involve [`std::any::Any`].
-pub trait DynDeviceBackend: Send + Sync {
-    /// Cast to [`Any`] for downcasting.
-    fn as_any(&self) -> &dyn Any;
-    /// Cast to [`Any`] for mutable downcasting.
-    fn as_any_mut(&mut self) -> &mut dyn Any;
-    /// SDR [driver](Driver).
-    fn driver(&self) -> Driver;
-    /// Identifier for the device, e.g. its serial.
-    fn id(&self) -> Result<String, Error>;
-    /// Device info that can be displayed to the user.
-    fn info(&self) -> Result<Args, Error>;
-
+/// The erased backend only exposes device metadata and optional views into
+/// capability traits. Individual controls live on the smaller capability traits
+/// instead of one mandatory universal device interface.
+pub trait DynDeviceBackend: DeviceInfo + Send + Sync {
     /// Return a structured snapshot of the device's runtime capabilities.
     fn capabilities(&self) -> Result<DeviceCapabilities, Error> {
         DeviceCapabilities::from_dyn(self)
     }
 
-    fn num_channels(&self, direction: Direction) -> Result<usize, Error> {
-        match direction {
-            Direction::Rx => Ok(0),
-            Direction::Tx => Ok(0),
-        }
+    fn channel_info(&self) -> Option<&dyn ChannelInfo> {
+        None
     }
 
-    fn full_duplex(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        let _ = (direction, channel);
-        Ok(false)
+    fn rx_device(&self) -> Option<&dyn ErasedRxDevice> {
+        None
     }
 
-    fn rx_streamer(&self, channels: &[usize], args: Args) -> Result<DynRxStreamer, Error> {
-        let _ = (channels, args);
-        Err(Error::NotSupported)
+    fn tx_device(&self) -> Option<&dyn ErasedTxDevice> {
+        None
     }
 
-    fn tx_streamer(&self, channels: &[usize], args: Args) -> Result<DynTxStreamer, Error> {
-        let _ = (channels, args);
-        Err(Error::NotSupported)
+    fn antenna_control(&self) -> Option<&dyn AntennaControl> {
+        None
     }
 
-    fn antennas(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
-        let _ = (direction, channel);
-        Err(Error::NotSupported)
+    fn agc_control(&self) -> Option<&dyn AgcControl> {
+        None
     }
 
-    fn antenna(&self, direction: Direction, channel: usize) -> Result<String, Error> {
-        let _ = (direction, channel);
-        Err(Error::NotSupported)
+    fn gain_control(&self) -> Option<&dyn GainControl> {
+        None
     }
 
-    fn set_antenna(&self, direction: Direction, channel: usize, name: &str) -> Result<(), Error> {
-        let _ = (direction, channel, name);
-        Err(Error::NotSupported)
+    fn frequency_control(&self) -> Option<&dyn FrequencyControl> {
+        None
     }
 
-    fn supports_agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        let _ = (direction, channel);
-        Err(Error::NotSupported)
+    fn sample_rate_control(&self) -> Option<&dyn SampleRateControl> {
+        None
     }
 
-    fn enable_agc(&self, direction: Direction, channel: usize, agc: bool) -> Result<(), Error> {
-        let _ = (direction, channel, agc);
-        Err(Error::NotSupported)
+    fn bandwidth_control(&self) -> Option<&dyn BandwidthControl> {
+        None
     }
 
-    fn agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        let _ = (direction, channel);
-        Err(Error::NotSupported)
-    }
-
-    fn gain_elements(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
-        let _ = (direction, channel);
-        Err(Error::NotSupported)
-    }
-
-    fn set_gain(&self, direction: Direction, channel: usize, gain: f64) -> Result<(), Error> {
-        let _ = (direction, channel, gain);
-        Err(Error::NotSupported)
-    }
-
-    fn gain(&self, direction: Direction, channel: usize) -> Result<Option<f64>, Error> {
-        let _ = (direction, channel);
-        Err(Error::NotSupported)
-    }
-
-    fn gain_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
-        let _ = (direction, channel);
-        Err(Error::NotSupported)
-    }
-
-    fn set_gain_element(
-        &self,
-        direction: Direction,
-        channel: usize,
-        name: &str,
-        gain: f64,
-    ) -> Result<(), Error> {
-        let _ = (direction, channel, name, gain);
-        Err(Error::NotSupported)
-    }
-
-    fn gain_element(
-        &self,
-        direction: Direction,
-        channel: usize,
-        name: &str,
-    ) -> Result<Option<f64>, Error> {
-        let _ = (direction, channel, name);
-        Err(Error::NotSupported)
-    }
-
-    fn gain_element_range(
-        &self,
-        direction: Direction,
-        channel: usize,
-        name: &str,
-    ) -> Result<Range, Error> {
-        let _ = (direction, channel, name);
-        Err(Error::NotSupported)
-    }
-
-    fn frequency_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
-        let _ = (direction, channel);
-        Err(Error::NotSupported)
-    }
-
-    fn frequency(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
-        let _ = (direction, channel);
-        Err(Error::NotSupported)
-    }
-
-    fn set_frequency(
-        &self,
-        direction: Direction,
-        channel: usize,
-        frequency: f64,
-        args: Args,
-    ) -> Result<(), Error> {
-        let _ = (direction, channel, frequency, args);
-        Err(Error::NotSupported)
-    }
-
-    fn frequency_components(
-        &self,
-        direction: Direction,
-        channel: usize,
-    ) -> Result<Vec<String>, Error> {
-        let _ = (direction, channel);
-        Err(Error::NotSupported)
-    }
-
-    fn component_frequency_range(
-        &self,
-        direction: Direction,
-        channel: usize,
-        name: &str,
-    ) -> Result<Range, Error> {
-        let _ = (direction, channel, name);
-        Err(Error::NotSupported)
-    }
-
-    fn component_frequency(
-        &self,
-        direction: Direction,
-        channel: usize,
-        name: &str,
-    ) -> Result<f64, Error> {
-        let _ = (direction, channel, name);
-        Err(Error::NotSupported)
-    }
-
-    fn set_component_frequency(
-        &self,
-        direction: Direction,
-        channel: usize,
-        name: &str,
-        frequency: f64,
-    ) -> Result<(), Error> {
-        let _ = (direction, channel, name, frequency);
-        Err(Error::NotSupported)
-    }
-
-    fn sample_rate(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
-        let _ = (direction, channel);
-        Err(Error::NotSupported)
-    }
-
-    fn set_sample_rate(
-        &self,
-        direction: Direction,
-        channel: usize,
-        rate: f64,
-    ) -> Result<(), Error> {
-        let _ = (direction, channel, rate);
-        Err(Error::NotSupported)
-    }
-
-    fn get_sample_rate_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
-        let _ = (direction, channel);
-        Err(Error::NotSupported)
-    }
-
-    fn bandwidth(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
-        let _ = (direction, channel);
-        Err(Error::NotSupported)
-    }
-
-    fn set_bandwidth(&self, direction: Direction, channel: usize, bw: f64) -> Result<(), Error> {
-        let _ = (direction, channel, bw);
-        Err(Error::NotSupported)
-    }
-
-    fn get_bandwidth_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
-        let _ = (direction, channel);
-        Err(Error::NotSupported)
-    }
-
-    fn has_dc_offset_mode(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        let _ = (direction, channel);
-        Err(Error::NotSupported)
-    }
-
-    fn set_dc_offset_mode(
-        &self,
-        direction: Direction,
-        channel: usize,
-        automatic: bool,
-    ) -> Result<(), Error> {
-        let _ = (direction, channel, automatic);
-        Err(Error::NotSupported)
-    }
-
-    fn dc_offset_mode(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        let _ = (direction, channel);
-        Err(Error::NotSupported)
-    }
-}
-
-impl<T> DynDeviceBackend for T
-where
-    T: DeviceInfo
-        + ChannelInfo
-        + RxDevice
-        + TxDevice
-        + AntennaControl
-        + AgcControl
-        + GainControl
-        + FrequencyControl
-        + SampleRateControl
-        + BandwidthControl
-        + DcOffsetControl
-        + Send
-        + Sync,
-    T::RxStreamer: 'static,
-    T::TxStreamer: 'static,
-{
-    fn as_any(&self) -> &dyn Any {
-        DeviceInfo::as_any(self)
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        DeviceInfo::as_any_mut(self)
-    }
-
-    fn driver(&self) -> Driver {
-        DeviceInfo::driver(self)
-    }
-
-    fn id(&self) -> Result<String, Error> {
-        DeviceInfo::id(self)
-    }
-
-    fn info(&self) -> Result<Args, Error> {
-        DeviceInfo::info(self)
-    }
-
-    fn num_channels(&self, direction: Direction) -> Result<usize, Error> {
-        ChannelInfo::num_channels(self, direction)
-    }
-
-    fn full_duplex(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        ChannelInfo::full_duplex(self, direction, channel)
-    }
-
-    fn rx_streamer(&self, channels: &[usize], args: Args) -> Result<DynRxStreamer, Error> {
-        Ok(Box::new(RxDevice::rx_streamer(self, channels, args)?))
-    }
-
-    fn tx_streamer(&self, channels: &[usize], args: Args) -> Result<DynTxStreamer, Error> {
-        Ok(Box::new(TxDevice::tx_streamer(self, channels, args)?))
-    }
-
-    fn antennas(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
-        AntennaControl::antennas(self, direction, channel)
-    }
-
-    fn antenna(&self, direction: Direction, channel: usize) -> Result<String, Error> {
-        AntennaControl::antenna(self, direction, channel)
-    }
-
-    fn set_antenna(&self, direction: Direction, channel: usize, name: &str) -> Result<(), Error> {
-        AntennaControl::set_antenna(self, direction, channel, name)
-    }
-
-    fn supports_agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        AgcControl::supports_agc(self, direction, channel)
-    }
-
-    fn enable_agc(&self, direction: Direction, channel: usize, agc: bool) -> Result<(), Error> {
-        AgcControl::enable_agc(self, direction, channel, agc)
-    }
-
-    fn agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        AgcControl::agc(self, direction, channel)
-    }
-
-    fn gain_elements(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
-        GainControl::gain_elements(self, direction, channel)
-    }
-
-    fn set_gain(&self, direction: Direction, channel: usize, gain: f64) -> Result<(), Error> {
-        GainControl::set_gain(self, direction, channel, gain)
-    }
-
-    fn gain(&self, direction: Direction, channel: usize) -> Result<Option<f64>, Error> {
-        GainControl::gain(self, direction, channel)
-    }
-
-    fn gain_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
-        GainControl::gain_range(self, direction, channel)
-    }
-
-    fn set_gain_element(
-        &self,
-        direction: Direction,
-        channel: usize,
-        name: &str,
-        gain: f64,
-    ) -> Result<(), Error> {
-        GainControl::set_gain_element(self, direction, channel, name, gain)
-    }
-
-    fn gain_element(
-        &self,
-        direction: Direction,
-        channel: usize,
-        name: &str,
-    ) -> Result<Option<f64>, Error> {
-        GainControl::gain_element(self, direction, channel, name)
-    }
-
-    fn gain_element_range(
-        &self,
-        direction: Direction,
-        channel: usize,
-        name: &str,
-    ) -> Result<Range, Error> {
-        GainControl::gain_element_range(self, direction, channel, name)
-    }
-
-    fn frequency_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
-        FrequencyControl::frequency_range(self, direction, channel)
-    }
-
-    fn frequency(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
-        FrequencyControl::frequency(self, direction, channel)
-    }
-
-    fn set_frequency(
-        &self,
-        direction: Direction,
-        channel: usize,
-        frequency: f64,
-        args: Args,
-    ) -> Result<(), Error> {
-        FrequencyControl::set_frequency(self, direction, channel, frequency, args)
-    }
-
-    fn frequency_components(
-        &self,
-        direction: Direction,
-        channel: usize,
-    ) -> Result<Vec<String>, Error> {
-        FrequencyControl::frequency_components(self, direction, channel)
-    }
-
-    fn component_frequency_range(
-        &self,
-        direction: Direction,
-        channel: usize,
-        name: &str,
-    ) -> Result<Range, Error> {
-        FrequencyControl::component_frequency_range(self, direction, channel, name)
-    }
-
-    fn component_frequency(
-        &self,
-        direction: Direction,
-        channel: usize,
-        name: &str,
-    ) -> Result<f64, Error> {
-        FrequencyControl::component_frequency(self, direction, channel, name)
-    }
-
-    fn set_component_frequency(
-        &self,
-        direction: Direction,
-        channel: usize,
-        name: &str,
-        frequency: f64,
-    ) -> Result<(), Error> {
-        FrequencyControl::set_component_frequency(self, direction, channel, name, frequency)
-    }
-
-    fn sample_rate(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
-        SampleRateControl::sample_rate(self, direction, channel)
-    }
-
-    fn set_sample_rate(
-        &self,
-        direction: Direction,
-        channel: usize,
-        rate: f64,
-    ) -> Result<(), Error> {
-        SampleRateControl::set_sample_rate(self, direction, channel, rate)
-    }
-
-    fn get_sample_rate_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
-        SampleRateControl::get_sample_rate_range(self, direction, channel)
-    }
-
-    fn bandwidth(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
-        BandwidthControl::bandwidth(self, direction, channel)
-    }
-
-    fn set_bandwidth(&self, direction: Direction, channel: usize, bw: f64) -> Result<(), Error> {
-        BandwidthControl::set_bandwidth(self, direction, channel, bw)
-    }
-
-    fn get_bandwidth_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
-        BandwidthControl::get_bandwidth_range(self, direction, channel)
-    }
-
-    fn has_dc_offset_mode(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        DcOffsetControl::has_dc_offset_mode(self, direction, channel)
-    }
-
-    fn set_dc_offset_mode(
-        &self,
-        direction: Direction,
-        channel: usize,
-        automatic: bool,
-    ) -> Result<(), Error> {
-        DcOffsetControl::set_dc_offset_mode(self, direction, channel, automatic)
-    }
-
-    fn dc_offset_mode(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        DcOffsetControl::dc_offset_mode(self, direction, channel)
+    fn dc_offset_control(&self) -> Option<&dyn DcOffsetControl> {
+        None
     }
 }
 
@@ -549,7 +168,10 @@ fn channel_capabilities<D: DynDeviceBackend + ?Sized>(
     dev: &D,
     direction: Direction,
 ) -> Result<Vec<ChannelCapabilities>, Error> {
-    let channels = match dev.num_channels(direction) {
+    let Some(channel_info) = dev.channel_info() else {
+        return Ok(Vec::new());
+    };
+    let channels = match channel_info.num_channels(direction) {
         Ok(channels) => channels,
         Err(Error::NotSupported) => 0,
         Err(e) => return Err(e),
@@ -560,25 +182,37 @@ fn channel_capabilities<D: DynDeviceBackend + ?Sized>(
             Ok(ChannelCapabilities {
                 direction,
                 channel,
-                full_duplex: optional_capability(dev.full_duplex(direction, channel))?,
+                full_duplex: optional_capability(channel_info.full_duplex(direction, channel))?,
                 controls: ChannelControls {
-                    antennas: optional_capability(dev.antennas(direction, channel))?,
-                    agc: optional_capability(dev.supports_agc(direction, channel))?,
-                    gain_elements: optional_capability(dev.gain_elements(direction, channel))?,
-                    gain_range: optional_capability(dev.gain_range(direction, channel))?,
-                    frequency_components: optional_capability(
-                        dev.frequency_components(direction, channel),
+                    antennas: optional_erased_capability(dev.antenna_control(), |cap| {
+                        cap.antennas(direction, channel)
+                    })?,
+                    agc: optional_erased_capability(dev.agc_control(), |cap| {
+                        cap.supports_agc(direction, channel)
+                    })?,
+                    gain_elements: optional_erased_capability(dev.gain_control(), |cap| {
+                        cap.gain_elements(direction, channel)
+                    })?,
+                    gain_range: optional_erased_capability(dev.gain_control(), |cap| {
+                        cap.gain_range(direction, channel)
+                    })?,
+                    frequency_components: optional_erased_capability(
+                        dev.frequency_control(),
+                        |cap| cap.frequency_components(direction, channel),
                     )?,
-                    frequency_range: optional_capability(dev.frequency_range(direction, channel))?,
-                    sample_rate_range: optional_capability(
-                        dev.get_sample_rate_range(direction, channel),
+                    frequency_range: optional_erased_capability(dev.frequency_control(), |cap| {
+                        cap.frequency_range(direction, channel)
+                    })?,
+                    sample_rate_range: optional_erased_capability(
+                        dev.sample_rate_control(),
+                        |cap| cap.get_sample_rate_range(direction, channel),
                     )?,
-                    bandwidth_range: optional_capability(
-                        dev.get_bandwidth_range(direction, channel),
-                    )?,
-                    dc_offset_mode: optional_capability(
-                        dev.has_dc_offset_mode(direction, channel),
-                    )?,
+                    bandwidth_range: optional_erased_capability(dev.bandwidth_control(), |cap| {
+                        cap.get_bandwidth_range(direction, channel)
+                    })?,
+                    dc_offset_mode: optional_erased_capability(dev.dc_offset_control(), |cap| {
+                        cap.has_dc_offset_mode(direction, channel)
+                    })?,
                 },
             })
         })
@@ -590,6 +224,16 @@ fn optional_capability<T>(result: Result<T, Error>) -> Result<Option<T>, Error> 
         Ok(value) => Ok(Some(value)),
         Err(Error::NotSupported) => Ok(None),
         Err(e) => Err(e),
+    }
+}
+
+fn optional_erased_capability<C: ?Sized, T>(
+    cap: Option<&C>,
+    f: impl FnOnce(&C) -> Result<T, Error>,
+) -> Result<Option<T>, Error> {
+    match cap {
+        Some(cap) => optional_capability(f(cap)),
+        None => Ok(None),
     }
 }
 
@@ -979,10 +623,16 @@ impl DeviceInfo for DynDevice {
 
 impl ChannelInfo for DynDevice {
     fn num_channels(&self, direction: Direction) -> Result<usize, Error> {
-        self.as_ref().num_channels(direction)
+        self.as_ref()
+            .channel_info()
+            .ok_or(Error::NotSupported)?
+            .num_channels(direction)
     }
     fn full_duplex(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        self.as_ref().full_duplex(direction, channel)
+        self.as_ref()
+            .channel_info()
+            .ok_or(Error::NotSupported)?
+            .full_duplex(direction, channel)
     }
 }
 
@@ -990,7 +640,10 @@ impl RxDevice for DynDevice {
     type RxStreamer = DynRxStreamer;
 
     fn rx_streamer(&self, channels: &[usize], args: Args) -> Result<Self::RxStreamer, Error> {
-        self.as_ref().rx_streamer(channels, args)
+        self.as_ref()
+            .rx_device()
+            .ok_or(Error::NotSupported)?
+            .rx_streamer(channels, args)
     }
 }
 
@@ -998,53 +651,86 @@ impl TxDevice for DynDevice {
     type TxStreamer = DynTxStreamer;
 
     fn tx_streamer(&self, channels: &[usize], args: Args) -> Result<Self::TxStreamer, Error> {
-        self.as_ref().tx_streamer(channels, args)
+        self.as_ref()
+            .tx_device()
+            .ok_or(Error::NotSupported)?
+            .tx_streamer(channels, args)
     }
 }
 
 impl AntennaControl for DynDevice {
     fn antennas(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
-        self.as_ref().antennas(direction, channel)
+        self.as_ref()
+            .antenna_control()
+            .ok_or(Error::NotSupported)?
+            .antennas(direction, channel)
     }
 
     fn antenna(&self, direction: Direction, channel: usize) -> Result<String, Error> {
-        self.as_ref().antenna(direction, channel)
+        self.as_ref()
+            .antenna_control()
+            .ok_or(Error::NotSupported)?
+            .antenna(direction, channel)
     }
 
     fn set_antenna(&self, direction: Direction, channel: usize, name: &str) -> Result<(), Error> {
-        self.as_ref().set_antenna(direction, channel, name)
+        self.as_ref()
+            .antenna_control()
+            .ok_or(Error::NotSupported)?
+            .set_antenna(direction, channel, name)
     }
 }
 
 impl AgcControl for DynDevice {
     fn supports_agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        self.as_ref().supports_agc(direction, channel)
+        self.as_ref()
+            .agc_control()
+            .ok_or(Error::NotSupported)?
+            .supports_agc(direction, channel)
     }
 
     fn enable_agc(&self, direction: Direction, channel: usize, agc: bool) -> Result<(), Error> {
-        self.as_ref().enable_agc(direction, channel, agc)
+        self.as_ref()
+            .agc_control()
+            .ok_or(Error::NotSupported)?
+            .enable_agc(direction, channel, agc)
     }
 
     fn agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        self.as_ref().agc(direction, channel)
+        self.as_ref()
+            .agc_control()
+            .ok_or(Error::NotSupported)?
+            .agc(direction, channel)
     }
 }
 
 impl GainControl for DynDevice {
     fn gain_elements(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
-        self.as_ref().gain_elements(direction, channel)
+        self.as_ref()
+            .gain_control()
+            .ok_or(Error::NotSupported)?
+            .gain_elements(direction, channel)
     }
 
     fn set_gain(&self, direction: Direction, channel: usize, gain: f64) -> Result<(), Error> {
-        self.as_ref().set_gain(direction, channel, gain)
+        self.as_ref()
+            .gain_control()
+            .ok_or(Error::NotSupported)?
+            .set_gain(direction, channel, gain)
     }
 
     fn gain(&self, direction: Direction, channel: usize) -> Result<Option<f64>, Error> {
-        self.as_ref().gain(direction, channel)
+        self.as_ref()
+            .gain_control()
+            .ok_or(Error::NotSupported)?
+            .gain(direction, channel)
     }
 
     fn gain_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
-        self.as_ref().gain_range(direction, channel)
+        self.as_ref()
+            .gain_control()
+            .ok_or(Error::NotSupported)?
+            .gain_range(direction, channel)
     }
 
     fn set_gain_element(
@@ -1055,6 +741,8 @@ impl GainControl for DynDevice {
         gain: f64,
     ) -> Result<(), Error> {
         self.as_ref()
+            .gain_control()
+            .ok_or(Error::NotSupported)?
             .set_gain_element(direction, channel, name, gain)
     }
 
@@ -1064,7 +752,10 @@ impl GainControl for DynDevice {
         channel: usize,
         name: &str,
     ) -> Result<Option<f64>, Error> {
-        self.as_ref().gain_element(direction, channel, name)
+        self.as_ref()
+            .gain_control()
+            .ok_or(Error::NotSupported)?
+            .gain_element(direction, channel, name)
     }
 
     fn gain_element_range(
@@ -1073,17 +764,26 @@ impl GainControl for DynDevice {
         channel: usize,
         name: &str,
     ) -> Result<Range, Error> {
-        self.as_ref().gain_element_range(direction, channel, name)
+        self.as_ref()
+            .gain_control()
+            .ok_or(Error::NotSupported)?
+            .gain_element_range(direction, channel, name)
     }
 }
 
 impl FrequencyControl for DynDevice {
     fn frequency_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
-        self.as_ref().frequency_range(direction, channel)
+        self.as_ref()
+            .frequency_control()
+            .ok_or(Error::NotSupported)?
+            .frequency_range(direction, channel)
     }
 
     fn frequency(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
-        self.as_ref().frequency(direction, channel)
+        self.as_ref()
+            .frequency_control()
+            .ok_or(Error::NotSupported)?
+            .frequency(direction, channel)
     }
 
     fn set_frequency(
@@ -1094,6 +794,8 @@ impl FrequencyControl for DynDevice {
         args: Args,
     ) -> Result<(), Error> {
         self.as_ref()
+            .frequency_control()
+            .ok_or(Error::NotSupported)?
             .set_frequency(direction, channel, frequency, args)
     }
 
@@ -1102,7 +804,10 @@ impl FrequencyControl for DynDevice {
         direction: Direction,
         channel: usize,
     ) -> Result<Vec<String>, Error> {
-        self.as_ref().frequency_components(direction, channel)
+        self.as_ref()
+            .frequency_control()
+            .ok_or(Error::NotSupported)?
+            .frequency_components(direction, channel)
     }
 
     fn component_frequency_range(
@@ -1112,6 +817,8 @@ impl FrequencyControl for DynDevice {
         name: &str,
     ) -> Result<Range, Error> {
         self.as_ref()
+            .frequency_control()
+            .ok_or(Error::NotSupported)?
             .component_frequency_range(direction, channel, name)
     }
 
@@ -1121,7 +828,10 @@ impl FrequencyControl for DynDevice {
         channel: usize,
         name: &str,
     ) -> Result<f64, Error> {
-        self.as_ref().component_frequency(direction, channel, name)
+        self.as_ref()
+            .frequency_control()
+            .ok_or(Error::NotSupported)?
+            .component_frequency(direction, channel, name)
     }
 
     fn set_component_frequency(
@@ -1132,13 +842,18 @@ impl FrequencyControl for DynDevice {
         frequency: f64,
     ) -> Result<(), Error> {
         self.as_ref()
+            .frequency_control()
+            .ok_or(Error::NotSupported)?
             .set_component_frequency(direction, channel, name, frequency)
     }
 }
 
 impl SampleRateControl for DynDevice {
     fn sample_rate(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
-        self.as_ref().sample_rate(direction, channel)
+        self.as_ref()
+            .sample_rate_control()
+            .ok_or(Error::NotSupported)?
+            .sample_rate(direction, channel)
     }
 
     fn set_sample_rate(
@@ -1147,31 +862,49 @@ impl SampleRateControl for DynDevice {
         channel: usize,
         rate: f64,
     ) -> Result<(), Error> {
-        self.as_ref().set_sample_rate(direction, channel, rate)
+        self.as_ref()
+            .sample_rate_control()
+            .ok_or(Error::NotSupported)?
+            .set_sample_rate(direction, channel, rate)
     }
 
     fn get_sample_rate_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
-        self.as_ref().get_sample_rate_range(direction, channel)
+        self.as_ref()
+            .sample_rate_control()
+            .ok_or(Error::NotSupported)?
+            .get_sample_rate_range(direction, channel)
     }
 }
 
 impl BandwidthControl for DynDevice {
     fn bandwidth(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
-        self.as_ref().bandwidth(direction, channel)
+        self.as_ref()
+            .bandwidth_control()
+            .ok_or(Error::NotSupported)?
+            .bandwidth(direction, channel)
     }
 
     fn set_bandwidth(&self, direction: Direction, channel: usize, bw: f64) -> Result<(), Error> {
-        self.as_ref().set_bandwidth(direction, channel, bw)
+        self.as_ref()
+            .bandwidth_control()
+            .ok_or(Error::NotSupported)?
+            .set_bandwidth(direction, channel, bw)
     }
 
     fn get_bandwidth_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
-        self.as_ref().get_bandwidth_range(direction, channel)
+        self.as_ref()
+            .bandwidth_control()
+            .ok_or(Error::NotSupported)?
+            .get_bandwidth_range(direction, channel)
     }
 }
 
 impl DcOffsetControl for DynDevice {
     fn has_dc_offset_mode(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        self.as_ref().has_dc_offset_mode(direction, channel)
+        self.as_ref()
+            .dc_offset_control()
+            .ok_or(Error::NotSupported)?
+            .has_dc_offset_mode(direction, channel)
     }
 
     fn set_dc_offset_mode(
@@ -1181,11 +914,16 @@ impl DcOffsetControl for DynDevice {
         automatic: bool,
     ) -> Result<(), Error> {
         self.as_ref()
+            .dc_offset_control()
+            .ok_or(Error::NotSupported)?
             .set_dc_offset_mode(direction, channel, automatic)
     }
 
     fn dc_offset_mode(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        self.as_ref().dc_offset_mode(direction, channel)
+        self.as_ref()
+            .dc_offset_control()
+            .ok_or(Error::NotSupported)?
+            .dc_offset_mode(direction, channel)
     }
 }
 
@@ -1459,6 +1197,88 @@ impl<T: DcOffsetControl> Device<T> {
 mod tests {
     use super::*;
 
+    struct RxOnly;
+
+    struct TestRxStreamer;
+
+    impl DeviceInfo for RxOnly {
+        fn as_any(&self) -> &dyn Any {
+            self
+        }
+
+        fn as_any_mut(&mut self) -> &mut dyn Any {
+            self
+        }
+
+        fn driver(&self) -> Driver {
+            Driver::Dummy
+        }
+
+        fn id(&self) -> Result<String, Error> {
+            Ok("rx-only".to_string())
+        }
+
+        fn info(&self) -> Result<Args, Error> {
+            Ok(Args::new())
+        }
+    }
+
+    impl DynDeviceBackend for RxOnly {
+        fn channel_info(&self) -> Option<&dyn ChannelInfo> {
+            Some(self)
+        }
+
+        fn rx_device(&self) -> Option<&dyn ErasedRxDevice> {
+            Some(self)
+        }
+    }
+
+    impl ChannelInfo for RxOnly {
+        fn num_channels(&self, direction: Direction) -> Result<usize, Error> {
+            match direction {
+                Direction::Rx => Ok(1),
+                Direction::Tx => Ok(0),
+            }
+        }
+
+        fn full_duplex(&self, _direction: Direction, _channel: usize) -> Result<bool, Error> {
+            Ok(false)
+        }
+    }
+
+    impl RxDevice for RxOnly {
+        type RxStreamer = TestRxStreamer;
+
+        fn rx_streamer(&self, channels: &[usize], _args: Args) -> Result<Self::RxStreamer, Error> {
+            match channels {
+                &[0] => Ok(TestRxStreamer),
+                _ => Err(Error::ValueError),
+            }
+        }
+    }
+
+    impl crate::RxStreamer for TestRxStreamer {
+        fn mtu(&self) -> Result<usize, Error> {
+            Ok(1)
+        }
+
+        fn activate_at(&mut self, _time_ns: Option<i64>) -> Result<(), Error> {
+            Ok(())
+        }
+
+        fn deactivate_at(&mut self, _time_ns: Option<i64>) -> Result<(), Error> {
+            Ok(())
+        }
+
+        fn read(
+            &mut self,
+            _buffers: &mut [&mut [num_complex::Complex32]],
+            _timeout_us: i64,
+        ) -> Result<usize, Error> {
+            Ok(0)
+        }
+    }
+
     #[test]
     fn dyn_device_reports_capabilities() {
         let dummy = crate::impls::Dummy::open(Args::new()).unwrap();
@@ -1481,5 +1301,21 @@ mod tests {
             Some(vec!["freq".to_string()])
         );
         assert_eq!(rx0.controls.dc_offset_mode, Some(false));
+    }
+
+    #[test]
+    fn dyn_device_does_not_require_all_capabilities() {
+        let dev: Device<DynDevice> = Device::dyn_from_impl(RxOnly);
+
+        let capabilities = dev.capabilities().unwrap();
+        assert_eq!(capabilities.rx_channels.len(), 1);
+        assert_eq!(capabilities.tx_channels.len(), 0);
+        assert_eq!(
+            capabilities.rx_channels[0].controls,
+            ChannelControls::default()
+        );
+
+        assert!(dev.rx_streamer(&[0]).is_ok());
+        assert!(matches!(dev.tx_streamer(&[0]), Err(Error::NotSupported)));
     }
 }

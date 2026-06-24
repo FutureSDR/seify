@@ -11,6 +11,7 @@ use crate::DcOffsetControl;
 use crate::DeviceInfo;
 use crate::Direction;
 use crate::Driver;
+use crate::DynDeviceBackend;
 use crate::Error;
 use crate::FrequencyControl;
 use crate::GainControl;
@@ -114,6 +115,48 @@ impl DeviceInfo for Soapy {
 
     fn info(&self) -> Result<Args, Error> {
         Ok(self.args.clone())
+    }
+}
+
+impl DynDeviceBackend for Soapy {
+    fn channel_info(&self) -> Option<&dyn ChannelInfo> {
+        Some(self)
+    }
+
+    fn rx_device(&self) -> Option<&dyn crate::ErasedRxDevice> {
+        Some(self)
+    }
+
+    fn tx_device(&self) -> Option<&dyn crate::ErasedTxDevice> {
+        Some(self)
+    }
+
+    fn antenna_control(&self) -> Option<&dyn AntennaControl> {
+        Some(self)
+    }
+
+    fn agc_control(&self) -> Option<&dyn AgcControl> {
+        Some(self)
+    }
+
+    fn gain_control(&self) -> Option<&dyn GainControl> {
+        Some(self)
+    }
+
+    fn frequency_control(&self) -> Option<&dyn FrequencyControl> {
+        Some(self)
+    }
+
+    fn sample_rate_control(&self) -> Option<&dyn SampleRateControl> {
+        Some(self)
+    }
+
+    fn bandwidth_control(&self) -> Option<&dyn BandwidthControl> {
+        Some(self)
+    }
+
+    fn dc_offset_control(&self) -> Option<&dyn DcOffsetControl> {
+        Some(self)
     }
 }
 
