@@ -25,7 +25,7 @@ Enable drivers explicitly in `Cargo.toml` or on the command line:
 
 ```bash
 cargo check --no-default-features --features rtlsdr
-cargo check --features hydrasdr,hackrfone
+cargo check --no-default-features --features hydrasdr,hackrfone
 ```
 
 Available features:

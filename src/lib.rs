@@ -404,7 +404,7 @@ pub enum Direction {
 ///
 /// ## Returns
 ///
-/// A vector or [`Args`] that provide information about the device and can be used to identify it
+/// A vector of [`Args`] that provide information about the device and can be used to identify it
 /// uniquely, i.e., passing the [`Args`] to [`DynDevice::from_args`](crate::DynDevice::from_args) will
 /// open this particular device.
 pub fn enumerate() -> Result<Vec<Args>, Error> {
@@ -415,7 +415,7 @@ pub fn enumerate() -> Result<Vec<Args>, Error> {
 ///
 /// ## Returns
 ///
-/// A vector or [`Args`] that provide information about the device and can be used to identify it
+/// A vector of [`Args`] that provide information about the device and can be used to identify it
 /// uniquely, i.e., passing the [`Args`] to [`DynDevice::from_args`](crate::DynDevice::from_args) will
 /// open this particular device.
 pub fn enumerate_with_args<A: TryInto<Args>>(a: A) -> Result<Vec<Args>, Error> {
