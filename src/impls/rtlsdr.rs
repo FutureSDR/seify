@@ -168,7 +168,7 @@ impl RtlSdr {
         }
     }
 
-    fn supports_agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+    fn agc_available(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
         if matches!(direction, Rx) && channel == 0 {
             Ok(true)
         } else if matches!(direction, Rx) {
@@ -178,7 +178,12 @@ impl RtlSdr {
         }
     }
 
-    fn enable_agc(&self, direction: Direction, channel: usize, agc: bool) -> Result<(), Error> {
+    fn set_agc_enabled(
+        &self,
+        direction: Direction,
+        channel: usize,
+        agc: bool,
+    ) -> Result<(), Error> {
         let gains = self.dev.get_tuner_gains().or(Err(Error::DeviceError))?;
         if matches!(direction, Rx) && channel == 0 {
             let mut inner = self.i.lock().unwrap();
@@ -196,7 +201,7 @@ impl RtlSdr {
         }
     }
 
-    fn agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+    fn agc_enabled(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
         if matches!(direction, Rx) && channel == 0 {
             let inner = self.i.lock().unwrap();
             Ok(matches!(inner.gain, TunerGain::Auto))
@@ -502,16 +507,21 @@ impl AntennaControl for RtlSdr {
 }
 
 impl AgcControl for RtlSdr {
-    fn supports_agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        RtlSdr::supports_agc(self, direction, channel)
+    fn agc_available(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+        RtlSdr::agc_available(self, direction, channel)
     }
 
-    fn enable_agc(&self, direction: Direction, channel: usize, agc: bool) -> Result<(), Error> {
-        RtlSdr::enable_agc(self, direction, channel, agc)
+    fn set_agc_enabled(
+        &self,
+        direction: Direction,
+        channel: usize,
+        agc: bool,
+    ) -> Result<(), Error> {
+        RtlSdr::set_agc_enabled(self, direction, channel, agc)
     }
 
-    fn agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        RtlSdr::agc(self, direction, channel)
+    fn agc_enabled(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+        RtlSdr::agc_enabled(self, direction, channel)
     }
 }
 

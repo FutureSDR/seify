@@ -12,9 +12,9 @@ use num_complex::Complex32;
 
 use crate::Direction::*;
 use crate::{
-    AgcControl, AntennaControl, Args, BandwidthControl, ChannelInfo, DcOffsetControl, DeviceInfo,
-    Direction, Driver, DynDeviceBackend, Error, FrequencyControl, GainControl, Range, RangeItem,
-    RxDevice, SampleRateControl,
+    AgcControl, AntennaControl, Args, BandwidthControl, ChannelInfo, DeviceInfo, Direction, Driver,
+    DynDeviceBackend, Error, FrequencyControl, GainControl, Range, RangeItem, RxDevice,
+    SampleRateControl,
 };
 
 const MTU: usize = 262_144 / 8;
@@ -206,12 +206,17 @@ impl HydraSdr {
         Ok(())
     }
 
-    fn supports_agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+    fn agc_available(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
         check_rx(direction, channel)?;
         Ok(true)
     }
 
-    fn enable_agc(&self, direction: Direction, channel: usize, agc: bool) -> Result<(), Error> {
+    fn set_agc_enabled(
+        &self,
+        direction: Direction,
+        channel: usize,
+        agc: bool,
+    ) -> Result<(), Error> {
         check_rx(direction, channel)?;
         self.ensure_rx_config_idle()?;
         let mut inner = self.inner.lock().unwrap();
@@ -233,7 +238,7 @@ impl HydraSdr {
         Ok(())
     }
 
-    fn agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+    fn agc_enabled(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
         check_rx(direction, channel)?;
         Ok(self.inner.lock().unwrap().agc)
     }
@@ -537,26 +542,6 @@ impl HydraSdr {
             ))
         }
     }
-
-    fn has_dc_offset_mode(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        check_rx(direction, channel)?;
-        Ok(false)
-    }
-
-    fn set_dc_offset_mode(
-        &self,
-        direction: Direction,
-        channel: usize,
-        _automatic: bool,
-    ) -> Result<(), Error> {
-        check_rx(direction, channel)?;
-        Err(Error::NotSupported)
-    }
-
-    fn dc_offset_mode(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        check_rx(direction, channel)?;
-        Ok(false)
-    }
 }
 
 impl DeviceInfo for HydraSdr {
@@ -613,10 +598,6 @@ impl DynDeviceBackend for HydraSdr {
     fn bandwidth_control(&self) -> Option<&dyn BandwidthControl> {
         Some(self)
     }
-
-    fn dc_offset_control(&self) -> Option<&dyn DcOffsetControl> {
-        Some(self)
-    }
 }
 
 impl ChannelInfo for HydraSdr {
@@ -659,16 +640,21 @@ impl AntennaControl for HydraSdr {
 }
 
 impl AgcControl for HydraSdr {
-    fn supports_agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        HydraSdr::supports_agc(self, direction, channel)
+    fn agc_available(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+        HydraSdr::agc_available(self, direction, channel)
     }
 
-    fn enable_agc(&self, direction: Direction, channel: usize, agc: bool) -> Result<(), Error> {
-        HydraSdr::enable_agc(self, direction, channel, agc)
+    fn set_agc_enabled(
+        &self,
+        direction: Direction,
+        channel: usize,
+        agc: bool,
+    ) -> Result<(), Error> {
+        HydraSdr::set_agc_enabled(self, direction, channel, agc)
     }
 
-    fn agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        HydraSdr::agc(self, direction, channel)
+    fn agc_enabled(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+        HydraSdr::agc_enabled(self, direction, channel)
     }
 }
 
@@ -804,25 +790,6 @@ impl BandwidthControl for HydraSdr {
 
     fn get_bandwidth_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
         HydraSdr::get_bandwidth_range(self, direction, channel)
-    }
-}
-
-impl DcOffsetControl for HydraSdr {
-    fn has_dc_offset_mode(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        HydraSdr::has_dc_offset_mode(self, direction, channel)
-    }
-
-    fn set_dc_offset_mode(
-        &self,
-        direction: Direction,
-        channel: usize,
-        automatic: bool,
-    ) -> Result<(), Error> {
-        HydraSdr::set_dc_offset_mode(self, direction, channel, automatic)
-    }
-
-    fn dc_offset_mode(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        HydraSdr::dc_offset_mode(self, direction, channel)
     }
 }
 

@@ -209,15 +209,20 @@ impl AntennaControl for Soapy {
 }
 
 impl AgcControl for Soapy {
-    fn supports_agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+    fn agc_available(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
         Ok(self.dev.has_gain_mode(direction.into(), channel)?)
     }
 
-    fn enable_agc(&self, direction: Direction, channel: usize, agc: bool) -> Result<(), Error> {
+    fn set_agc_enabled(
+        &self,
+        direction: Direction,
+        channel: usize,
+        agc: bool,
+    ) -> Result<(), Error> {
         Ok(self.dev.set_gain_mode(direction.into(), channel, agc)?)
     }
 
-    fn agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+    fn agc_enabled(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
         Ok(self.dev.gain_mode(direction.into(), channel)?)
     }
 }
@@ -232,7 +237,7 @@ impl GainControl for Soapy {
     }
 
     fn gain(&self, direction: Direction, channel: usize) -> Result<Option<f64>, Error> {
-        if self.agc(direction, channel)? {
+        if self.agc_enabled(direction, channel)? {
             Ok(None)
         } else {
             Ok(Some(self.dev.gain(direction.into(), channel)?))
@@ -262,7 +267,7 @@ impl GainControl for Soapy {
         channel: usize,
         name: &str,
     ) -> Result<Option<f64>, Error> {
-        if self.agc(direction, channel)? {
+        if self.agc_enabled(direction, channel)? {
             Ok(None)
         } else {
             Ok(Some(self.dev.gain_element(
@@ -395,11 +400,11 @@ impl BandwidthControl for Soapy {
 }
 
 impl DcOffsetControl for Soapy {
-    fn has_dc_offset_mode(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+    fn dc_offset_available(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
         Ok(self.dev.has_dc_offset_mode(direction.into(), channel)?)
     }
 
-    fn set_dc_offset_mode(
+    fn set_dc_offset_enabled(
         &self,
         direction: Direction,
         channel: usize,
@@ -410,7 +415,7 @@ impl DcOffsetControl for Soapy {
             .set_dc_offset_mode(direction.into(), channel, automatic)?)
     }
 
-    fn dc_offset_mode(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+    fn dc_offset_enabled(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
         Ok(self.dev.dc_offset_mode(direction.into(), channel)?)
     }
 }

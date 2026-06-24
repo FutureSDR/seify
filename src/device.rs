@@ -147,7 +147,7 @@ pub struct ChannelControls {
     /// Available antenna ports.
     pub antennas: Option<Vec<String>>,
     /// Automatic gain control support.
-    pub agc: Option<bool>,
+    pub agc: bool,
     /// Named gain elements.
     pub gain_elements: Option<Vec<String>>,
     /// Overall gain range.
@@ -161,7 +161,7 @@ pub struct ChannelControls {
     /// Hardware bandwidth range.
     pub bandwidth_range: Option<Range>,
     /// Automatic DC offset correction support.
-    pub dc_offset_mode: Option<bool>,
+    pub dc_offset: bool,
 }
 
 fn channel_capabilities<D: DynDeviceBackend + ?Sized>(
@@ -187,8 +187,8 @@ fn channel_capabilities<D: DynDeviceBackend + ?Sized>(
                     antennas: optional_erased_capability(dev.antenna_control(), |cap| {
                         cap.antennas(direction, channel)
                     })?,
-                    agc: optional_erased_capability(dev.agc_control(), |cap| {
-                        cap.supports_agc(direction, channel)
+                    agc: erased_capability_available(dev.agc_control(), |cap| {
+                        cap.agc_available(direction, channel)
                     })?,
                     gain_elements: optional_erased_capability(dev.gain_control(), |cap| {
                         cap.gain_elements(direction, channel)
@@ -210,8 +210,8 @@ fn channel_capabilities<D: DynDeviceBackend + ?Sized>(
                     bandwidth_range: optional_erased_capability(dev.bandwidth_control(), |cap| {
                         cap.get_bandwidth_range(direction, channel)
                     })?,
-                    dc_offset_mode: optional_erased_capability(dev.dc_offset_control(), |cap| {
-                        cap.has_dc_offset_mode(direction, channel)
+                    dc_offset: erased_capability_available(dev.dc_offset_control(), |cap| {
+                        cap.dc_offset_available(direction, channel)
                     })?,
                 },
             })
@@ -234,6 +234,20 @@ fn optional_erased_capability<C: ?Sized, T>(
     match cap {
         Some(cap) => optional_capability(f(cap)),
         None => Ok(None),
+    }
+}
+
+fn erased_capability_available<C: ?Sized>(
+    cap: Option<&C>,
+    f: impl FnOnce(&C) -> Result<bool, Error>,
+) -> Result<bool, Error> {
+    match cap {
+        Some(cap) => match f(cap) {
+            Ok(available) => Ok(available),
+            Err(Error::NotSupported) => Ok(false),
+            Err(e) => Err(e),
+        },
+        None => Ok(false),
     }
 }
 
@@ -286,9 +300,14 @@ pub trait AntennaControl {
 
 /// Automatic gain control capability.
 pub trait AgcControl {
-    fn supports_agc(&self, direction: Direction, channel: usize) -> Result<bool, Error>;
-    fn enable_agc(&self, direction: Direction, channel: usize, agc: bool) -> Result<(), Error>;
-    fn agc(&self, direction: Direction, channel: usize) -> Result<bool, Error>;
+    fn agc_available(&self, direction: Direction, channel: usize) -> Result<bool, Error>;
+    fn agc_enabled(&self, direction: Direction, channel: usize) -> Result<bool, Error>;
+    fn set_agc_enabled(
+        &self,
+        direction: Direction,
+        channel: usize,
+        enabled: bool,
+    ) -> Result<(), Error>;
 }
 
 /// Gain control capability.
@@ -372,14 +391,96 @@ pub trait BandwidthControl {
 
 /// Automatic DC offset correction capability.
 pub trait DcOffsetControl {
-    fn has_dc_offset_mode(&self, direction: Direction, channel: usize) -> Result<bool, Error>;
-    fn set_dc_offset_mode(
+    fn dc_offset_available(&self, direction: Direction, channel: usize) -> Result<bool, Error>;
+    fn dc_offset_enabled(&self, direction: Direction, channel: usize) -> Result<bool, Error>;
+    fn set_dc_offset_enabled(
         &self,
         direction: Direction,
         channel: usize,
-        automatic: bool,
+        enabled: bool,
     ) -> Result<(), Error>;
-    fn dc_offset_mode(&self, direction: Direction, channel: usize) -> Result<bool, Error>;
+}
+
+/// Handle for automatic gain control on one device channel.
+pub struct Agc<'a, T: AgcControl + ?Sized> {
+    dev: &'a T,
+    direction: Direction,
+    channel: usize,
+}
+
+impl<'a, T: AgcControl + ?Sized> Agc<'a, T> {
+    fn new(dev: &'a T, direction: Direction, channel: usize) -> Result<Self, Error> {
+        if !dev.agc_available(direction, channel)? {
+            return Err(Error::NotSupported);
+        }
+        Ok(Self {
+            dev,
+            direction,
+            channel,
+        })
+    }
+
+    /// Return whether automatic gain control is enabled.
+    pub fn enabled(&self) -> Result<bool, Error> {
+        self.dev.agc_enabled(self.direction, self.channel)
+    }
+
+    /// Enable automatic gain control.
+    pub fn enable(&self) -> Result<(), Error> {
+        self.set_enabled(true)
+    }
+
+    /// Disable automatic gain control.
+    pub fn disable(&self) -> Result<(), Error> {
+        self.set_enabled(false)
+    }
+
+    /// Set whether automatic gain control is enabled.
+    pub fn set_enabled(&self, enabled: bool) -> Result<(), Error> {
+        self.dev
+            .set_agc_enabled(self.direction, self.channel, enabled)
+    }
+}
+
+/// Handle for automatic DC offset correction on one device channel.
+pub struct DcOffset<'a, T: DcOffsetControl + ?Sized> {
+    dev: &'a T,
+    direction: Direction,
+    channel: usize,
+}
+
+impl<'a, T: DcOffsetControl + ?Sized> DcOffset<'a, T> {
+    fn new(dev: &'a T, direction: Direction, channel: usize) -> Result<Self, Error> {
+        if !dev.dc_offset_available(direction, channel)? {
+            return Err(Error::NotSupported);
+        }
+        Ok(Self {
+            dev,
+            direction,
+            channel,
+        })
+    }
+
+    /// Return whether automatic DC offset correction is enabled.
+    pub fn enabled(&self) -> Result<bool, Error> {
+        self.dev.dc_offset_enabled(self.direction, self.channel)
+    }
+
+    /// Enable automatic DC offset correction.
+    pub fn enable(&self) -> Result<(), Error> {
+        self.set_enabled(true)
+    }
+
+    /// Disable automatic DC offset correction.
+    pub fn disable(&self) -> Result<(), Error> {
+        self.set_enabled(false)
+    }
+
+    /// Set whether automatic DC offset correction is enabled.
+    pub fn set_enabled(&self, enabled: bool) -> Result<(), Error> {
+        self.dev
+            .set_dc_offset_enabled(self.direction, self.channel, enabled)
+    }
 }
 
 /// Wraps a driver implementation.
@@ -681,29 +782,6 @@ impl AntennaControl for DynDevice {
     }
 }
 
-impl AgcControl for DynDevice {
-    fn supports_agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        self.as_ref()
-            .agc_control()
-            .ok_or(Error::NotSupported)?
-            .supports_agc(direction, channel)
-    }
-
-    fn enable_agc(&self, direction: Direction, channel: usize, agc: bool) -> Result<(), Error> {
-        self.as_ref()
-            .agc_control()
-            .ok_or(Error::NotSupported)?
-            .enable_agc(direction, channel, agc)
-    }
-
-    fn agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        self.as_ref()
-            .agc_control()
-            .ok_or(Error::NotSupported)?
-            .agc(direction, channel)
-    }
-}
-
 impl GainControl for DynDevice {
     fn gain_elements(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
         self.as_ref()
@@ -899,38 +977,39 @@ impl BandwidthControl for DynDevice {
     }
 }
 
-impl DcOffsetControl for DynDevice {
-    fn has_dc_offset_mode(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        self.as_ref()
-            .dc_offset_control()
-            .ok_or(Error::NotSupported)?
-            .has_dc_offset_mode(direction, channel)
-    }
-
-    fn set_dc_offset_mode(
-        &self,
-        direction: Direction,
-        channel: usize,
-        automatic: bool,
-    ) -> Result<(), Error> {
-        self.as_ref()
-            .dc_offset_control()
-            .ok_or(Error::NotSupported)?
-            .set_dc_offset_mode(direction, channel, automatic)
-    }
-
-    fn dc_offset_mode(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        self.as_ref()
-            .dc_offset_control()
-            .ok_or(Error::NotSupported)?
-            .dc_offset_mode(direction, channel)
-    }
-}
-
 impl Device<DynDevice> {
     /// Structured runtime capabilities for the device.
     pub fn capabilities(&self) -> Result<DeviceCapabilities, Error> {
         self.dev.capabilities()
+    }
+
+    /// Automatic gain control for one channel.
+    pub fn agc(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> Result<Agc<'_, dyn AgcControl + '_>, Error> {
+        Agc::new(
+            self.dev.as_ref().agc_control().ok_or(Error::NotSupported)?,
+            direction,
+            channel,
+        )
+    }
+
+    /// Automatic DC offset correction for one channel.
+    pub fn dc_offset(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> Result<DcOffset<'_, dyn DcOffsetControl + '_>, Error> {
+        DcOffset::new(
+            self.dev
+                .as_ref()
+                .dc_offset_control()
+                .ok_or(Error::NotSupported)?,
+            direction,
+            channel,
+        )
     }
 }
 
@@ -998,16 +1077,9 @@ impl<T: AntennaControl> Device<T> {
 }
 
 impl<T: AgcControl> Device<T> {
-    pub fn supports_agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        self.dev.supports_agc(direction, channel)
-    }
-
-    pub fn enable_agc(&self, direction: Direction, channel: usize, agc: bool) -> Result<(), Error> {
-        self.dev.enable_agc(direction, channel, agc)
-    }
-
-    pub fn agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        self.dev.agc(direction, channel)
+    /// Automatic gain control for one channel.
+    pub fn agc(&self, direction: Direction, channel: usize) -> Result<Agc<'_, T>, Error> {
+        Agc::new(&self.dev, direction, channel)
     }
 }
 
@@ -1175,21 +1247,13 @@ impl<T: BandwidthControl> Device<T> {
 }
 
 impl<T: DcOffsetControl> Device<T> {
-    pub fn has_dc_offset_mode(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        self.dev.has_dc_offset_mode(direction, channel)
-    }
-
-    pub fn set_dc_offset_mode(
+    /// Automatic DC offset correction for one channel.
+    pub fn dc_offset(
         &self,
         direction: Direction,
         channel: usize,
-        automatic: bool,
-    ) -> Result<(), Error> {
-        self.dev.set_dc_offset_mode(direction, channel, automatic)
-    }
-
-    pub fn dc_offset_mode(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        self.dev.dc_offset_mode(direction, channel)
+    ) -> Result<DcOffset<'_, T>, Error> {
+        DcOffset::new(&self.dev, direction, channel)
     }
 }
 
@@ -1198,6 +1262,8 @@ mod tests {
     use super::*;
 
     struct RxOnly;
+
+    struct DcToggle(std::sync::Mutex<bool>);
 
     struct TestRxStreamer;
 
@@ -1257,6 +1323,42 @@ mod tests {
         }
     }
 
+    impl DcOffsetControl for DcToggle {
+        fn dc_offset_available(
+            &self,
+            _direction: Direction,
+            channel: usize,
+        ) -> Result<bool, Error> {
+            if channel == 0 {
+                Ok(true)
+            } else {
+                Err(Error::ValueError)
+            }
+        }
+
+        fn dc_offset_enabled(&self, _direction: Direction, channel: usize) -> Result<bool, Error> {
+            if channel == 0 {
+                Ok(*self.0.lock().unwrap())
+            } else {
+                Err(Error::ValueError)
+            }
+        }
+
+        fn set_dc_offset_enabled(
+            &self,
+            _direction: Direction,
+            channel: usize,
+            enabled: bool,
+        ) -> Result<(), Error> {
+            if channel == 0 {
+                *self.0.lock().unwrap() = enabled;
+                Ok(())
+            } else {
+                Err(Error::ValueError)
+            }
+        }
+    }
+
     impl crate::RxStreamer for TestRxStreamer {
         fn mtu(&self) -> Result<usize, Error> {
             Ok(1)
@@ -1294,13 +1396,38 @@ mod tests {
         assert_eq!(rx0.channel, 0);
         assert_eq!(rx0.full_duplex, Some(true));
         assert_eq!(rx0.controls.antennas, Some(vec!["A".to_string()]));
-        assert_eq!(rx0.controls.agc, Some(true));
+        assert!(rx0.controls.agc);
         assert_eq!(rx0.controls.gain_elements, Some(vec!["RF".to_string()]));
         assert_eq!(
             rx0.controls.frequency_components,
             Some(vec!["freq".to_string()])
         );
-        assert_eq!(rx0.controls.dc_offset_mode, Some(false));
+        assert!(!rx0.controls.dc_offset);
+    }
+
+    #[test]
+    fn agc_handle_controls_enabled_state() {
+        let dummy = crate::impls::Dummy::open(Args::new()).unwrap();
+        let dev = Device::from_impl(dummy);
+        let agc = dev.agc(Direction::Rx, 0).unwrap();
+
+        agc.enable().unwrap();
+        assert!(agc.enabled().unwrap());
+
+        agc.disable().unwrap();
+        assert!(!agc.enabled().unwrap());
+    }
+
+    #[test]
+    fn dc_offset_handle_controls_enabled_state() {
+        let dev = Device::from_impl(DcToggle(std::sync::Mutex::new(false)));
+        let dc_offset = dev.dc_offset(Direction::Rx, 0).unwrap();
+
+        dc_offset.enable().unwrap();
+        assert!(dc_offset.enabled().unwrap());
+
+        dc_offset.disable().unwrap();
+        assert!(!dc_offset.enabled().unwrap());
     }
 
     #[test]
@@ -1317,5 +1444,13 @@ mod tests {
 
         assert!(dev.rx_streamer(&[0]).is_ok());
         assert!(matches!(dev.tx_streamer(&[0]), Err(Error::NotSupported)));
+        assert!(matches!(
+            dev.agc(Direction::Rx, 0),
+            Err(Error::NotSupported)
+        ));
+        assert!(matches!(
+            dev.dc_offset(Direction::Rx, 0),
+            Err(Error::NotSupported)
+        ));
     }
 }

@@ -222,14 +222,19 @@ impl AaroniaHttp {
         }
     }
 
-    fn supports_agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+    fn agc_available(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
         match (direction, channel) {
             (Rx, 0 | 1) => Ok(true),
             _ => Err(Error::ValueError),
         }
     }
 
-    fn enable_agc(&self, direction: Direction, channel: usize, agc: bool) -> Result<(), Error> {
+    fn set_agc_enabled(
+        &self,
+        direction: Direction,
+        channel: usize,
+        agc: bool,
+    ) -> Result<(), Error> {
         match (direction, channel) {
             (Rx, 0 | 1) => {
                 let json = json!({
@@ -246,7 +251,7 @@ impl AaroniaHttp {
         }
     }
 
-    fn agc(&self, _direction: Direction, _channel: usize) -> Result<bool, Error> {
+    fn agc_enabled(&self, _direction: Direction, _channel: usize) -> Result<bool, Error> {
         let (_, s) = self.get_enum(vec![
             "Block_Spectran_V6B_0",
             "config",
@@ -646,16 +651,21 @@ impl AntennaControl for AaroniaHttp {
 }
 
 impl AgcControl for AaroniaHttp {
-    fn supports_agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        AaroniaHttp::supports_agc(self, direction, channel)
+    fn agc_available(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+        AaroniaHttp::agc_available(self, direction, channel)
     }
 
-    fn enable_agc(&self, direction: Direction, channel: usize, agc: bool) -> Result<(), Error> {
-        AaroniaHttp::enable_agc(self, direction, channel, agc)
+    fn set_agc_enabled(
+        &self,
+        direction: Direction,
+        channel: usize,
+        agc: bool,
+    ) -> Result<(), Error> {
+        AaroniaHttp::set_agc_enabled(self, direction, channel, agc)
     }
 
-    fn agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        AaroniaHttp::agc(self, direction, channel)
+    fn agc_enabled(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+        AaroniaHttp::agc_enabled(self, direction, channel)
     }
 }
 

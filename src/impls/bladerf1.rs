@@ -1,6 +1,6 @@
 use crate::{
-    AgcControl, AntennaControl, Args, BandwidthControl, ChannelInfo, DcOffsetControl, DeviceInfo,
-    Direction, DynDeviceBackend, Error, FrequencyControl, GainControl, Range, RangeItem, RxDevice,
+    AgcControl, AntennaControl, Args, BandwidthControl, ChannelInfo, DeviceInfo, Direction,
+    DynDeviceBackend, Error, FrequencyControl, GainControl, Range, RangeItem, RxDevice,
     SampleRateControl, TxDevice,
 };
 use libbladerf_rs::bladerf1::hardware::lms6002d::dc_calibration::DcCalModule;
@@ -452,13 +452,18 @@ impl BladeRf {
         Err(Error::NotSupported)
     }
 
-    fn supports_agc(&self, _direction: Direction, channel: usize) -> Result<bool, Error> {
+    fn agc_available(&self, _direction: Direction, channel: usize) -> Result<bool, Error> {
         let mut dev = self.inner.lock().unwrap();
         let session = dev.rf_link_session().map_err(bladerf_err)?;
         Ok(session.get_gain_modes(ch(channel)?).is_ok())
     }
 
-    fn enable_agc(&self, _direction: Direction, channel: usize, agc: bool) -> Result<(), Error> {
+    fn set_agc_enabled(
+        &self,
+        _direction: Direction,
+        channel: usize,
+        agc: bool,
+    ) -> Result<(), Error> {
         let mode = if agc {
             GainMode::Default
         } else {
@@ -471,7 +476,7 @@ impl BladeRf {
             .map_err(bladerf_err)
     }
 
-    fn agc(&self, _direction: Direction, _channel: usize) -> Result<bool, Error> {
+    fn agc_enabled(&self, _direction: Direction, _channel: usize) -> Result<bool, Error> {
         let mut dev = self.inner.lock().unwrap();
         let mut session = dev.rf_link_session().map_err(bladerf_err)?;
         Ok(session.get_gain_mode().is_ok())
@@ -690,23 +695,6 @@ impl BladeRf {
     fn get_bandwidth_range(&self, _direction: Direction, _channel: usize) -> Result<Range, Error> {
         Ok(RfLinkSession::get_bandwidth_range().into())
     }
-
-    fn has_dc_offset_mode(&self, _direction: Direction, _channel: usize) -> Result<bool, Error> {
-        Ok(false)
-    }
-
-    fn set_dc_offset_mode(
-        &self,
-        _direction: Direction,
-        _channel: usize,
-        _automatic: bool,
-    ) -> Result<(), Error> {
-        Err(Error::NotSupported)
-    }
-
-    fn dc_offset_mode(&self, _direction: Direction, _channel: usize) -> Result<bool, Error> {
-        Err(Error::NotSupported)
-    }
 }
 
 impl DeviceInfo for BladeRf {
@@ -765,10 +753,6 @@ impl DynDeviceBackend for BladeRf {
     }
 
     fn bandwidth_control(&self) -> Option<&dyn BandwidthControl> {
-        Some(self)
-    }
-
-    fn dc_offset_control(&self) -> Option<&dyn DcOffsetControl> {
         Some(self)
     }
 }
@@ -847,16 +831,21 @@ impl AntennaControl for BladeRf {
 }
 
 impl AgcControl for BladeRf {
-    fn supports_agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        BladeRf::supports_agc(self, direction, channel)
+    fn agc_available(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+        BladeRf::agc_available(self, direction, channel)
     }
 
-    fn enable_agc(&self, direction: Direction, channel: usize, agc: bool) -> Result<(), Error> {
-        BladeRf::enable_agc(self, direction, channel, agc)
+    fn set_agc_enabled(
+        &self,
+        direction: Direction,
+        channel: usize,
+        agc: bool,
+    ) -> Result<(), Error> {
+        BladeRf::set_agc_enabled(self, direction, channel, agc)
     }
 
-    fn agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        BladeRf::agc(self, direction, channel)
+    fn agc_enabled(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+        BladeRf::agc_enabled(self, direction, channel)
     }
 }
 
@@ -992,24 +981,5 @@ impl BandwidthControl for BladeRf {
 
     fn get_bandwidth_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
         BladeRf::get_bandwidth_range(self, direction, channel)
-    }
-}
-
-impl DcOffsetControl for BladeRf {
-    fn has_dc_offset_mode(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        BladeRf::has_dc_offset_mode(self, direction, channel)
-    }
-
-    fn set_dc_offset_mode(
-        &self,
-        direction: Direction,
-        channel: usize,
-        automatic: bool,
-    ) -> Result<(), Error> {
-        BladeRf::set_dc_offset_mode(self, direction, channel, automatic)
-    }
-
-    fn dc_offset_mode(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        BladeRf::dc_offset_mode(self, direction, channel)
     }
 }

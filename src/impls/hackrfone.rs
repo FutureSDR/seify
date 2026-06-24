@@ -4,9 +4,8 @@ use num_complex::Complex32;
 use seify_hackrfone::Config;
 
 use crate::{
-    AgcControl, AntennaControl, Args, BandwidthControl, ChannelInfo, DcOffsetControl, DeviceInfo,
-    Direction, DynDeviceBackend, Error, FrequencyControl, GainControl, Range, RangeItem, RxDevice,
-    SampleRateControl, TxDevice,
+    AntennaControl, Args, BandwidthControl, ChannelInfo, DeviceInfo, Direction, DynDeviceBackend,
+    Error, FrequencyControl, GainControl, Range, RangeItem, RxDevice, SampleRateControl, TxDevice,
 };
 
 pub struct HackRfOne {
@@ -283,30 +282,6 @@ impl HackRfOne {
         }
     }
 
-    fn supports_agc(&self, _direction: Direction, channel: usize) -> Result<bool, Error> {
-        if channel == 0 {
-            Ok(false)
-        } else {
-            Err(Error::ValueError)
-        }
-    }
-
-    fn enable_agc(&self, _direction: Direction, channel: usize, _agc: bool) -> Result<(), Error> {
-        if channel == 0 {
-            Err(Error::NotSupported)
-        } else {
-            Err(Error::ValueError)
-        }
-    }
-
-    fn agc(&self, _direction: Direction, channel: usize) -> Result<bool, Error> {
-        if channel == 0 {
-            Err(Error::NotSupported)
-        } else {
-            Err(Error::ValueError)
-        }
-    }
-
     fn set_gain(&self, direction: Direction, channel: usize, gain: f64) -> Result<(), Error> {
         self.set_gain_element(direction, channel, "IF", gain)
     }
@@ -512,31 +487,6 @@ impl HackRfOne {
     fn get_bandwidth_range(&self, _direction: Direction, _channel: usize) -> Result<Range, Error> {
         Err(Error::NotSupported)
     }
-
-    fn has_dc_offset_mode(&self, _direction: Direction, channel: usize) -> Result<bool, Error> {
-        if channel == 0 {
-            Ok(false)
-        } else {
-            Err(Error::ValueError)
-        }
-    }
-
-    fn set_dc_offset_mode(
-        &self,
-        _direction: Direction,
-        _channel: usize,
-        _automatic: bool,
-    ) -> Result<(), Error> {
-        Err(Error::NotSupported)
-    }
-
-    fn dc_offset_mode(&self, _direction: Direction, channel: usize) -> Result<bool, Error> {
-        if channel == 0 {
-            Ok(false)
-        } else {
-            Err(Error::ValueError)
-        }
-    }
 }
 
 impl DeviceInfo for HackRfOne {
@@ -578,10 +528,6 @@ impl DynDeviceBackend for HackRfOne {
         Some(self)
     }
 
-    fn agc_control(&self) -> Option<&dyn AgcControl> {
-        Some(self)
-    }
-
     fn gain_control(&self) -> Option<&dyn GainControl> {
         Some(self)
     }
@@ -595,10 +541,6 @@ impl DynDeviceBackend for HackRfOne {
     }
 
     fn bandwidth_control(&self) -> Option<&dyn BandwidthControl> {
-        Some(self)
-    }
-
-    fn dc_offset_control(&self) -> Option<&dyn DcOffsetControl> {
         Some(self)
     }
 }
@@ -648,20 +590,6 @@ impl AntennaControl for HackRfOne {
 
     fn set_antenna(&self, direction: Direction, channel: usize, name: &str) -> Result<(), Error> {
         HackRfOne::set_antenna(self, direction, channel, name)
-    }
-}
-
-impl AgcControl for HackRfOne {
-    fn supports_agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        HackRfOne::supports_agc(self, direction, channel)
-    }
-
-    fn enable_agc(&self, direction: Direction, channel: usize, agc: bool) -> Result<(), Error> {
-        HackRfOne::enable_agc(self, direction, channel, agc)
-    }
-
-    fn agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        HackRfOne::agc(self, direction, channel)
     }
 }
 
@@ -797,24 +725,5 @@ impl BandwidthControl for HackRfOne {
 
     fn get_bandwidth_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
         HackRfOne::get_bandwidth_range(self, direction, channel)
-    }
-}
-
-impl DcOffsetControl for HackRfOne {
-    fn has_dc_offset_mode(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        HackRfOne::has_dc_offset_mode(self, direction, channel)
-    }
-
-    fn set_dc_offset_mode(
-        &self,
-        direction: Direction,
-        channel: usize,
-        automatic: bool,
-    ) -> Result<(), Error> {
-        HackRfOne::set_dc_offset_mode(self, direction, channel, automatic)
-    }
-
-    fn dc_offset_mode(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
-        HackRfOne::dc_offset_mode(self, direction, channel)
     }
 }

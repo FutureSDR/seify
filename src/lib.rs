@@ -2,12 +2,14 @@ mod args;
 pub use args::Args;
 
 mod device;
+pub use device::Agc;
 pub use device::AgcControl;
 pub use device::AntennaControl;
 pub use device::BandwidthControl;
 pub use device::ChannelCapabilities;
 pub use device::ChannelControls;
 pub use device::ChannelInfo;
+pub use device::DcOffset;
 pub use device::DcOffsetControl;
 pub use device::Device;
 pub use device::DeviceCapabilities;

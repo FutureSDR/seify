@@ -7,7 +7,6 @@ use crate::AntennaControl;
 use crate::Args;
 use crate::BandwidthControl;
 use crate::ChannelInfo;
-use crate::DcOffsetControl;
 use crate::DeviceInfo;
 use crate::Direction;
 use crate::Direction::Rx;
@@ -135,10 +134,6 @@ impl DynDeviceBackend for Dummy {
     fn bandwidth_control(&self) -> Option<&dyn BandwidthControl> {
         Some(self)
     }
-
-    fn dc_offset_control(&self) -> Option<&dyn DcOffsetControl> {
-        Some(self)
-    }
 }
 
 impl ChannelInfo for Dummy {
@@ -199,7 +194,7 @@ impl AntennaControl for Dummy {
 }
 
 impl AgcControl for Dummy {
-    fn supports_agc(&self, _direction: Direction, channel: usize) -> Result<bool, Error> {
+    fn agc_available(&self, _direction: Direction, channel: usize) -> Result<bool, Error> {
         if channel == 0 {
             Ok(true)
         } else {
@@ -207,7 +202,12 @@ impl AgcControl for Dummy {
         }
     }
 
-    fn enable_agc(&self, direction: Direction, channel: usize, agc: bool) -> Result<(), Error> {
+    fn set_agc_enabled(
+        &self,
+        direction: Direction,
+        channel: usize,
+        agc: bool,
+    ) -> Result<(), Error> {
         match (channel, direction) {
             (0, Rx) => {
                 *self.rx_agc.lock().unwrap() = agc;
@@ -221,7 +221,7 @@ impl AgcControl for Dummy {
         }
     }
 
-    fn agc(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+    fn agc_enabled(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
         match (channel, direction) {
             (0, Rx) => Ok(*self.rx_agc.lock().unwrap()),
             (0, Tx) => Ok(*self.tx_agc.lock().unwrap()),
@@ -495,33 +495,6 @@ impl BandwidthControl for Dummy {
     fn get_bandwidth_range(&self, _direction: Direction, channel: usize) -> Result<Range, Error> {
         if channel == 0 {
             Ok(Range::new(vec![RangeItem::Interval(0.0, f64::MAX)]))
-        } else {
-            Err(Error::ValueError)
-        }
-    }
-}
-
-impl DcOffsetControl for Dummy {
-    fn has_dc_offset_mode(&self, _direction: Direction, channel: usize) -> Result<bool, Error> {
-        if channel == 0 {
-            Ok(false)
-        } else {
-            Err(Error::ValueError)
-        }
-    }
-
-    fn set_dc_offset_mode(
-        &self,
-        _direction: Direction,
-        _channel: usize,
-        _automatic: bool,
-    ) -> Result<(), Error> {
-        Err(Error::NotSupported)
-    }
-
-    fn dc_offset_mode(&self, _direction: Direction, channel: usize) -> Result<bool, Error> {
-        if channel == 0 {
-            Ok(false)
         } else {
             Err(Error::ValueError)
         }

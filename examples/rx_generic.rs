@@ -23,9 +23,8 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Get typed reference to device impl
     // let r: &seify::impls::RtlSdr = dev.impl_ref().unwrap();
 
-    // HackRf doesnt support agc
-    if dev.supports_agc(Rx, 0)? {
-        dev.enable_agc(Rx, 0, true)?;
+    if let Ok(agc) = dev.agc(Rx, 0) {
+        agc.enable()?;
     }
     dev.set_frequency(Rx, 0, 927e6)?;
     dev.set_sample_rate(Rx, 0, 3.2e6)?;
