@@ -5,8 +5,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use hydrasdr_rs::{
-    Bandwidth, Config, DecimationMode, Device as HydraSdrDevice, GainConfig, GainInfo, GainPreset,
-    GainType, HydraSdrDeviceInfo, OwnedF32RxStream, RfPort, SampleFormat, StatusCode,
+    Bandwidth, Config, DecimationMode, Device as HydraSdrDevice, DeviceDescriptor, ErrorKind,
+    GainConfig, GainPreset, RfPort, SampleFormat,
 };
 use num_complex::Complex32;
 
@@ -51,6 +51,15 @@ struct GainCache {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum GainType {
+    Lna,
+    Mixer,
+    Vga,
+    Linearity,
+    Sensitivity,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum DeviceSelector {
     First,
     Serial(u64),
@@ -61,7 +70,6 @@ pub struct RxStreamer {
     dev: Arc<Mutex<Option<HydraSdrDevice>>>,
     inner: Arc<Mutex<Inner>>,
     active: bool,
-    stream: Option<OwnedF32RxStream>,
 }
 
 unsafe impl Send for RxStreamer {}
@@ -84,8 +92,9 @@ impl HydraSdr {
         let (mut dev, serial) = open_selected_device(selector)?;
         let sample_rates = dev.sample_rates().unwrap_or_default();
         let bandwidths = dev.bandwidths().unwrap_or_default();
-        let info = dev.info();
-        let gains = gain_cache(info.gains.clone());
+        let info = dev.info().clone();
+        let current_config = info.current_config.as_ref();
+        let gains = default_gain_cache();
         let min_frequency = info.min_frequency as f64;
         let max_frequency = info.max_frequency as f64;
 
@@ -94,9 +103,16 @@ impl HydraSdr {
             serial,
             inner: Arc::new(Mutex::new(Inner {
                 antenna: "ANT",
-                frequency: None,
-                sample_rate: sample_rates.first().map(|rate| *rate as f64),
-                bandwidth: bandwidths.first().map(|bandwidth| *bandwidth as f64),
+                frequency: current_config.map(|config| config.frequency_hz() as f64),
+                sample_rate: current_config
+                    .map(|config| config.sample_rate_hz() as f64)
+                    .or_else(|| sample_rates.first().map(|rate| *rate as f64)),
+                bandwidth: current_config
+                    .and_then(|config| match config.bandwidth() {
+                        Bandwidth::Auto => None,
+                        Bandwidth::ManualHz(bandwidth) => Some(bandwidth as f64),
+                    })
+                    .or_else(|| bandwidths.first().map(|bandwidth| *bandwidth as f64)),
                 sample_rates,
                 bandwidths,
                 gains,
@@ -138,14 +154,10 @@ impl DynDeviceBackend for HydraSdr {
 
         let dev = self.dev.lock().unwrap();
         let dev = dev.as_ref().ok_or(Error::DeviceError)?;
-        let serial = dev
-            .info()
-            .part_serial
-            .serial_no
-            .iter()
-            .map(|word| format!("{word:08x}"))
-            .collect();
-        Ok(serial)
+        dev.info()
+            .serial
+            .map(|serial| serial.to_string())
+            .ok_or(Error::NotSupported)
     }
 
     fn info(&self) -> Result<Args, Error> {
@@ -300,7 +312,6 @@ impl DynDeviceBackend for HydraSdr {
                 GainConfig::Preset(GainPreset::Sensitivity(gain.round() as u8))
             }
             GainType::Lna | GainType::Mixer | GainType::Vga => manual_gain_config(&inner),
-            _ => old_gain_config,
         };
         let mut dev = self.dev.lock().unwrap();
         let Some(dev) = dev.as_mut() else {
@@ -573,7 +584,6 @@ impl RxStreamer {
             dev,
             inner,
             active: false,
-            stream: None,
         }
     }
 }
@@ -590,19 +600,9 @@ impl crate::RxStreamer for RxStreamer {
         if self.active {
             return Ok(());
         }
-        let mut dev = self.dev.lock().unwrap();
-        let Some(device) = dev.take() else {
+        if self.dev.lock().unwrap().is_none() {
             return Err(Error::DeviceError);
-        };
-        let stream = match device.into_f32_rx_stream() {
-            Ok(stream) => stream,
-            Err(err) => {
-                let (device, err) = err.into_parts();
-                *dev = Some(device);
-                return Err(map_hydrasdr_error(err));
-            }
-        };
-        self.stream = Some(stream);
+        }
         self.active = true;
         self.inner.lock().unwrap().active_rx_streams += 1;
         Ok(())
@@ -613,18 +613,6 @@ impl crate::RxStreamer for RxStreamer {
             return Err(Error::NotSupported);
         }
         if self.active {
-            if let Some(stream) = self.stream.take() {
-                match stream.finish() {
-                    Ok((device, _)) => {
-                        *self.dev.lock().unwrap() = Some(device);
-                    }
-                    Err(err) => {
-                        let (device, err, _) = err.into_parts();
-                        *self.dev.lock().unwrap() = Some(device);
-                        return Err(map_hydrasdr_error(err));
-                    }
-                }
-            }
             self.active = false;
             let mut inner = self.inner.lock().unwrap();
             inner.active_rx_streams = inner.active_rx_streams.saturating_sub(1);
@@ -649,9 +637,12 @@ impl crate::RxStreamer for RxStreamer {
         } else {
             Duration::from_micros(timeout_us as u64)
         };
-        let stream = self.stream.as_mut().ok_or(Error::Inactive)?;
+        let mut dev = self.dev.lock().unwrap();
+        let device = dev.as_mut().ok_or(Error::DeviceError)?;
+        let mut stream = device.f32_rx_stream().map_err(map_hydrasdr_error)?;
         let mut iq = vec![(0.0, 0.0); out.len()];
         let read = stream.read(&mut iq, timeout).map_err(map_hydrasdr_error)?;
+        stream.finish().map_err(map_hydrasdr_error)?;
         for (dst, (i, q)) in out.iter_mut().take(read).zip(iq) {
             *dst = Complex32::new(i, q);
         }
@@ -661,27 +652,7 @@ impl crate::RxStreamer for RxStreamer {
 
 impl Drop for RxStreamer {
     fn drop(&mut self) {
-        if self.active {
-            if let Some(stream) = self.stream.take() {
-                match stream.finish() {
-                    Ok((device, _)) => {
-                        if let Ok(mut dev) = self.dev.lock() {
-                            *dev = Some(device);
-                        }
-                    }
-                    Err(err) => {
-                        let (device, _, _) = err.into_parts();
-                        if let Ok(mut dev) = self.dev.lock() {
-                            *dev = Some(device);
-                        }
-                    }
-                }
-            }
-            if let Ok(mut inner) = self.inner.lock() {
-                inner.active_rx_streams = inner.active_rx_streams.saturating_sub(1);
-            }
-            self.active = false;
-        }
+        let _ = <Self as crate::RxStreamer>::deactivate_at(self, None);
     }
 }
 
@@ -749,33 +720,6 @@ fn gain_type(name: &str) -> Option<GainType> {
     }
 }
 
-fn gain_name(gain_type: GainType) -> Option<&'static str> {
-    match gain_type {
-        GainType::Lna => Some("LNA"),
-        GainType::Mixer => Some("MIXER"),
-        GainType::Vga => Some("VGA"),
-        GainType::Linearity => Some("LINEARITY"),
-        GainType::Sensitivity => Some("SENSITIVITY"),
-        _ => None,
-    }
-}
-
-fn gain_cache(gains: Vec<GainInfo>) -> Vec<GainCache> {
-    if gains.is_empty() {
-        return default_gain_cache();
-    }
-
-    let cache = gains
-        .into_iter()
-        .filter_map(|gain| gain_name(gain.gain_type).map(|name| gain_cache_item(name, gain)))
-        .collect::<Vec<_>>();
-    if cache.is_empty() {
-        default_gain_cache()
-    } else {
-        cache
-    }
-}
-
 fn default_gain_cache() -> Vec<GainCache> {
     [
         ("LNA", GainType::Lna, 0, 14, 8),
@@ -786,23 +730,12 @@ fn default_gain_cache() -> Vec<GainCache> {
     ]
     .into_iter()
     .map(|(name, gain_type, min_value, max_value, value)| {
-        gain_cache_item(
-            name,
-            GainInfo {
-                gain_type,
-                min_value,
-                max_value,
-                step_value: 1,
-                default_value: value,
-                value,
-                flags: 0,
-            },
-        )
+        gain_cache_item(name, gain_type, min_value, max_value, 1, value)
     })
     .collect()
 }
 
-fn probe_args_from_info(dev: HydraSdrDeviceInfo) -> Args {
+fn probe_args_from_info(dev: DeviceDescriptor) -> Args {
     let mut args = Args::default();
     args.set("driver", "hydrasdr");
     args.set("vid", format!("0x{:04x}", dev.vid));
@@ -837,7 +770,10 @@ fn open_selected_device(selector: DeviceSelector) -> Result<(HydraSdrDevice, Opt
             .sample_format(SampleFormat::F32Iq)
             .decimation_mode(DecimationMode::HighDefinition)
             .open()
-            .map(|dev| (dev, None))
+            .map(|dev| {
+                let serial = dev.info().serial;
+                (dev, serial)
+            })
             .map_err(map_hydrasdr_error),
         DeviceSelector::Serial(serial) => HydraSdrDevice::builder()
             .serial(serial)
@@ -864,7 +800,10 @@ fn open_selected_device(selector: DeviceSelector) -> Result<(HydraSdrDevice, Opt
                     .sample_format(SampleFormat::F32Iq)
                     .decimation_mode(DecimationMode::HighDefinition)
                     .open()
-                    .map(|dev| (dev, None))
+                    .map(|dev| {
+                        let serial = dev.info().serial;
+                        (dev, serial)
+                    })
                     .map_err(map_hydrasdr_error)
             } else {
                 Err(Error::NotFound)
@@ -912,49 +851,45 @@ fn cached_gain_value(inner: &Inner, gain_type: GainType) -> Option<u8> {
         .map(|cached| cached.value.round() as u8)
 }
 
-fn gain_cache_item(name: &'static str, gain: GainInfo) -> GainCache {
-    let step = gain.step_value.max(1) as f64;
+fn gain_cache_item(
+    name: &'static str,
+    gain_type: GainType,
+    min_value: u8,
+    max_value: u8,
+    step_value: u8,
+    value: u8,
+) -> GainCache {
+    let step = step_value.max(1) as f64;
     GainCache {
         name,
-        gain_type: gain.gain_type,
-        value: gain.value as f64,
+        gain_type,
+        value: value as f64,
         range: Range::new(vec![RangeItem::Step(
-            gain.min_value as f64,
-            gain.max_value as f64,
+            min_value as f64,
+            max_value as f64,
             step,
         )]),
     }
 }
 
 fn map_hydrasdr_error(err: hydrasdr_rs::Error) -> Error {
-    if matches!(
-        &err,
-        hydrasdr_rs::Error::Status(StatusCode::NotFound)
-            | hydrasdr_rs::Error::Usb {
-                status: StatusCode::NotFound,
-                ..
-            }
-    ) {
-        Error::NotFound
-    } else if matches!(&err, hydrasdr_rs::Error::Status(StatusCode::Unsupported)) {
-        Error::NotSupported
-    } else {
-        err.into()
+    match err.kind() {
+        ErrorKind::NotFound => Error::NotFound,
+        ErrorKind::Unsupported => Error::NotSupported,
+        _ => err.into(),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use hydrasdr_rs::BoardId;
 
     #[test]
     fn probe_args_from_info_maps_usb_metadata_without_opening_hardware() {
-        let info = HydraSdrDeviceInfo {
+        let info = DeviceDescriptor {
             vid: 0x38af,
             pid: 0x0001,
             description: "HydraSDR RFOne Official VID/PID",
-            board_id: BoardId::HydraSdrRfOneOfficial,
             serial: Some(0x1234_5678_9abc_def0),
             product_string: Some("HydraSDR RFOne".to_string()),
         };
