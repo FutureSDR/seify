@@ -170,11 +170,11 @@ impl AaroniaHttp {
     }
 
     fn id(&self) -> Result<String, Error> {
-        Ok(format!("driver=aarnia_http, url={}", self.url))
+        Ok(format!("driver=aaronia_http, url={}", self.url))
     }
 
     fn info(&self) -> Result<Args, Error> {
-        format!("driver=aarnia_http, url={}", self.url).try_into()
+        format!("driver=aaronia_http, url={}", self.url).try_into()
     }
 
     fn num_channels(&self, direction: Direction) -> Result<usize, Error> {

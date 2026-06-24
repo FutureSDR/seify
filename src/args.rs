@@ -48,12 +48,8 @@ impl Args {
             .get(key.as_ref())
             .ok_or_else(|| Error::missing_argument(key.as_ref()))
             .and_then(|v| {
-                v.parse().or_else(|_| {
-                    Err(Error::invalid_argument(
-                        key.as_ref(),
-                        "failed to parse value",
-                    ))
-                })
+                v.parse()
+                    .map_err(|_| Error::invalid_argument(key.as_ref(), "failed to parse value"))
             })
     }
     /// Map the `key` the stringified `value`.
@@ -143,7 +139,7 @@ impl FromStr for Args {
             ),
         )
         .parse(s)
-        .or_else(|_| Err(Error::invalid_argument("args", "failed to parse args")))?;
+        .map_err(|_| Error::invalid_argument("args", "failed to parse args"))?;
         Ok(Args {
             map: HashMap::from_iter(v.1.iter().cloned().map(|(a, b)| (a.into(), b.into()))),
         })

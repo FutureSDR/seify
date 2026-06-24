@@ -57,10 +57,10 @@ cargo run --no-default-features --features soapy --example probe -- --args drive
 
 ```rust
 use num_complex::Complex32;
-use seify::Device;
+use seify::DynDevice;
 
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let dev = Device::new()?;
+    let dev = DynDevice::new()?;
     let rx0 = dev.rx(0)?;
     let mut samps = [Complex32::new(0.0, 0.0); 1024];
     let mut rx = rx0.streamer()?;
