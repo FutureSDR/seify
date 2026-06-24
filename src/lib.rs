@@ -37,9 +37,13 @@
 mod args;
 pub use args::Args;
 
+mod async_compat;
 mod async_device;
-pub mod async_local;
 mod device;
+pub use async_compat::AsyncBoxFuture;
+pub use async_compat::AsyncFutureExt;
+pub use async_compat::MaybeSend;
+pub use async_compat::MaybeSync;
 pub use async_device::AsyncAgc;
 pub use async_device::AsyncAgcControl;
 pub use async_device::AsyncAntenna;

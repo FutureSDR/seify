@@ -22,7 +22,7 @@ pub type DynRxStreamer = Box<dyn RxStreamer>;
 pub type DynTxStreamer = Box<dyn TxStreamer>;
 
 /// Object-safe RX streaming capability for runtime-dispatched devices.
-pub trait ErasedRxDevice {
+pub trait ErasedRxDevice: Send + Sync {
     /// Create a type-erased RX streamer.
     fn rx_streamer(&self, channels: &[usize], args: Args) -> Result<DynRxStreamer, Error>;
 }
@@ -38,7 +38,7 @@ where
 }
 
 /// Object-safe TX streaming capability for runtime-dispatched devices.
-pub trait ErasedTxDevice {
+pub trait ErasedTxDevice: Send + Sync {
     /// Create a type-erased TX streamer.
     fn tx_streamer(&self, channels: &[usize], args: Args) -> Result<DynTxStreamer, Error>;
 }
@@ -264,7 +264,7 @@ fn erased_capability_available<C: ?Sized>(
 }
 
 /// Basic device metadata.
-pub trait DeviceInfo {
+pub trait DeviceInfo: Send + Sync {
     /// Cast to [`Any`] for downcasting.
     fn as_any(&self) -> &dyn Any;
     /// Cast to [`Any`] for mutable downcasting.
@@ -278,7 +278,7 @@ pub trait DeviceInfo {
 }
 
 /// Basic channel metadata.
-pub trait ChannelInfo {
+pub trait ChannelInfo: Send + Sync {
     /// Number of supported channels.
     fn num_channels(&self, direction: Direction) -> Result<usize, Error>;
     /// Full-duplex support.
@@ -286,7 +286,7 @@ pub trait ChannelInfo {
 }
 
 /// RX streaming capability.
-pub trait RxDevice {
+pub trait RxDevice: Send + Sync {
     /// RX streamer implementation.
     type RxStreamer: RxStreamer;
 
@@ -295,7 +295,7 @@ pub trait RxDevice {
 }
 
 /// TX streaming capability.
-pub trait TxDevice {
+pub trait TxDevice: Send + Sync {
     /// TX streamer implementation.
     type TxStreamer: TxStreamer;
 
@@ -304,7 +304,7 @@ pub trait TxDevice {
 }
 
 /// Antenna control capability.
-pub trait AntennaControl {
+pub trait AntennaControl: Send + Sync {
     /// Return available antenna port names.
     fn antennas(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error>;
     /// Return the currently selected antenna port name.
@@ -314,7 +314,7 @@ pub trait AntennaControl {
 }
 
 /// Automatic gain control capability.
-pub trait AgcControl {
+pub trait AgcControl: Send + Sync {
     /// Return whether automatic gain control is available.
     fn agc_available(&self, direction: Direction, channel: usize) -> Result<bool, Error>;
     /// Return whether automatic gain control is currently enabled.
@@ -329,7 +329,7 @@ pub trait AgcControl {
 }
 
 /// Gain control capability.
-pub trait GainControl {
+pub trait GainControl: Send + Sync {
     /// Return named gain elements available for the channel.
     fn gain_elements(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error>;
     /// Set overall channel gain in dB.
@@ -363,7 +363,7 @@ pub trait GainControl {
 }
 
 /// Frequency control capability.
-pub trait FrequencyControl {
+pub trait FrequencyControl: Send + Sync {
     /// Return supported overall tuning range in Hz.
     fn frequency_range(&self, direction: Direction, channel: usize) -> Result<Range, Error>;
     /// Return current overall channel frequency in Hz.
@@ -407,7 +407,7 @@ pub trait FrequencyControl {
 }
 
 /// Sample-rate control capability.
-pub trait SampleRateControl {
+pub trait SampleRateControl: Send + Sync {
     /// Return current sample rate in samples per second.
     fn sample_rate(&self, direction: Direction, channel: usize) -> Result<f64, Error>;
     /// Set sample rate in samples per second.
@@ -418,7 +418,7 @@ pub trait SampleRateControl {
 }
 
 /// Bandwidth control capability.
-pub trait BandwidthControl {
+pub trait BandwidthControl: Send + Sync {
     /// Return current channel bandwidth in Hz.
     fn bandwidth(&self, direction: Direction, channel: usize) -> Result<f64, Error>;
     /// Set channel bandwidth in Hz.
@@ -428,7 +428,7 @@ pub trait BandwidthControl {
 }
 
 /// Automatic DC offset correction capability.
-pub trait DcOffsetControl {
+pub trait DcOffsetControl: Send + Sync {
     /// Return whether automatic DC offset correction is available.
     fn dc_offset_available(&self, direction: Direction, channel: usize) -> Result<bool, Error>;
     /// Return whether automatic DC offset correction is enabled.
@@ -871,7 +871,10 @@ pub struct Device<T> {
     dev: T,
 }
 
-impl<T> Device<T> {
+impl<T> Device<T>
+where
+    T: Send + Sync,
+{
     /// Create a device from the device implementation.
     pub fn from_impl(dev: T) -> Self {
         Self { dev }
