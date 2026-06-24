@@ -1,7 +1,6 @@
 use clap::Parser;
 use seify::enumerate_with_args;
 use seify::Device;
-use seify::Direction::Rx;
 
 #[derive(Parser, Debug)]
 #[clap(version)]
@@ -31,11 +30,12 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("driver:       {:?}", dev.driver());
         println!("id:           {:?}", dev.id()?);
         println!("info:         {:?}", dev.info()?);
-        println!("sample rate:  {:?}", dev.sample_rate(Rx, 0)?);
-        println!("frequency:    {:?}", dev.frequency(Rx, 0)?);
-        println!("gain:         {:?}", dev.gain(Rx, 0)?);
-        println!("gain range:   {:?}", dev.gain_range(Rx, 0)?);
-        println!("sample rate range: {:?}", dev.get_sample_rate_range(Rx, 0)?);
+        let rx0 = dev.rx(0)?;
+        println!("sample rate:  {:?}", rx0.sample_rate()?.value()?);
+        println!("frequency:    {:?}", rx0.frequency()?.value()?);
+        println!("gain:         {:?}", rx0.gain()?.value()?);
+        println!("gain range:   {:?}", rx0.gain()?.range()?);
+        println!("sample rate range: {:?}", rx0.sample_rate()?.range()?);
     }
 
     Ok(())

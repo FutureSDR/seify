@@ -3,7 +3,6 @@ use num_complex::Complex32;
 
 use seify::impls::rtlsdr;
 use seify::Device;
-use seify::Direction::Rx;
 use seify::RxStreamer;
 
 #[derive(Parser, Debug)]
@@ -23,19 +22,20 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Get typed reference to device impl
     // let _r : &seify::impls::RtlSdr = dev.impl_ref().unwrap();
 
-    dev.agc(Rx, 0)?.enable()?;
-    dev.set_frequency(Rx, 0, 101e6)?;
-    dev.set_sample_rate(Rx, 0, 3.2e6)?;
+    let rx0 = dev.rx(0)?;
+    rx0.agc()?.enable()?;
+    rx0.frequency()?.set(101e6)?;
+    rx0.sample_rate()?.set(3.2e6)?;
 
     println!("driver:      {:?}", dev.driver());
     println!("id:          {:?}", dev.id()?);
     println!("info:        {:?}", dev.info()?);
-    println!("sample rate: {:?}", dev.sample_rate(Rx, 0)?);
-    println!("frequency:   {:?}", dev.frequency(Rx, 0)?);
-    println!("gain:        {:?}", dev.gain(Rx, 0)?);
+    println!("sample rate: {:?}", rx0.sample_rate()?.value()?);
+    println!("frequency:   {:?}", rx0.frequency()?.value()?);
+    println!("gain:        {:?}", rx0.gain()?.value()?);
 
     let mut samps = [Complex32::new(0.0, 0.0); 8192];
-    let mut rx = dev.rx_streamer(&[0])?;
+    let mut rx = rx0.streamer()?;
     rx.activate()?;
     let n = rx.read(&mut [&mut samps], 2000)?;
 

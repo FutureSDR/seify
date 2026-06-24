@@ -56,8 +56,9 @@ use seify::Device;
 
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let dev = Device::new()?;
+    let rx0 = dev.rx(0)?;
     let mut samps = [Complex32::new(0.0, 0.0); 1024];
-    let mut rx = dev.rx_streamer(&[0])?;
+    let mut rx = rx0.streamer()?;
     rx.activate()?;
     let n = rx.read(&mut [&mut samps], 200000)?;
     println!("read {n} samples");

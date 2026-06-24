@@ -1,7 +1,6 @@
 use clap::Parser;
 use num_complex::Complex32;
 use seify::Device;
-use seify::Direction::Rx;
 use seify::RxStreamer;
 use std::error::Error;
 use std::sync::atomic::AtomicBool;
@@ -26,9 +25,12 @@ pub fn main() -> Result<(), Box<dyn Error>> {
     println!("driver:      {:?}", dev.driver());
     println!("id:          {:?}", dev.id()?);
     println!("info:        {:?}", dev.info()?);
-    println!("sample rate: {:?}", dev.sample_rate(Rx, 0)?);
-    println!("frequency:   {:?}", dev.frequency(Rx, 0)?);
-    println!("gain:        {:?}", dev.gain(Rx, 0)?);
+    {
+        let rx0 = dev.rx(0)?;
+        println!("sample rate: {:?}", rx0.sample_rate()?.value()?);
+        println!("frequency:   {:?}", rx0.frequency()?.value()?);
+        println!("gain:        {:?}", rx0.gain()?.value()?);
+    }
 
     let mut w = Circular::with_capacity::<Complex32>(8192)?;
     let mut r = w.add_reader();
@@ -38,7 +40,8 @@ pub fn main() -> Result<(), Box<dyn Error>> {
     let rx_thread = std::thread::spawn({
         let terminate = terminate.clone();
         move || -> Result<(), Box<dyn Error + Send + Sync>> {
-            let mut rx = dev.rx_streamer(&[0])?;
+            let rx0 = dev.rx(0)?;
+            let mut rx = rx0.streamer()?;
             let mtu = rx.mtu()?;
             rx.activate()?;
 
