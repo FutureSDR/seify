@@ -109,86 +109,30 @@ pub trait DynDeviceBackend: DeviceInfo + Send + Sync {
 /// known at compile time.
 pub type DynDevice = Arc<dyn DynDeviceBackend>;
 
-/// RX channel identifier.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct RxChannelId(pub usize);
-
-impl RxChannelId {
-    /// Channel index within RX channels.
-    pub fn index(self) -> usize {
-        self.0
-    }
-}
-
-/// TX channel identifier.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct TxChannelId(pub usize);
-
-impl TxChannelId {
-    /// Channel index within TX channels.
-    pub fn index(self) -> usize {
-        self.0
-    }
-}
-
-pub trait ChannelId: Copy {
-    fn direction() -> Direction;
-    fn from_index(index: usize) -> Self;
-    fn index(self) -> usize;
-}
-
-impl ChannelId for RxChannelId {
-    fn direction() -> Direction {
-        Direction::Rx
-    }
-
-    fn from_index(index: usize) -> Self {
-        Self(index)
-    }
-
-    fn index(self) -> usize {
-        self.0
-    }
-}
-
-impl ChannelId for TxChannelId {
-    fn direction() -> Direction {
-        Direction::Tx
-    }
-
-    fn from_index(index: usize) -> Self {
-        Self(index)
-    }
-
-    fn index(self) -> usize {
-        self.0
-    }
-}
-
 /// Structured runtime capabilities for a device.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DeviceCapabilities {
     /// RX channels exposed by this device.
-    pub rx_channels: Vec<ChannelCapabilities<RxChannelId>>,
+    pub rx_channels: Vec<ChannelCapabilities>,
     /// TX channels exposed by this device.
-    pub tx_channels: Vec<ChannelCapabilities<TxChannelId>>,
+    pub tx_channels: Vec<ChannelCapabilities>,
 }
 
 impl DeviceCapabilities {
     /// Build a capability snapshot from a runtime-dispatched backend.
     pub fn from_dyn<D: DynDeviceBackend + ?Sized>(dev: &D) -> Result<Self, Error> {
         Ok(Self {
-            rx_channels: channel_capabilities::<D, RxChannelId>(dev)?,
-            tx_channels: channel_capabilities::<D, TxChannelId>(dev)?,
+            rx_channels: channel_capabilities(dev, Direction::Rx)?,
+            tx_channels: channel_capabilities(dev, Direction::Tx)?,
         })
     }
 }
 
 /// Structured runtime capabilities for one channel.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ChannelCapabilities<C> {
-    /// Channel identifier.
-    pub channel: C,
+pub struct ChannelCapabilities {
+    /// Channel index within its direction.
+    pub channel: usize,
     /// Full-duplex support for this channel, if the backend exposes it.
     pub full_duplex: Option<bool>,
     /// Optional controls exposed by this channel.
@@ -218,15 +162,13 @@ pub struct ChannelControls {
     pub dc_offset: bool,
 }
 
-fn channel_capabilities<D, C>(dev: &D) -> Result<Vec<ChannelCapabilities<C>>, Error>
+fn channel_capabilities<D>(dev: &D, direction: Direction) -> Result<Vec<ChannelCapabilities>, Error>
 where
     D: DynDeviceBackend + ?Sized,
-    C: ChannelId,
 {
     let Some(channel_info) = dev.channel_info() else {
         return Ok(Vec::new());
     };
-    let direction = C::direction();
     let channels = match channel_info.num_channels(direction) {
         Ok(channels) => channels,
         Err(Error::NotSupported) => 0,
@@ -235,9 +177,8 @@ where
 
     (0..channels)
         .map(|channel| {
-            let id = C::from_index(channel);
             Ok(ChannelCapabilities {
-                channel: id,
+                channel,
                 full_duplex: optional_capability(channel_info.full_duplex(direction, channel))?,
                 controls: ChannelControls {
                     antennas: optional_erased_capability(dev.antenna_control(), |cap| {
@@ -460,100 +401,107 @@ pub trait DcOffsetControl {
 /// RX channel handle.
 pub struct RxChannel<'a, T: ?Sized> {
     dev: &'a T,
-    id: RxChannelId,
+    channel: usize,
 }
 
 impl<'a, T: ?Sized> RxChannel<'a, T> {
-    fn new(dev: &'a T, id: RxChannelId) -> Self {
-        Self { dev, id }
+    fn new(dev: &'a T, channel: usize) -> Self {
+        Self { dev, channel }
     }
 
-    /// Channel identifier.
-    pub fn id(&self) -> RxChannelId {
-        self.id
+    /// Channel index.
+    pub fn id(&self) -> usize {
+        self.channel
     }
 
     /// Channel index.
     pub fn index(&self) -> usize {
-        self.id.index()
+        self.channel
     }
 }
 
 /// TX channel handle.
 pub struct TxChannel<'a, T: ?Sized> {
     dev: &'a T,
-    id: TxChannelId,
+    channel: usize,
 }
 
 impl<'a, T: ?Sized> TxChannel<'a, T> {
-    fn new(dev: &'a T, id: TxChannelId) -> Self {
-        Self { dev, id }
+    fn new(dev: &'a T, channel: usize) -> Self {
+        Self { dev, channel }
     }
 
-    /// Channel identifier.
-    pub fn id(&self) -> TxChannelId {
-        self.id
+    /// Channel index.
+    pub fn id(&self) -> usize {
+        self.channel
     }
 
     /// Channel index.
     pub fn index(&self) -> usize {
-        self.id.index()
+        self.channel
     }
 }
 
 /// Antenna control handle for one channel.
-pub struct Antenna<'a, T: AntennaControl + ?Sized, C: ChannelId> {
+pub struct Antenna<'a, T: AntennaControl + ?Sized> {
     dev: &'a T,
-    channel: C,
+    direction: Direction,
+    channel: usize,
 }
 
-impl<'a, T, C> Antenna<'a, T, C>
+impl<'a, T> Antenna<'a, T>
 where
     T: AntennaControl + ?Sized,
-    C: ChannelId,
 {
-    fn new(dev: &'a T, channel: C) -> Self {
-        Self { dev, channel }
+    fn new(dev: &'a T, direction: Direction, channel: usize) -> Self {
+        Self {
+            dev,
+            direction,
+            channel,
+        }
     }
 
     /// Available antenna ports.
     pub fn available(&self) -> Result<Vec<String>, Error> {
-        self.dev.antennas(C::direction(), self.channel.index())
+        self.dev.antennas(self.direction, self.channel)
     }
 
     /// Currently selected antenna.
     pub fn selected(&self) -> Result<String, Error> {
-        self.dev.antenna(C::direction(), self.channel.index())
+        self.dev.antenna(self.direction, self.channel)
     }
 
     /// Select an antenna port.
     pub fn select(&self, name: &str) -> Result<(), Error> {
-        self.dev
-            .set_antenna(C::direction(), self.channel.index(), name)
+        self.dev.set_antenna(self.direction, self.channel, name)
     }
 }
 
 /// Automatic gain control handle for one channel.
-pub struct Agc<'a, T: AgcControl + ?Sized, C: ChannelId> {
+pub struct Agc<'a, T: AgcControl + ?Sized> {
     dev: &'a T,
-    channel: C,
+    direction: Direction,
+    channel: usize,
 }
 
-impl<'a, T, C> Agc<'a, T, C>
+impl<'a, T> Agc<'a, T>
 where
     T: AgcControl + ?Sized,
-    C: ChannelId,
 {
-    fn new(dev: &'a T, channel: C) -> Result<Self, Error> {
-        if !dev.agc_available(C::direction(), channel.index())? {
+    fn new(dev: &'a T, direction: Direction, channel: usize) -> Result<Self, Error> {
+        if !dev.agc_available(direction, channel)? {
             return Err(Error::NotSupported);
         }
-        Ok(Self { dev, channel })
+        Ok(Self {
+            dev,
+            direction,
+            channel,
+        })
     }
 
     /// Return whether automatic gain control is enabled.
     pub fn enabled(&self) -> Result<bool, Error> {
-        self.dev.agc_enabled(C::direction(), self.channel.index())
+        self.dev.agc_enabled(self.direction, self.channel)
     }
 
     /// Enable automatic gain control.
@@ -569,50 +517,54 @@ where
     /// Set whether automatic gain control is enabled.
     pub fn set_enabled(&self, enabled: bool) -> Result<(), Error> {
         self.dev
-            .set_agc_enabled(C::direction(), self.channel.index(), enabled)
+            .set_agc_enabled(self.direction, self.channel, enabled)
     }
 }
 
 /// Gain control handle for one channel.
-pub struct Gain<'a, T: GainControl + ?Sized, C: ChannelId> {
+pub struct Gain<'a, T: GainControl + ?Sized> {
     dev: &'a T,
-    channel: C,
+    direction: Direction,
+    channel: usize,
 }
 
-impl<'a, T, C> Gain<'a, T, C>
+impl<'a, T> Gain<'a, T>
 where
     T: GainControl + ?Sized,
-    C: ChannelId,
 {
-    fn new(dev: &'a T, channel: C) -> Self {
-        Self { dev, channel }
+    fn new(dev: &'a T, direction: Direction, channel: usize) -> Self {
+        Self {
+            dev,
+            direction,
+            channel,
+        }
     }
 
     /// Named gain elements.
     pub fn elements(&self) -> Result<Vec<String>, Error> {
-        self.dev.gain_elements(C::direction(), self.channel.index())
+        self.dev.gain_elements(self.direction, self.channel)
     }
 
     /// Overall gain.
     pub fn value(&self) -> Result<Option<f64>, Error> {
-        self.dev.gain(C::direction(), self.channel.index())
+        self.dev.gain(self.direction, self.channel)
     }
 
     /// Set overall gain.
     pub fn set(&self, gain: f64) -> Result<(), Error> {
-        self.dev
-            .set_gain(C::direction(), self.channel.index(), gain)
+        self.dev.set_gain(self.direction, self.channel, gain)
     }
 
     /// Overall gain range.
     pub fn range(&self) -> Result<Range, Error> {
-        self.dev.gain_range(C::direction(), self.channel.index())
+        self.dev.gain_range(self.direction, self.channel)
     }
 
     /// Named gain element handle.
-    pub fn element(&self, name: &str) -> GainElement<'a, T, C> {
+    pub fn element(&self, name: &str) -> GainElement<'a, T> {
         GainElement {
             dev: self.dev,
+            direction: self.direction,
             channel: self.channel,
             name: name.to_string(),
         }
@@ -620,54 +572,58 @@ where
 }
 
 /// Gain element handle for one channel.
-pub struct GainElement<'a, T: GainControl + ?Sized, C: ChannelId> {
+pub struct GainElement<'a, T: GainControl + ?Sized> {
     dev: &'a T,
-    channel: C,
+    direction: Direction,
+    channel: usize,
     name: String,
 }
 
-impl<'a, T, C> GainElement<'a, T, C>
+impl<'a, T> GainElement<'a, T>
 where
     T: GainControl + ?Sized,
-    C: ChannelId,
 {
     /// Gain element value.
     pub fn value(&self) -> Result<Option<f64>, Error> {
         self.dev
-            .gain_element(C::direction(), self.channel.index(), &self.name)
+            .gain_element(self.direction, self.channel, &self.name)
     }
 
     /// Set gain element value.
     pub fn set(&self, gain: f64) -> Result<(), Error> {
         self.dev
-            .set_gain_element(C::direction(), self.channel.index(), &self.name, gain)
+            .set_gain_element(self.direction, self.channel, &self.name, gain)
     }
 
     /// Gain element range.
     pub fn range(&self) -> Result<Range, Error> {
         self.dev
-            .gain_element_range(C::direction(), self.channel.index(), &self.name)
+            .gain_element_range(self.direction, self.channel, &self.name)
     }
 }
 
 /// Frequency control handle for one channel.
-pub struct Frequency<'a, T: FrequencyControl + ?Sized, C: ChannelId> {
+pub struct Frequency<'a, T: FrequencyControl + ?Sized> {
     dev: &'a T,
-    channel: C,
+    direction: Direction,
+    channel: usize,
 }
 
-impl<'a, T, C> Frequency<'a, T, C>
+impl<'a, T> Frequency<'a, T>
 where
     T: FrequencyControl + ?Sized,
-    C: ChannelId,
 {
-    fn new(dev: &'a T, channel: C) -> Self {
-        Self { dev, channel }
+    fn new(dev: &'a T, direction: Direction, channel: usize) -> Self {
+        Self {
+            dev,
+            direction,
+            channel,
+        }
     }
 
     /// Overall frequency.
     pub fn value(&self) -> Result<f64, Error> {
-        self.dev.frequency(C::direction(), self.channel.index())
+        self.dev.frequency(self.direction, self.channel)
     }
 
     /// Set overall frequency.
@@ -678,25 +634,24 @@ where
     /// Set overall frequency with driver arguments.
     pub fn set_with_args(&self, frequency: f64, args: Args) -> Result<(), Error> {
         self.dev
-            .set_frequency(C::direction(), self.channel.index(), frequency, args)
+            .set_frequency(self.direction, self.channel, frequency, args)
     }
 
     /// Overall frequency range.
     pub fn range(&self) -> Result<Range, Error> {
-        self.dev
-            .frequency_range(C::direction(), self.channel.index())
+        self.dev.frequency_range(self.direction, self.channel)
     }
 
     /// Named frequency components.
     pub fn components(&self) -> Result<Vec<String>, Error> {
-        self.dev
-            .frequency_components(C::direction(), self.channel.index())
+        self.dev.frequency_components(self.direction, self.channel)
     }
 
     /// Named frequency component handle.
-    pub fn component(&self, name: &str) -> FrequencyComponent<'a, T, C> {
+    pub fn component(&self, name: &str) -> FrequencyComponent<'a, T> {
         FrequencyComponent {
             dev: self.dev,
+            direction: self.direction,
             channel: self.channel,
             name: name.to_string(),
         }
@@ -704,128 +659,132 @@ where
 }
 
 /// Frequency component handle for one channel.
-pub struct FrequencyComponent<'a, T: FrequencyControl + ?Sized, C: ChannelId> {
+pub struct FrequencyComponent<'a, T: FrequencyControl + ?Sized> {
     dev: &'a T,
-    channel: C,
+    direction: Direction,
+    channel: usize,
     name: String,
 }
 
-impl<'a, T, C> FrequencyComponent<'a, T, C>
+impl<'a, T> FrequencyComponent<'a, T>
 where
     T: FrequencyControl + ?Sized,
-    C: ChannelId,
 {
     /// Frequency component value.
     pub fn value(&self) -> Result<f64, Error> {
         self.dev
-            .component_frequency(C::direction(), self.channel.index(), &self.name)
+            .component_frequency(self.direction, self.channel, &self.name)
     }
 
     /// Set frequency component value.
     pub fn set(&self, frequency: f64) -> Result<(), Error> {
-        self.dev.set_component_frequency(
-            C::direction(),
-            self.channel.index(),
-            &self.name,
-            frequency,
-        )
+        self.dev
+            .set_component_frequency(self.direction, self.channel, &self.name, frequency)
     }
 
     /// Frequency component range.
     pub fn range(&self) -> Result<Range, Error> {
         self.dev
-            .component_frequency_range(C::direction(), self.channel.index(), &self.name)
+            .component_frequency_range(self.direction, self.channel, &self.name)
     }
 }
 
 /// Sample-rate control handle for one channel.
-pub struct SampleRate<'a, T: SampleRateControl + ?Sized, C: ChannelId> {
+pub struct SampleRate<'a, T: SampleRateControl + ?Sized> {
     dev: &'a T,
-    channel: C,
+    direction: Direction,
+    channel: usize,
 }
 
-impl<'a, T, C> SampleRate<'a, T, C>
+impl<'a, T> SampleRate<'a, T>
 where
     T: SampleRateControl + ?Sized,
-    C: ChannelId,
 {
-    fn new(dev: &'a T, channel: C) -> Self {
-        Self { dev, channel }
+    fn new(dev: &'a T, direction: Direction, channel: usize) -> Self {
+        Self {
+            dev,
+            direction,
+            channel,
+        }
     }
 
     /// Sample rate.
     pub fn value(&self) -> Result<f64, Error> {
-        self.dev.sample_rate(C::direction(), self.channel.index())
+        self.dev.sample_rate(self.direction, self.channel)
     }
 
     /// Set sample rate.
     pub fn set(&self, rate: f64) -> Result<(), Error> {
-        self.dev
-            .set_sample_rate(C::direction(), self.channel.index(), rate)
+        self.dev.set_sample_rate(self.direction, self.channel, rate)
     }
 
     /// Sample-rate range.
     pub fn range(&self) -> Result<Range, Error> {
-        self.dev
-            .get_sample_rate_range(C::direction(), self.channel.index())
+        self.dev.get_sample_rate_range(self.direction, self.channel)
     }
 }
 
 /// Bandwidth control handle for one channel.
-pub struct Bandwidth<'a, T: BandwidthControl + ?Sized, C: ChannelId> {
+pub struct Bandwidth<'a, T: BandwidthControl + ?Sized> {
     dev: &'a T,
-    channel: C,
+    direction: Direction,
+    channel: usize,
 }
 
-impl<'a, T, C> Bandwidth<'a, T, C>
+impl<'a, T> Bandwidth<'a, T>
 where
     T: BandwidthControl + ?Sized,
-    C: ChannelId,
 {
-    fn new(dev: &'a T, channel: C) -> Self {
-        Self { dev, channel }
+    fn new(dev: &'a T, direction: Direction, channel: usize) -> Self {
+        Self {
+            dev,
+            direction,
+            channel,
+        }
     }
 
     /// Bandwidth.
     pub fn value(&self) -> Result<f64, Error> {
-        self.dev.bandwidth(C::direction(), self.channel.index())
+        self.dev.bandwidth(self.direction, self.channel)
     }
 
     /// Set bandwidth.
     pub fn set(&self, bandwidth: f64) -> Result<(), Error> {
         self.dev
-            .set_bandwidth(C::direction(), self.channel.index(), bandwidth)
+            .set_bandwidth(self.direction, self.channel, bandwidth)
     }
 
     /// Bandwidth range.
     pub fn range(&self) -> Result<Range, Error> {
-        self.dev
-            .get_bandwidth_range(C::direction(), self.channel.index())
+        self.dev.get_bandwidth_range(self.direction, self.channel)
     }
 }
 
 /// Automatic DC offset correction handle for one channel.
-pub struct DcOffset<'a, T: DcOffsetControl + ?Sized, C: ChannelId> {
+pub struct DcOffset<'a, T: DcOffsetControl + ?Sized> {
     dev: &'a T,
-    channel: C,
+    direction: Direction,
+    channel: usize,
 }
 
-impl<'a, T, C> DcOffset<'a, T, C>
+impl<'a, T> DcOffset<'a, T>
 where
     T: DcOffsetControl + ?Sized,
-    C: ChannelId,
 {
-    fn new(dev: &'a T, channel: C) -> Result<Self, Error> {
-        if !dev.dc_offset_available(C::direction(), channel.index())? {
+    fn new(dev: &'a T, direction: Direction, channel: usize) -> Result<Self, Error> {
+        if !dev.dc_offset_available(direction, channel)? {
             return Err(Error::NotSupported);
         }
-        Ok(Self { dev, channel })
+        Ok(Self {
+            dev,
+            direction,
+            channel,
+        })
     }
 
     /// Return whether automatic DC offset correction is enabled.
     pub fn enabled(&self) -> Result<bool, Error> {
-        self.dev
-            .dc_offset_enabled(C::direction(), self.channel.index())
+        self.dev.dc_offset_enabled(self.direction, self.channel)
     }
 
     /// Enable automatic DC offset correction.
@@ -841,7 +800,7 @@ where
     /// Set whether automatic DC offset correction is enabled.
     pub fn set_enabled(&self, enabled: bool) -> Result<(), Error> {
         self.dev
-            .set_dc_offset_enabled(C::direction(), self.channel.index(), enabled)
+            .set_dc_offset_enabled(self.direction, self.channel, enabled)
     }
 }
 
@@ -1405,25 +1364,22 @@ impl Device<DynDevice> {
 impl<T: ChannelInfo> Device<T> {
     /// RX channel handle.
     pub fn rx(&self, index: usize) -> Result<RxChannel<'_, T>, Error> {
-        let id = RxChannelId(index);
-        ensure_channel(&self.dev, id)?;
-        Ok(RxChannel::new(&self.dev, id))
+        ensure_channel(&self.dev, Direction::Rx, index)?;
+        Ok(RxChannel::new(&self.dev, index))
     }
 
     /// TX channel handle.
     pub fn tx(&self, index: usize) -> Result<TxChannel<'_, T>, Error> {
-        let id = TxChannelId(index);
-        ensure_channel(&self.dev, id)?;
-        Ok(TxChannel::new(&self.dev, id))
+        ensure_channel(&self.dev, Direction::Tx, index)?;
+        Ok(TxChannel::new(&self.dev, index))
     }
 }
 
-fn ensure_channel<T, C>(dev: &T, channel: C) -> Result<(), Error>
+fn ensure_channel<T>(dev: &T, direction: Direction, channel: usize) -> Result<(), Error>
 where
     T: ChannelInfo + ?Sized,
-    C: ChannelId,
 {
-    if channel.index() < dev.num_channels(C::direction())? {
+    if channel < dev.num_channels(direction)? {
         Ok(())
     } else {
         Err(Error::ValueError)
@@ -1432,41 +1388,39 @@ where
 
 impl<T: RxDevice + ChannelInfo> Device<T> {
     /// Create an RX streamer over one or more RX channels.
-    pub fn rx_streamer(&self, channels: &[RxChannelId]) -> Result<T::RxStreamer, Error> {
+    pub fn rx_streamer(&self, channels: &[usize]) -> Result<T::RxStreamer, Error> {
         self.rx_streamer_with_args(channels, Args::new())
     }
 
     /// Create an RX streamer over one or more RX channels, using `args`.
     pub fn rx_streamer_with_args(
         &self,
-        channels: &[RxChannelId],
+        channels: &[usize],
         args: Args,
     ) -> Result<T::RxStreamer, Error> {
         for channel in channels {
-            ensure_channel(&self.dev, *channel)?;
+            ensure_channel(&self.dev, Direction::Rx, *channel)?;
         }
-        let channels: Vec<_> = channels.iter().map(|channel| channel.index()).collect();
-        self.dev.rx_streamer(&channels, args)
+        self.dev.rx_streamer(channels, args)
     }
 }
 
 impl<T: TxDevice + ChannelInfo> Device<T> {
     /// Create a TX streamer over one or more TX channels.
-    pub fn tx_streamer(&self, channels: &[TxChannelId]) -> Result<T::TxStreamer, Error> {
+    pub fn tx_streamer(&self, channels: &[usize]) -> Result<T::TxStreamer, Error> {
         self.tx_streamer_with_args(channels, Args::new())
     }
 
     /// Create a TX streamer over one or more TX channels, using `args`.
     pub fn tx_streamer_with_args(
         &self,
-        channels: &[TxChannelId],
+        channels: &[usize],
         args: Args,
     ) -> Result<T::TxStreamer, Error> {
         for channel in channels {
-            ensure_channel(&self.dev, *channel)?;
+            ensure_channel(&self.dev, Direction::Tx, *channel)?;
         }
-        let channels: Vec<_> = channels.iter().map(|channel| channel.index()).collect();
-        self.dev.tx_streamer(&channels, args)
+        self.dev.tx_streamer(channels, args)
     }
 }
 
@@ -1478,7 +1432,7 @@ impl<'a, T: RxDevice + ?Sized> RxChannel<'a, T> {
 
     /// Create a single-channel RX streamer, using `args`.
     pub fn streamer_with_args(&self, args: Args) -> Result<T::RxStreamer, Error> {
-        self.dev.rx_streamer(&[self.id.index()], args)
+        self.dev.rx_streamer(&[self.channel], args)
     }
 }
 
@@ -1490,79 +1444,79 @@ impl<'a, T: TxDevice + ?Sized> TxChannel<'a, T> {
 
     /// Create a single-channel TX streamer, using `args`.
     pub fn streamer_with_args(&self, args: Args) -> Result<T::TxStreamer, Error> {
-        self.dev.tx_streamer(&[self.id.index()], args)
+        self.dev.tx_streamer(&[self.channel], args)
     }
 }
 
 impl<'a, T: ChannelInfo + ?Sized> RxChannel<'a, T> {
     /// Full-duplex support for this RX channel.
     pub fn full_duplex(&self) -> Result<bool, Error> {
-        self.dev.full_duplex(Direction::Rx, self.id.index())
+        self.dev.full_duplex(Direction::Rx, self.channel)
     }
 }
 
 impl<'a, T: ChannelInfo + ?Sized> TxChannel<'a, T> {
     /// Full-duplex support for this TX channel.
     pub fn full_duplex(&self) -> Result<bool, Error> {
-        self.dev.full_duplex(Direction::Tx, self.id.index())
+        self.dev.full_duplex(Direction::Tx, self.channel)
     }
 }
 
 macro_rules! impl_channel_controls {
-    ($channel:ident, $id:ty) => {
+    ($channel:ident, $direction:expr) => {
         impl<'a, T: AntennaControl + ?Sized> $channel<'a, T> {
             /// Antenna control.
-            pub fn antenna(&self) -> Result<Antenna<'_, T, $id>, Error> {
-                Ok(Antenna::new(self.dev, self.id))
+            pub fn antenna(&self) -> Result<Antenna<'_, T>, Error> {
+                Ok(Antenna::new(self.dev, $direction, self.channel))
             }
         }
 
         impl<'a, T: AgcControl + ?Sized> $channel<'a, T> {
             /// Automatic gain control.
-            pub fn agc(&self) -> Result<Agc<'_, T, $id>, Error> {
-                Agc::new(self.dev, self.id)
+            pub fn agc(&self) -> Result<Agc<'_, T>, Error> {
+                Agc::new(self.dev, $direction, self.channel)
             }
         }
 
         impl<'a, T: GainControl + ?Sized> $channel<'a, T> {
             /// Gain control.
-            pub fn gain(&self) -> Result<Gain<'_, T, $id>, Error> {
-                Ok(Gain::new(self.dev, self.id))
+            pub fn gain(&self) -> Result<Gain<'_, T>, Error> {
+                Ok(Gain::new(self.dev, $direction, self.channel))
             }
         }
 
         impl<'a, T: FrequencyControl + ?Sized> $channel<'a, T> {
             /// Frequency control.
-            pub fn frequency(&self) -> Result<Frequency<'_, T, $id>, Error> {
-                Ok(Frequency::new(self.dev, self.id))
+            pub fn frequency(&self) -> Result<Frequency<'_, T>, Error> {
+                Ok(Frequency::new(self.dev, $direction, self.channel))
             }
         }
 
         impl<'a, T: SampleRateControl + ?Sized> $channel<'a, T> {
             /// Sample-rate control.
-            pub fn sample_rate(&self) -> Result<SampleRate<'_, T, $id>, Error> {
-                Ok(SampleRate::new(self.dev, self.id))
+            pub fn sample_rate(&self) -> Result<SampleRate<'_, T>, Error> {
+                Ok(SampleRate::new(self.dev, $direction, self.channel))
             }
         }
 
         impl<'a, T: BandwidthControl + ?Sized> $channel<'a, T> {
             /// Bandwidth control.
-            pub fn bandwidth(&self) -> Result<Bandwidth<'_, T, $id>, Error> {
-                Ok(Bandwidth::new(self.dev, self.id))
+            pub fn bandwidth(&self) -> Result<Bandwidth<'_, T>, Error> {
+                Ok(Bandwidth::new(self.dev, $direction, self.channel))
             }
         }
 
         impl<'a, T: DcOffsetControl + ?Sized> $channel<'a, T> {
             /// Automatic DC offset correction.
-            pub fn dc_offset(&self) -> Result<DcOffset<'_, T, $id>, Error> {
-                DcOffset::new(self.dev, self.id)
+            pub fn dc_offset(&self) -> Result<DcOffset<'_, T>, Error> {
+                DcOffset::new(self.dev, $direction, self.channel)
             }
         }
     };
 }
 
-impl_channel_controls!(RxChannel, RxChannelId);
-impl_channel_controls!(TxChannel, TxChannelId);
+impl_channel_controls!(RxChannel, Direction::Rx);
+impl_channel_controls!(TxChannel, Direction::Tx);
 
 #[cfg(all(test, feature = "dummy"))]
 mod tests {
@@ -1699,7 +1653,7 @@ mod tests {
         assert_eq!(capabilities.tx_channels.len(), 1);
 
         let rx0 = &capabilities.rx_channels[0];
-        assert_eq!(rx0.channel, RxChannelId(0));
+        assert_eq!(rx0.channel, 0);
         assert_eq!(rx0.full_duplex, Some(true));
         assert_eq!(rx0.controls.antennas, Some(vec!["A".to_string()]));
         assert!(rx0.controls.agc);
@@ -1728,7 +1682,7 @@ mod tests {
     #[test]
     fn dc_offset_handle_controls_enabled_state() {
         let dev = Device::from_impl(DcToggle(std::sync::Mutex::new(false)));
-        let rx0 = RxChannel::new(&dev.dev, RxChannelId(0));
+        let rx0 = RxChannel::new(&dev.dev, 0);
         let dc_offset = rx0.dc_offset().unwrap();
 
         dc_offset.enable().unwrap();
@@ -1750,7 +1704,7 @@ mod tests {
             ChannelControls::default()
         );
 
-        assert!(dev.rx_streamer(&[RxChannelId(0)]).is_ok());
+        assert!(dev.rx_streamer(&[0]).is_ok());
         assert!(matches!(dev.tx(0), Err(Error::ValueError)));
         let rx0 = dev.rx(0).unwrap();
         assert!(matches!(rx0.agc(), Err(Error::NotSupported)));
