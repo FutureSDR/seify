@@ -16,7 +16,9 @@ dummy = []
 hackrfone = ["dep:seify-hackrfone"]
 hydrasdr = ["dep:hydrasdr-rs"]
 rtlsdr = ["dep:seify-rtlsdr"]
+smol = ["hydrasdr-rs?/smol"]
 soapy = ["dep:soapysdr"]
+tokio = ["hydrasdr-rs?/tokio"]
 
 [[example]]
 name = "rx_typed"

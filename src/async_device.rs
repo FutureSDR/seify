@@ -2570,6 +2570,15 @@ impl Default for AsyncRegistry {
             Driver::Dummy,
         ));
 
+        #[cfg(all(
+            feature = "hydrasdr",
+            any(feature = "smol", feature = "tokio"),
+            not(target_arch = "wasm32")
+        ))]
+        registry.register(BuiltinAsyncDriver::<crate::impls::AsyncHydraSdr>::new(
+            Driver::HydraSdr,
+        ));
+
         registry
     }
 }
@@ -2588,7 +2597,11 @@ fn async_builtin_driver_enabled(driver: Driver) -> bool {
         Driver::BladeRf => cfg!(all(feature = "bladerf1", not(target_arch = "wasm32"))),
         Driver::Dummy => cfg!(feature = "dummy"),
         Driver::HackRf => cfg!(all(feature = "hackrfone", not(target_arch = "wasm32"))),
-        Driver::HydraSdr => cfg!(all(feature = "hydrasdr", not(target_arch = "wasm32"))),
+        Driver::HydraSdr => cfg!(all(
+            feature = "hydrasdr",
+            any(feature = "smol", feature = "tokio"),
+            not(target_arch = "wasm32")
+        )),
         Driver::RtlSdr => cfg!(all(feature = "rtlsdr", not(target_arch = "wasm32"))),
         Driver::Soapy => cfg!(all(feature = "soapy", not(target_arch = "wasm32"))),
     }
@@ -2709,13 +2722,27 @@ mod wasm_non_send_compile_check {
     }
 }
 
-#[cfg(feature = "dummy")]
+#[cfg(any(
+    feature = "dummy",
+    all(
+        feature = "hydrasdr",
+        any(feature = "smol", feature = "tokio"),
+        not(target_arch = "wasm32")
+    )
+))]
 struct BuiltinAsyncDriver<D> {
     driver: Driver,
     _device: std::marker::PhantomData<D>,
 }
 
-#[cfg(feature = "dummy")]
+#[cfg(any(
+    feature = "dummy",
+    all(
+        feature = "hydrasdr",
+        any(feature = "smol", feature = "tokio"),
+        not(target_arch = "wasm32")
+    )
+))]
 impl<D> BuiltinAsyncDriver<D> {
     fn new(driver: Driver) -> Self {
         Self {
@@ -2725,7 +2752,14 @@ impl<D> BuiltinAsyncDriver<D> {
     }
 }
 
-#[cfg(feature = "dummy")]
+#[cfg(any(
+    feature = "dummy",
+    all(
+        feature = "hydrasdr",
+        any(feature = "smol", feature = "tokio"),
+        not(target_arch = "wasm32")
+    )
+))]
 impl<D> AsyncDriverBackend for BuiltinAsyncDriver<D>
 where
     D: AsyncTypedDeviceBackend + MaybeSend + MaybeSync,
@@ -2759,6 +2793,37 @@ where
             ))
         }
         .boxed_async()
+    }
+}
+
+#[cfg(all(
+    test,
+    feature = "hydrasdr",
+    not(any(feature = "smol", feature = "tokio")),
+    not(target_arch = "wasm32")
+))]
+mod hydrasdr_sync_only_tests {
+    use super::*;
+    use futures::executor::block_on;
+
+    #[test]
+    fn async_registry_reports_disabled_hydrasdr_without_runtime_feature() {
+        block_on(async {
+            let registry = AsyncRegistry::default();
+
+            assert!(matches!(
+                registry.probe("driver=hydrasdr").await,
+                Err(Error::DriverFeatureNotEnabled {
+                    driver: Driver::HydraSdr
+                })
+            ));
+            assert!(matches!(
+                registry.open_args("driver=hydrasdr").await,
+                Err(Error::DriverFeatureNotEnabled {
+                    driver: Driver::HydraSdr
+                })
+            ));
+        });
     }
 }
 

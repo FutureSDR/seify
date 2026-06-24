@@ -39,6 +39,12 @@ Available features:
 | `hackrfone` | `driver=hackrfone` | HackRF One backend. |
 | `hydrasdr` | `driver=hydrasdr` | HydraSDR backend. |
 | `rtlsdr` | `driver=rtlsdr` | RTL-SDR backend. |
+| `smol` / `tokio` | n/a | Pick one for async `nusb` runtime integration. |
+
+For async use with `nusb`-based drivers, enable exactly one of `smol` or
+`tokio`. For example, HydraSDR async support is enabled with `hydrasdr,smol` or
+`hydrasdr,tokio`; if Cargo feature unification enables both runtimes, `nusb`
+uses its `smol` blocking-task adapter.
 
 Use the generic API with an argument string to select a backend at runtime:
 

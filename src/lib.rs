@@ -11,6 +11,11 @@
 //! The default feature set enables the `soapy` backend. Other backends are
 //! enabled with Cargo features such as `rtlsdr`, `hackrfone`, `hydrasdr`,
 //! `bladerf1`, `aaronia_http`, and `dummy`.
+//! Async applications that use `nusb`-based drivers should enable exactly one
+//! of `smol` or `tokio` for runtime integration. For example, HydraSDR async
+//! support is enabled by combining `hydrasdr` with either `smol` or `tokio`. If
+//! Cargo feature unification enables both runtimes, `nusb` uses its `smol`
+//! blocking-task adapter.
 //!
 //! Native Rust drivers are still experimental. For production use and the
 //! widest set of stable hardware integrations, prefer the SoapySDR backend.

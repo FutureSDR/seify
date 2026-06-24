@@ -34,5 +34,11 @@ pub use hackrfone::HackRfOne;
 
 #[cfg(all(feature = "hydrasdr", not(target_arch = "wasm32")))]
 pub mod hydrasdr;
+#[cfg(all(
+    feature = "hydrasdr",
+    any(feature = "smol", feature = "tokio"),
+    not(target_arch = "wasm32")
+))]
+pub use hydrasdr::AsyncHydraSdr;
 #[cfg(all(feature = "hydrasdr", not(target_arch = "wasm32")))]
 pub use hydrasdr::HydraSdr;
