@@ -349,7 +349,7 @@ pub enum Driver {
     AaroniaHttp,
     /// bladeRF 1 backend.
     BladeRf,
-    /// In-process dummy backend.
+    /// Dummy for unit tests.
     Dummy,
     /// HackRF One backend.
     HackRf,

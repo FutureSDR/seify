@@ -32,7 +32,7 @@ Available features:
 
 | Feature | Driver argument | Notes |
 | --- | --- | --- |
-| `dummy` | `driver=dummy` | In-process test driver. |
+| `dummy` | `driver=dummy` | Driver for unit tests. |
 | `soapy` | `driver=soapy` | SoapySDR backend. Enabled by default. Requires SoapySDR system libraries. |
 | `aaronia_http` | `driver=aaronia_http` | Aaronia HTTP backend. |
 | `bladerf1` | `driver=bladerf` | bladeRF 1 backend. |
