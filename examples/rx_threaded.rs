@@ -20,7 +20,7 @@ pub fn main() -> Result<(), Box<dyn Error>> {
     env_logger::init();
     let cli = Args::parse();
 
-    let dev = Device::from_args(cli.args)?;
+    let dev: Device = Device::from_args(cli.args)?;
 
     println!("driver:      {:?}", dev.driver());
     println!("id:          {:?}", dev.id()?);

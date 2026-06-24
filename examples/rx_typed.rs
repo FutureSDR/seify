@@ -17,8 +17,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
     let cli = Args::parse();
 
-    let rtl = rtlsdr::RtlSdr::open(cli.args)?;
-    let dev = Device::from_impl(rtl);
+    let dev = Device::<rtlsdr::RtlSdr>::from_args(cli.args)?;
     // Get typed reference to device impl
     // let _r : &seify::impls::RtlSdr = dev.impl_ref().unwrap();
 

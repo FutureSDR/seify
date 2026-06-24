@@ -21,7 +21,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("devs: {devs:?}");
 
     for d in devs {
-        let dev = Device::from_args(d)?;
+        let dev: Device = Device::from_args(d)?;
 
         println!();
         println!("Device ({:?} - {:?}), ", dev.driver(), dev.id()?);

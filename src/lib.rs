@@ -39,8 +39,10 @@ pub mod impls;
 
 mod registry;
 pub use registry::DeviceDescriptor;
+pub use registry::DeviceOpen;
 pub use registry::DriverBackend;
 pub use registry::Registry;
+pub use registry::TypedDeviceBackend;
 
 mod range;
 pub use range::Range;
@@ -218,9 +220,7 @@ mod tests {
     #[test]
     #[cfg(not(all(feature = "hydrasdr", not(target_arch = "wasm32"))))]
     fn hydrasdr_from_args_reports_disabled_feature_when_not_enabled() {
-        assert!(matches!(
-            Device::from_args("driver=hydrasdr"),
-            Err(Error::FeatureNotEnabled)
-        ));
+        let result: Result<Device, Error> = Device::from_args("driver=hydrasdr");
+        assert!(matches!(result, Err(Error::FeatureNotEnabled)));
     }
 }

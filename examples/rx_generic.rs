@@ -18,7 +18,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // HydraSDR RFOne is rx-only and can be selected with generic args, e.g.:
     // cargo run --no-default-features --features hydrasdr --example rx_generic -- --args driver=hydrasdr
-    let dev = Device::from_args(cli.args)?;
+    let dev: Device = Device::from_args(cli.args)?;
     // Get typed reference to device impl
     // let r: &seify::impls::RtlSdr = dev.impl_ref().unwrap();
 

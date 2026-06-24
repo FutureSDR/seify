@@ -47,6 +47,46 @@ pub trait DriverBackend: Send + Sync {
     fn open(&self, descriptor: &DeviceDescriptor) -> Result<Device<DynDevice>, Error>;
 }
 
+/// Typed driver implementation that can be opened directly.
+pub trait TypedDeviceBackend: crate::DynDeviceBackend + Sized + 'static {
+    /// Driver implemented by this backend.
+    fn driver() -> Driver;
+
+    /// Probe devices matching `args`.
+    fn probe(args: &Args) -> Result<Vec<Args>, Error>;
+
+    /// Open a typed device matching `args`.
+    fn open(args: &Args) -> Result<Self, Error>;
+}
+
+/// Target type that can be opened through [`Device::from_args`].
+pub trait DeviceOpen: Sized {
+    /// Open this device target from `args`.
+    fn open_device_args(args: Args) -> Result<Device<Self>, Error>;
+}
+
+impl DeviceOpen for DynDevice {
+    fn open_device_args(args: Args) -> Result<Device<Self>, Error> {
+        Registry::default().open_args(args)
+    }
+}
+
+impl<D> DeviceOpen for D
+where
+    D: TypedDeviceBackend,
+{
+    fn open_device_args(args: Args) -> Result<Device<Self>, Error> {
+        match args.get::<Driver>("driver") {
+            Ok(driver) if driver != <D as TypedDeviceBackend>::driver() => {
+                return Err(Error::ValueError);
+            }
+            Ok(_) | Err(Error::NotFound) => {}
+            Err(e) => return Err(e),
+        }
+        Ok(Device::from_impl(D::open(&args)?))
+    }
+}
+
 /// Registry of driver discovery/opening backends.
 pub struct Registry {
     backends: Vec<Box<dyn DriverBackend>>,
@@ -212,20 +252,6 @@ fn builtin_driver_enabled(driver: Driver) -> bool {
     all(feature = "rtlsdr", not(target_arch = "wasm32")),
     all(feature = "soapy", not(target_arch = "wasm32"))
 ))]
-trait BuiltinDevice: crate::DynDeviceBackend + Sized + 'static {
-    fn probe(args: &Args) -> Result<Vec<Args>, Error>;
-    fn open(args: &Args) -> Result<Self, Error>;
-}
-
-#[cfg(any(
-    all(feature = "aaronia_http", not(target_arch = "wasm32")),
-    all(feature = "bladerf1", not(target_arch = "wasm32")),
-    feature = "dummy",
-    all(feature = "hackrfone", not(target_arch = "wasm32")),
-    all(feature = "hydrasdr", not(target_arch = "wasm32")),
-    all(feature = "rtlsdr", not(target_arch = "wasm32")),
-    all(feature = "soapy", not(target_arch = "wasm32"))
-))]
 struct BuiltinDriver<D> {
     driver: Driver,
     _device: std::marker::PhantomData<D>,
@@ -260,7 +286,7 @@ impl<D> BuiltinDriver<D> {
 ))]
 impl<D> DriverBackend for BuiltinDriver<D>
 where
-    D: BuiltinDevice,
+    D: TypedDeviceBackend,
 {
     fn driver(&self) -> Driver {
         self.driver
@@ -290,8 +316,12 @@ where
     all(feature = "soapy", not(target_arch = "wasm32"))
 ))]
 macro_rules! impl_builtin_device {
-    ($device:ty) => {
-        impl BuiltinDevice for $device {
+    ($device:ty, $driver:expr) => {
+        impl TypedDeviceBackend for $device {
+            fn driver() -> Driver {
+                $driver
+            }
+
             fn probe(args: &Args) -> Result<Vec<Args>, Error> {
                 <$device>::probe(args)
             }
@@ -304,19 +334,19 @@ macro_rules! impl_builtin_device {
 }
 
 #[cfg(all(feature = "aaronia_http", not(target_arch = "wasm32")))]
-impl_builtin_device!(crate::impls::AaroniaHttp);
+impl_builtin_device!(crate::impls::AaroniaHttp, Driver::AaroniaHttp);
 #[cfg(all(feature = "bladerf1", not(target_arch = "wasm32")))]
-impl_builtin_device!(crate::impls::BladeRf);
+impl_builtin_device!(crate::impls::BladeRf, Driver::BladeRf);
 #[cfg(feature = "dummy")]
-impl_builtin_device!(crate::impls::Dummy);
+impl_builtin_device!(crate::impls::Dummy, Driver::Dummy);
 #[cfg(all(feature = "hackrfone", not(target_arch = "wasm32")))]
-impl_builtin_device!(crate::impls::HackRfOne);
+impl_builtin_device!(crate::impls::HackRfOne, Driver::HackRf);
 #[cfg(all(feature = "hydrasdr", not(target_arch = "wasm32")))]
-impl_builtin_device!(crate::impls::HydraSdr);
+impl_builtin_device!(crate::impls::HydraSdr, Driver::HydraSdr);
 #[cfg(all(feature = "rtlsdr", not(target_arch = "wasm32")))]
-impl_builtin_device!(crate::impls::RtlSdr);
+impl_builtin_device!(crate::impls::RtlSdr, Driver::RtlSdr);
 #[cfg(all(feature = "soapy", not(target_arch = "wasm32")))]
-impl_builtin_device!(crate::impls::Soapy);
+impl_builtin_device!(crate::impls::Soapy, Driver::Soapy);
 
 #[cfg(test)]
 mod tests {
@@ -347,9 +377,26 @@ mod tests {
     #[test]
     #[cfg(feature = "dummy")]
     fn device_from_args_uses_registry() {
-        let device = Device::from_args("driver=dummy").unwrap();
+        let device: Device = Device::from_args("driver=dummy").unwrap();
 
         assert_eq!(device.driver(), Driver::Dummy);
+    }
+
+    #[test]
+    #[cfg(feature = "dummy")]
+    fn typed_device_from_args_opens_concrete_backend() {
+        let device = Device::<crate::impls::Dummy>::from_args("driver=dummy").unwrap();
+
+        assert_eq!(device.driver(), Driver::Dummy);
+    }
+
+    #[test]
+    #[cfg(feature = "dummy")]
+    fn typed_device_from_args_rejects_mismatched_driver_filter() {
+        assert!(matches!(
+            Device::<crate::impls::Dummy>::from_args("driver=soapy"),
+            Err(Error::ValueError)
+        ));
     }
 
     #[test]

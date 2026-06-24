@@ -5,6 +5,7 @@ use std::any::Any;
 use std::sync::Arc;
 
 use crate::Args;
+use crate::DeviceOpen;
 use crate::Direction;
 use crate::Driver;
 use crate::Error;
@@ -813,7 +814,7 @@ where
 /// Implements a more ergonomic version of the backend APIs, e.g. using
 /// `Into<Args>`, which would not be possible in traits.
 #[derive(Clone)]
-pub struct Device<T> {
+pub struct Device<T = DynDevice> {
     dev: T,
 }
 
@@ -821,6 +822,16 @@ impl<T> Device<T> {
     /// Create a device from the device implementation.
     pub fn from_impl(dev: T) -> Self {
         Self { dev }
+    }
+}
+
+impl<T> Device<T>
+where
+    T: DeviceOpen,
+{
+    /// Open a device matching `args`.
+    pub fn from_args<A: TryInto<Args>>(args: A) -> Result<Self, Error> {
+        T::open_device_args(args.try_into().map_err(|_| Error::ValueError)?)
     }
 }
 
@@ -837,13 +848,6 @@ impl Device<DynDevice> {
     /// Create a runtime-dispatched device from a device implementation.
     pub fn dyn_from_impl<T: DynDeviceBackend + 'static>(dev: T) -> Self {
         Self { dev: Arc::new(dev) }
-    }
-
-    /// Creates a [`DynDevice`] opening the first device with a given `driver`, specified in
-    /// the `args` or the first device discovered through [`enumerate`](crate::enumerate) that
-    /// matches the args.
-    pub fn from_args<A: TryInto<Args>>(args: A) -> Result<Self, Error> {
-        Registry::default().open_args(args)
     }
 }
 
