@@ -13,8 +13,6 @@ jobs:
       RUST_BACKTRACE: full
     steps:
       - uses: actions/checkout@v5
-        with:
-          submodules: recursive
 
       - uses: dtolnay/rust-toolchain@nightly
         with:
