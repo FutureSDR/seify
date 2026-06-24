@@ -1,7 +1,7 @@
 use crate::{
-    AgcControl, AntennaControl, Args, BandwidthControl, ChannelInfo, DeviceInfo, Direction,
-    DynDeviceBackend, Error, FrequencyControl, GainControl, Range, RangeItem, RxDevice,
-    SampleRateControl, TxDevice,
+    AgcControl, AntennaControl, Args, BandwidthControl, Capability, ChannelInfo, DeviceInfo,
+    Direction, DriverError, DynDeviceBackend, Error, FrequencyControl, GainControl, Range,
+    RangeItem, RxDevice, SampleRateControl, TxDevice,
 };
 use libbladerf_rs::bladerf1::hardware::lms6002d::dc_calibration::DcCalModule;
 use libbladerf_rs::bladerf1::hardware::lms6002d::gain::GainStage;
@@ -25,18 +25,21 @@ const INV_2048: f32 = 1.0 / 2048.0;
 const INV_128: f32 = 1.0 / 128.0;
 
 fn ch(channel: usize) -> Result<Channel, Error> {
-    Channel::try_from(channel as u8).map_err(|_| Error::ValueError)
+    Channel::try_from(channel as u8)
+        .map_err(|_| Error::invalid_argument("channel", "invalid BladeRF channel"))
 }
 
 fn bladerf_err(e: libbladerf_rs::Error) -> Error {
     match e {
-        libbladerf_rs::Error::NotFound => Error::NotFound,
-        libbladerf_rs::Error::Timeout => Error::DeviceError,
+        libbladerf_rs::Error::NotFound => Error::DeviceNotFound,
+        libbladerf_rs::Error::Timeout => Error::Timeout,
         libbladerf_rs::Error::Io(io) => Error::Io(io),
-        libbladerf_rs::Error::Argument(_) => Error::ValueError,
-        libbladerf_rs::Error::Unsupported(_) => Error::NotSupported,
-        libbladerf_rs::Error::StreamClosed => Error::DeviceError,
-        e => Error::Misc(e.to_string()),
+        libbladerf_rs::Error::Argument(err) => Error::invalid_argument("bladerf", err),
+        libbladerf_rs::Error::Unsupported(reason) => {
+            Error::unsupported_reason(Capability::DriverOperation, reason)
+        }
+        libbladerf_rs::Error::StreamClosed => Error::StreamClosed,
+        e => Error::Driver(DriverError::Other(e.to_string())),
     }
 }
 
@@ -153,7 +156,7 @@ impl BladeRf {
 
     pub fn probe(_args: &Args) -> Result<Vec<Args>, Error> {
         let dev_infos = BladeRf1::list_bladerf1()
-            .map_err(|_| Error::NotFound)?
+            .map_err(|_| Error::DeviceNotFound)?
             .collect::<Vec<_>>();
 
         log::trace!("dev_infos: {dev_infos:?}");
@@ -171,7 +174,9 @@ impl BladeRf {
     }
 
     pub fn open<A: TryInto<Args>>(args: A) -> Result<Self, Error> {
-        let args: Args = args.try_into().or(Err(Error::ValueError))?;
+        let args: Args = args
+            .try_into()
+            .map_err(|_| Error::invalid_argument("args", "failed to convert args"))?;
 
         log::trace!("args: {args:?}");
         #[cfg(target_os = "linux")]
@@ -188,7 +193,7 @@ impl BladeRf {
                     BladeRf1::from_bus_addr(bus_id.as_str(), address).map_err(bladerf_err)?;
                 Self::init_and_wrap(bladerf)
             }
-            (Err(Error::NotFound), Err(Error::NotFound)) => {
+            (Err(Error::MissingArgument { .. }), Err(Error::MissingArgument { .. })) => {
                 log::trace!("Opening first bladerf device");
                 let bladerf = BladeRf1::from_first().map_err(bladerf_err)?;
                 Self::init_and_wrap(bladerf)
@@ -197,7 +202,10 @@ impl BladeRf {
                 log::error!(
                     "BladeRf::open received invalid args: bus_id: {bus_id:?}, address: {address:?}"
                 );
-                Err(Error::ValueError)
+                Err(Error::invalid_argument(
+                    "bladerf",
+                    "invalid BladeRF argument",
+                ))
             }
         }
     }
@@ -232,7 +240,7 @@ impl crate::RxStreamer for RxStreamer {
     fn mtu(&self) -> Result<usize, Error> {
         self.streamer
             .as_ref()
-            .ok_or(Error::Inactive)?
+            .ok_or(Error::StreamInactive)?
             .buffer_size()
             .map_err(bladerf_err)
     }
@@ -245,7 +253,7 @@ impl crate::RxStreamer for RxStreamer {
         let mut session = dev.rf_link_session().map_err(bladerf_err)?;
         self.streamer
             .as_mut()
-            .ok_or(Error::Inactive)?
+            .ok_or(Error::StreamInactive)?
             .start(&mut session)
             .map_err(bladerf_err)
     }
@@ -264,7 +272,7 @@ impl crate::RxStreamer for RxStreamer {
 
     fn read(&mut self, buffers: &mut [&mut [Complex32]], timeout_us: i64) -> Result<usize, Error> {
         debug_assert_eq!(buffers.len(), 1);
-        let streamer = self.streamer.as_mut().ok_or(Error::Inactive)?;
+        let streamer = self.streamer.as_mut().ok_or(Error::StreamInactive)?;
         let bytes_per_sample = self.format.sample_size();
         let output = &mut buffers[0];
         let mut written = 0;
@@ -321,7 +329,7 @@ impl crate::TxStreamer for TxStreamer {
     fn mtu(&self) -> Result<usize, Error> {
         self.streamer
             .as_ref()
-            .ok_or(Error::Inactive)?
+            .ok_or(Error::StreamInactive)?
             .buffer_size()
             .map_err(bladerf_err)
     }
@@ -334,7 +342,7 @@ impl crate::TxStreamer for TxStreamer {
         let mut session = dev.rf_link_session().map_err(bladerf_err)?;
         self.streamer
             .as_mut()
-            .ok_or(Error::Inactive)?
+            .ok_or(Error::StreamInactive)?
             .start(&mut session)
             .map_err(bladerf_err)
     }
@@ -359,7 +367,7 @@ impl crate::TxStreamer for TxStreamer {
         timeout_us: i64,
     ) -> Result<usize, Error> {
         debug_assert_eq!(buffers.len(), 1);
-        let streamer = self.streamer.as_mut().ok_or(Error::Inactive)?;
+        let streamer = self.streamer.as_mut().ok_or(Error::StreamInactive)?;
         let buffer_size = streamer.buffer_size().map_err(bladerf_err)?;
         let bytes_per_sample = self.format.sample_size();
         let max_samples = buffer_size / bytes_per_sample;
@@ -436,11 +444,11 @@ impl BladeRf {
     }
 
     fn antennas(&self, _direction: Direction, _channel: usize) -> Result<Vec<String>, Error> {
-        Err(Error::NotSupported)
+        Err(Error::unsupported(Capability::Antenna))
     }
 
     fn antenna(&self, _direction: Direction, _channel: usize) -> Result<String, Error> {
-        Err(Error::NotSupported)
+        Err(Error::unsupported(Capability::Antenna))
     }
 
     fn set_antenna(
@@ -449,7 +457,7 @@ impl BladeRf {
         _channel: usize,
         _name: &str,
     ) -> Result<(), Error> {
-        Err(Error::NotSupported)
+        Err(Error::unsupported(Capability::Antenna))
     }
 
     fn agc_available(&self, _direction: Direction, channel: usize) -> Result<bool, Error> {
@@ -520,7 +528,8 @@ impl BladeRf {
         name: &str,
         gain: f64,
     ) -> Result<(), Error> {
-        let stage = GainStage::try_from(name).map_err(|_| Error::ValueError)?;
+        let stage = GainStage::try_from(name)
+            .map_err(|_| Error::invalid_argument("bladerf", "invalid BladeRF argument"))?;
         let range = RfLinkSession::get_gain_stage_range(stage);
         let min = range.min().unwrap_or(f64::MIN);
         let max = range.max().unwrap_or(f64::MAX);
@@ -538,7 +547,8 @@ impl BladeRf {
         _channel: usize,
         name: &str,
     ) -> Result<Option<f64>, Error> {
-        let stage = GainStage::try_from(name).map_err(|_| Error::ValueError)?;
+        let stage = GainStage::try_from(name)
+            .map_err(|_| Error::invalid_argument("bladerf", "invalid BladeRF argument"))?;
         let mut dev = self.inner.lock().unwrap();
         let mut session = dev.rf_link_session().map_err(bladerf_err)?;
         Ok(Some(
@@ -552,7 +562,8 @@ impl BladeRf {
         _channel: usize,
         name: &str,
     ) -> Result<Range, Error> {
-        let stage = GainStage::try_from(name).map_err(|_| Error::ValueError)?;
+        let stage = GainStage::try_from(name)
+            .map_err(|_| Error::invalid_argument("bladerf", "invalid BladeRF argument"))?;
         Ok(RfLinkSession::get_gain_stage_range(stage).into())
     }
 
@@ -606,7 +617,7 @@ impl BladeRf {
         _direction: Direction,
         _channel: usize,
     ) -> Result<Vec<String>, Error> {
-        Err(Error::NotSupported)
+        Err(Error::unsupported(Capability::Frequency))
     }
 
     fn component_frequency_range(
@@ -615,7 +626,7 @@ impl BladeRf {
         _channel: usize,
         _name: &str,
     ) -> Result<Range, Error> {
-        Err(Error::NotSupported)
+        Err(Error::unsupported(Capability::Frequency))
     }
 
     fn component_frequency(
@@ -624,7 +635,7 @@ impl BladeRf {
         _channel: usize,
         _name: &str,
     ) -> Result<f64, Error> {
-        Err(Error::NotSupported)
+        Err(Error::unsupported(Capability::Frequency))
     }
 
     fn set_component_frequency(
@@ -634,7 +645,7 @@ impl BladeRf {
         _name: &str,
         _frequency: f64,
     ) -> Result<(), Error> {
-        Err(Error::NotSupported)
+        Err(Error::unsupported(Capability::Frequency))
     }
 
     fn sample_rate(&self, _direction: Direction, channel: usize) -> Result<f64, Error> {
@@ -773,7 +784,10 @@ impl RxDevice for BladeRf {
     fn rx_streamer(&self, channels: &[usize], _args: Args) -> Result<Self::RxStreamer, Error> {
         if channels != [0] {
             log::error!("BladeRF1 only supports one RX channel!");
-            return Err(Error::ValueError);
+            return Err(Error::invalid_argument(
+                "bladerf",
+                "invalid BladeRF argument",
+            ));
         }
         let mut dev = self.inner.lock().unwrap();
         let mut session = dev.rf_link_session().map_err(bladerf_err)?;
@@ -798,7 +812,10 @@ impl TxDevice for BladeRf {
     fn tx_streamer(&self, channels: &[usize], _args: Args) -> Result<Self::TxStreamer, Error> {
         if channels != [0] {
             log::error!("BladeRF1 only supports one TX channel!");
-            return Err(Error::ValueError);
+            return Err(Error::invalid_argument(
+                "bladerf",
+                "invalid BladeRF argument",
+            ));
         }
         let mut dev = self.inner.lock().unwrap();
         let mut session = dev.rf_link_session().map_err(bladerf_err)?;

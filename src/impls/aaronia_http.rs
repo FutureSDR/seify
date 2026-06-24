@@ -15,6 +15,7 @@ use crate::AgcControl;
 use crate::AntennaControl;
 use crate::Args;
 use crate::BandwidthControl;
+use crate::Capability;
 use crate::ChannelInfo;
 use crate::DeviceInfo;
 use crate::Direction;
@@ -97,9 +98,13 @@ impl AaroniaHttp {
     ///
     /// Looks for a `url` argument or tries `http://localhost:54664` as the default.
     pub fn open<A: TryInto<Args>>(args: A) -> Result<Self, Error> {
-        let mut v = Self::probe(&args.try_into().or(Err(Error::ValueError))?)?;
+        let mut v = Self::probe(
+            &args
+                .try_into()
+                .map_err(|_| Error::invalid_argument("args", "failed to convert args"))?,
+        )?;
         if v.is_empty() {
-            Err(Error::NotFound)
+            Err(Error::DeviceNotFound)
         } else {
             let a = v.remove(0);
 
@@ -183,7 +188,10 @@ impl AaroniaHttp {
         match (direction, channel) {
             (Rx, 0 | 1) => Ok(true),
             (Tx, 0) => Ok(true),
-            _ => Err(Error::ValueError),
+            _ => Err(Error::invalid_argument(
+                "aaronia_http",
+                "invalid Aaronia HTTP argument",
+            )),
         }
     }
 
@@ -192,7 +200,10 @@ impl AaroniaHttp {
             (Rx, 0) => Ok(vec!["RX1".to_string()]),
             (Rx, 1) => Ok(vec!["RX2".to_string()]),
             (Tx, 0) => Ok(vec!["TX1".to_string()]),
-            _ => Err(Error::ValueError),
+            _ => Err(Error::invalid_argument(
+                "aaronia_http",
+                "invalid Aaronia HTTP argument",
+            )),
         }
     }
 
@@ -201,7 +212,10 @@ impl AaroniaHttp {
             (Rx, 0) => Ok("RX1".to_string()),
             (Rx, 1) => Ok("RX2".to_string()),
             (Tx, 0) => Ok("TX1".to_string()),
-            _ => Err(Error::ValueError),
+            _ => Err(Error::invalid_argument(
+                "aaronia_http",
+                "invalid Aaronia HTTP argument",
+            )),
         }
     }
 
@@ -210,7 +224,10 @@ impl AaroniaHttp {
             (Rx, 0, "RX1") => Ok(()),
             (Rx, 1, "RX2") => Ok(()),
             (Tx, 0, "TX1") => Ok(()),
-            _ => Err(Error::ValueError),
+            _ => Err(Error::invalid_argument(
+                "aaronia_http",
+                "invalid Aaronia HTTP argument",
+            )),
         }
     }
 
@@ -218,14 +235,20 @@ impl AaroniaHttp {
         match (direction, channel) {
             (Rx, 0 | 1) => Ok(vec!["TUNER".to_string()]),
             (Tx, 0) => Ok(vec!["TUNER".to_string()]),
-            _ => Err(Error::ValueError),
+            _ => Err(Error::invalid_argument(
+                "aaronia_http",
+                "invalid Aaronia HTTP argument",
+            )),
         }
     }
 
     fn agc_available(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
         match (direction, channel) {
             (Rx, 0 | 1) => Ok(true),
-            _ => Err(Error::ValueError),
+            _ => Err(Error::invalid_argument(
+                "aaronia_http",
+                "invalid Aaronia HTTP argument",
+            )),
         }
     }
 
@@ -247,7 +270,10 @@ impl AaroniaHttp {
                 });
                 self.send_json(json)
             }
-            _ => Err(Error::ValueError),
+            _ => Err(Error::invalid_argument(
+                "aaronia_http",
+                "invalid Aaronia HTTP argument",
+            )),
         }
     }
 
@@ -283,7 +309,7 @@ impl AaroniaHttp {
                 let range = Range::new(vec![RangeItem::Interval(-100.0, 10.0)]);
                 if !range.contains(gain) {
                     log::warn!("aaronia_http: gain out of range");
-                    return Err(Error::OutOfRange(range, gain));
+                    return Err(Error::out_of_range("gain", range, gain));
                 }
                 let json = json!({
                         "receiverName": "Block_Spectran_V6B_0",
@@ -295,7 +321,10 @@ impl AaroniaHttp {
                 });
                 self.send_json(json)
             }
-            _ => Err(Error::ValueError),
+            _ => Err(Error::invalid_argument(
+                "aaronia_http",
+                "invalid Aaronia HTTP argument",
+            )),
         }
     }
 
@@ -360,7 +389,10 @@ impl AaroniaHttp {
                 "centerfreq",
             ]),
             (Tx, 0) => Ok(self.tx_frequency.load(Ordering::SeqCst) as f64),
-            _ => Err(Error::ValueError),
+            _ => Err(Error::invalid_argument(
+                "aaronia_http",
+                "invalid Aaronia HTTP argument",
+            )),
         }
     }
 
@@ -378,7 +410,10 @@ impl AaroniaHttp {
                 self.set_component_frequency(direction, channel, "DEMOD", self.f_offset)
             }
             (Tx, 0) => self.set_component_frequency(direction, channel, "RF", frequency),
-            _ => Err(Error::ValueError),
+            _ => Err(Error::invalid_argument(
+                "aaronia_http",
+                "invalid Aaronia HTTP argument",
+            )),
         }
     }
 
@@ -463,7 +498,10 @@ impl AaroniaHttp {
                 self.tx_frequency.store(frequency as u64, Ordering::SeqCst);
                 Ok(())
             }
-            _ => Err(Error::ValueError),
+            _ => Err(Error::invalid_argument(
+                "aaronia_http",
+                "invalid Aaronia HTTP argument",
+            )),
         }
     }
 
@@ -476,7 +514,10 @@ impl AaroniaHttp {
                 "samplerate",
             ]),
             (Tx, 0) => Ok(self.tx_sample_rate.load(Ordering::SeqCst) as f64),
-            _ => Err(Error::ValueError),
+            _ => Err(Error::invalid_argument(
+                "aaronia_http",
+                "invalid Aaronia HTTP argument",
+            )),
         }
     }
 
@@ -503,7 +544,10 @@ impl AaroniaHttp {
                 self.tx_sample_rate.store(rate as u64, Ordering::SeqCst);
                 Ok(())
             }
-            _ => Err(Error::ValueError),
+            _ => Err(Error::invalid_argument(
+                "aaronia_http",
+                "invalid Aaronia HTTP argument",
+            )),
         }
     }
 
@@ -511,20 +555,23 @@ impl AaroniaHttp {
         match (direction, channel) {
             (Rx, 0 | 1) => Ok(Range::new(vec![RangeItem::Interval(0.0, 92.16e6)])),
             (Tx, 0) => todo!(),
-            _ => Err(Error::ValueError),
+            _ => Err(Error::invalid_argument(
+                "aaronia_http",
+                "invalid Aaronia HTTP argument",
+            )),
         }
     }
 
     fn bandwidth(&self, _direction: Direction, _channel: usize) -> Result<f64, Error> {
-        Err(Error::NotSupported)
+        Err(Error::unsupported(Capability::Bandwidth))
     }
 
     fn set_bandwidth(&self, _direction: Direction, _channel: usize, _bw: f64) -> Result<(), Error> {
-        Err(Error::NotSupported)
+        Err(Error::unsupported(Capability::Bandwidth))
     }
 
     fn get_bandwidth_range(&self, _direction: Direction, _channel: usize) -> Result<Range, Error> {
-        Err(Error::NotSupported)
+        Err(Error::unsupported(Capability::Bandwidth))
     }
 }
 
@@ -610,7 +657,10 @@ impl RxDevice for AaroniaHttp {
                 reader: None,
             })
         } else {
-            Err(Error::ValueError)
+            Err(Error::invalid_argument(
+                "aaronia_http",
+                "invalid Aaronia HTTP argument",
+            ))
         }
     }
 }
@@ -631,7 +681,10 @@ impl TxDevice for AaroniaHttp {
                     .as_secs_f64(),
             })
         } else {
-            Err(Error::ValueError)
+            Err(Error::invalid_argument(
+                "aaronia_http",
+                "invalid Aaronia HTTP argument",
+            ))
         }
     }
 }
@@ -814,9 +867,7 @@ impl RxStreamer {
         let i = header
             .get("samples")
             .and_then(|x| x.to_string().parse::<usize>().ok())
-            .ok_or(Error::Misc(
-                "Parsing Samples from JSON Header failed".to_string(),
-            ))?;
+            .ok_or_else(|| Error::invalid_argument("samples", "missing samples in JSON header"))?;
 
         self.items_left = i;
         Ok(())

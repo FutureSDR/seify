@@ -56,31 +56,30 @@ use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use thiserror::Error;
 
-/// Seify Error
+/// Device or channel capability used in semantic errors.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Capability {
+    ChannelInfo,
+    RxStreaming,
+    TxStreaming,
+    Antenna,
+    Agc,
+    Gain,
+    Frequency,
+    SampleRate,
+    Bandwidth,
+    DcOffset,
+    DeviceId,
+    TimedActivation,
+    TimedDeactivation,
+    DriverOperation,
+}
+
+/// Driver-specific error details.
 #[derive(Debug, Error)]
-pub enum Error {
-    #[error("DeviceError")]
-    DeviceError,
-    #[error("Value ({1}) out of range ({0:?})")]
-    OutOfRange(Range, f64),
-    #[error("Value Error")]
-    ValueError,
-    #[error("Not Found")]
-    NotFound,
-    #[error("corresponding feature not enabled")]
-    FeatureNotEnabled,
-    #[error("Not Supported")]
-    NotSupported,
-    #[error("Overflow")]
-    Overflow,
-    #[error("Inactive")]
-    Inactive,
-    #[error("Json ({0})")]
-    Json(#[from] serde_json::Error),
-    #[error("Misc")]
-    Misc(String),
-    #[error("Io ({0})")]
-    Io(#[from] std::io::Error),
+#[non_exhaustive]
+pub enum DriverError {
     #[cfg(all(feature = "soapy", not(target_arch = "wasm32")))]
     #[error("Soapy ({0})")]
     Soapy(soapysdr::Error),
@@ -89,19 +88,149 @@ pub enum Error {
     Ureq(Box<ureq::Error>),
     #[cfg(all(feature = "rtlsdr", not(target_arch = "wasm32")))]
     #[error("RtlSdr ({0})")]
-    RtlSdr(#[from] seify_rtlsdr::error::RtlsdrError),
+    RtlSdr(seify_rtlsdr::error::RtlsdrError),
     #[cfg(all(feature = "hackrfone", not(target_arch = "wasm32")))]
     #[error("Hackrf ({0})")]
-    HackRfOne(#[from] seify_hackrfone::Error),
+    HackRfOne(seify_hackrfone::Error),
     #[cfg(all(feature = "hydrasdr", not(target_arch = "wasm32")))]
     #[error("HydraSdr ({0})")]
-    HydraSdr(#[from] hydrasdr_rs::Error),
+    HydraSdr(hydrasdr_rs::Error),
+    #[error("{0}")]
+    Other(String),
+}
+
+/// Seify Error
+#[derive(Debug, Error)]
+pub enum Error {
+    #[error("unsupported capability {capability:?}")]
+    Unsupported {
+        capability: Capability,
+        reason: Option<String>,
+    },
+    #[error("invalid {direction:?} channel {channel}; available channels: {available}")]
+    InvalidChannel {
+        direction: Direction,
+        channel: usize,
+        available: usize,
+    },
+    #[error("invalid argument {name}: {reason}")]
+    InvalidArgument { name: String, reason: String },
+    #[error("missing argument {name}")]
+    MissingArgument { name: String },
+    #[error("device not found")]
+    DeviceNotFound,
+    #[error("driver feature not enabled for {driver:?}")]
+    DriverFeatureNotEnabled { driver: Driver },
+    #[error("driver mismatch: expected {expected:?}, requested {requested:?}")]
+    DriverMismatch { expected: Driver, requested: Driver },
+    #[error("value {value} for {name} out of range ({range:?})")]
+    OutOfRange {
+        name: String,
+        range: Range,
+        value: f64,
+    },
+    #[error("busy")]
+    Busy,
+    #[error("device disconnected")]
+    DeviceDisconnected,
+    #[error("timeout")]
+    Timeout,
+    #[error("stream inactive")]
+    StreamInactive,
+    #[error("stream closed")]
+    StreamClosed,
+    #[error("overrun")]
+    Overrun,
+    #[error("underrun")]
+    Underrun,
+    #[error("Json ({0})")]
+    Json(#[from] serde_json::Error),
+    #[error("Io ({0})")]
+    Io(#[from] std::io::Error),
+    #[error("driver error ({0})")]
+    Driver(#[from] DriverError),
+}
+
+impl Error {
+    pub fn unsupported(capability: Capability) -> Self {
+        Self::Unsupported {
+            capability,
+            reason: None,
+        }
+    }
+
+    pub fn unsupported_reason(capability: Capability, reason: impl Into<String>) -> Self {
+        Self::Unsupported {
+            capability,
+            reason: Some(reason.into()),
+        }
+    }
+
+    pub fn invalid_argument(name: impl Into<String>, reason: impl Into<String>) -> Self {
+        Self::InvalidArgument {
+            name: name.into(),
+            reason: reason.into(),
+        }
+    }
+
+    pub fn missing_argument(name: impl Into<String>) -> Self {
+        Self::MissingArgument { name: name.into() }
+    }
+
+    pub fn invalid_channel(direction: Direction, channel: usize, available: usize) -> Self {
+        Self::InvalidChannel {
+            direction,
+            channel,
+            available,
+        }
+    }
+
+    pub fn out_of_range(name: impl Into<String>, range: Range, value: f64) -> Self {
+        Self::OutOfRange {
+            name: name.into(),
+            range,
+            value,
+        }
+    }
+
+    pub fn is_unsupported(&self) -> bool {
+        matches!(self, Self::Unsupported { .. })
+    }
+
+    pub fn is_device_not_found(&self) -> bool {
+        matches!(self, Self::DeviceNotFound)
+    }
+
+    pub fn is_missing_argument(&self) -> bool {
+        matches!(self, Self::MissingArgument { .. })
+    }
 }
 
 #[cfg(all(feature = "aaronia_http", not(target_arch = "wasm32")))]
 impl From<ureq::Error> for Error {
     fn from(value: ureq::Error) -> Self {
-        Error::Ureq(Box::new(value))
+        Error::Driver(DriverError::Ureq(Box::new(value)))
+    }
+}
+
+#[cfg(all(feature = "rtlsdr", not(target_arch = "wasm32")))]
+impl From<seify_rtlsdr::error::RtlsdrError> for Error {
+    fn from(value: seify_rtlsdr::error::RtlsdrError) -> Self {
+        Error::Driver(DriverError::RtlSdr(value))
+    }
+}
+
+#[cfg(all(feature = "hackrfone", not(target_arch = "wasm32")))]
+impl From<seify_hackrfone::Error> for Error {
+    fn from(value: seify_hackrfone::Error) -> Self {
+        Error::Driver(DriverError::HackRfOne(value))
+    }
+}
+
+#[cfg(all(feature = "hydrasdr", not(target_arch = "wasm32")))]
+impl From<hydrasdr_rs::Error> for Error {
+    fn from(value: hydrasdr_rs::Error) -> Self {
+        Error::Driver(DriverError::HydraSdr(value))
     }
 }
 
@@ -144,7 +273,7 @@ impl FromStr for Driver {
         if s == "dummy" || s == "Dummy" {
             return Ok(Driver::Dummy);
         }
-        Err(Error::ValueError)
+        Err(Error::invalid_argument("driver", "unknown driver"))
     }
 }
 
@@ -196,7 +325,7 @@ mod tests {
     fn native_aaronia_driver_is_not_parseable() {
         assert!(matches!(
             "aaronia".parse::<Driver>(),
-            Err(Error::ValueError)
+            Err(Error::InvalidArgument { name, .. }) if name == "driver"
         ));
     }
 
@@ -212,7 +341,9 @@ mod tests {
     fn hydrasdr_enumeration_reports_disabled_feature_when_not_enabled() {
         assert!(matches!(
             enumerate_with_args("driver=hydrasdr"),
-            Err(Error::FeatureNotEnabled)
+            Err(Error::DriverFeatureNotEnabled {
+                driver: Driver::HydraSdr
+            })
         ));
     }
 
@@ -220,6 +351,11 @@ mod tests {
     #[cfg(not(all(feature = "hydrasdr", not(target_arch = "wasm32"))))]
     fn hydrasdr_from_args_reports_disabled_feature_when_not_enabled() {
         let result = DynDevice::from_args("driver=hydrasdr");
-        assert!(matches!(result, Err(Error::FeatureNotEnabled)));
+        assert!(matches!(
+            result,
+            Err(Error::DriverFeatureNotEnabled {
+                driver: Driver::HydraSdr
+            })
+        ));
     }
 }

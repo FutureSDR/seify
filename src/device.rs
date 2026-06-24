@@ -5,6 +5,7 @@ use std::any::Any;
 use std::sync::Arc;
 
 use crate::Args;
+use crate::Capability;
 use crate::Direction;
 use crate::Driver;
 use crate::Error;
@@ -175,7 +176,7 @@ where
     };
     let channels = match channel_info.num_channels(direction) {
         Ok(channels) => channels,
-        Err(Error::NotSupported) => 0,
+        Err(e) if e.is_unsupported() => 0,
         Err(e) => return Err(e),
     };
 
@@ -223,7 +224,7 @@ where
 fn optional_capability<T>(result: Result<T, Error>) -> Result<Option<T>, Error> {
     match result {
         Ok(value) => Ok(Some(value)),
-        Err(Error::NotSupported) => Ok(None),
+        Err(e) if e.is_unsupported() => Ok(None),
         Err(e) => Err(e),
     }
 }
@@ -245,7 +246,7 @@ fn erased_capability_available<C: ?Sized>(
     match cap {
         Some(cap) => match f(cap) {
             Ok(available) => Ok(available),
-            Err(Error::NotSupported) => Ok(false),
+            Err(e) if e.is_unsupported() => Ok(false),
             Err(e) => Err(e),
         },
         None => Ok(false),
@@ -497,7 +498,7 @@ where
 {
     fn new(dev: &'a T, direction: Direction, channel: usize) -> Result<Self, Error> {
         if !dev.agc_available(direction, channel)? {
-            return Err(Error::NotSupported);
+            return Err(Error::unsupported(Capability::Agc));
         }
         Ok(Self {
             dev,
@@ -780,7 +781,7 @@ where
 {
     fn new(dev: &'a T, direction: Direction, channel: usize) -> Result<Self, Error> {
         if !dev.dc_offset_available(direction, channel)? {
-            return Err(Error::NotSupported);
+            return Err(Error::unsupported(Capability::DcOffset));
         }
         Ok(Self {
             dev,
@@ -848,12 +849,17 @@ where
 {
     /// Open a typed device matching `args`.
     pub fn from_args<A: TryInto<Args>>(args: A) -> Result<Self, Error> {
-        let args = args.try_into().map_err(|_| Error::ValueError)?;
+        let args = args
+            .try_into()
+            .map_err(|_| Error::invalid_argument("args", "failed to convert args"))?;
         match args.get::<Driver>("driver") {
             Ok(driver) if driver != <T as TypedDeviceBackend>::driver() => {
-                return Err(Error::ValueError);
+                return Err(Error::DriverMismatch {
+                    expected: <T as TypedDeviceBackend>::driver(),
+                    requested: driver,
+                });
             }
-            Ok(_) | Err(Error::NotFound) => {}
+            Ok(_) | Err(Error::MissingArgument { .. }) => {}
             Err(e) => return Err(e),
         }
         Ok(Self::from_impl(T::open(&args)?))
@@ -891,7 +897,7 @@ impl<T: DeviceInfo> Device<T> {
         self.dev
             .as_any()
             .downcast_ref::<D>()
-            .ok_or(Error::ValueError)
+            .ok_or_else(|| Error::invalid_argument("type", "device implementation type mismatch"))
     }
 
     /// Mutably borrow the underlying device implementation as type `D`.
@@ -899,7 +905,7 @@ impl<T: DeviceInfo> Device<T> {
         self.dev
             .as_any_mut()
             .downcast_mut::<D>()
-            .ok_or(Error::ValueError)
+            .ok_or_else(|| Error::invalid_argument("type", "device implementation type mismatch"))
     }
 }
 
@@ -908,7 +914,7 @@ impl DynDevice {
     pub fn new() -> Result<Self, Error> {
         let registry = Registry::default();
         let descriptors = registry.probe(Args::new())?;
-        let descriptor = descriptors.first().ok_or(Error::NotFound)?;
+        let descriptor = descriptors.first().ok_or(Error::DeviceNotFound)?;
         registry.open(descriptor)
     }
 
@@ -987,7 +993,12 @@ impl DynDevice {
         for channel in channels {
             ensure_channel(self, Direction::Rx, *channel)?;
         }
-        <Self as RxDevice>::rx_streamer(self, channels, args.try_into().or(Err(Error::ValueError))?)
+        <Self as RxDevice>::rx_streamer(
+            self,
+            channels,
+            args.try_into()
+                .map_err(|_| Error::invalid_argument("args", "failed to convert args"))?,
+        )
     }
 
     /// Create a TX streamer.
@@ -1004,7 +1015,12 @@ impl DynDevice {
         for channel in channels {
             ensure_channel(self, Direction::Tx, *channel)?;
         }
-        <Self as TxDevice>::tx_streamer(self, channels, args.try_into().or(Err(Error::ValueError))?)
+        <Self as TxDevice>::tx_streamer(
+            self,
+            channels,
+            args.try_into()
+                .map_err(|_| Error::invalid_argument("args", "failed to convert args"))?,
+        )
     }
 }
 
@@ -1033,14 +1049,14 @@ impl ChannelInfo for DynDevice {
         self.inner
             .as_ref()
             .channel_info()
-            .ok_or(Error::NotSupported)?
+            .ok_or_else(|| Error::unsupported(Capability::ChannelInfo))?
             .num_channels(direction)
     }
     fn full_duplex(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
         self.inner
             .as_ref()
             .channel_info()
-            .ok_or(Error::NotSupported)?
+            .ok_or_else(|| Error::unsupported(Capability::ChannelInfo))?
             .full_duplex(direction, channel)
     }
 }
@@ -1052,7 +1068,7 @@ impl RxDevice for DynDevice {
         self.inner
             .as_ref()
             .rx_device()
-            .ok_or(Error::NotSupported)?
+            .ok_or_else(|| Error::unsupported(Capability::RxStreaming))?
             .rx_streamer(channels, args)
     }
 }
@@ -1064,7 +1080,7 @@ impl TxDevice for DynDevice {
         self.inner
             .as_ref()
             .tx_device()
-            .ok_or(Error::NotSupported)?
+            .ok_or_else(|| Error::unsupported(Capability::TxStreaming))?
             .tx_streamer(channels, args)
     }
 }
@@ -1074,7 +1090,7 @@ impl AntennaControl for DynDevice {
         self.inner
             .as_ref()
             .antenna_control()
-            .ok_or(Error::NotSupported)?
+            .ok_or_else(|| Error::unsupported(Capability::Antenna))?
             .antennas(direction, channel)
     }
 
@@ -1082,7 +1098,7 @@ impl AntennaControl for DynDevice {
         self.inner
             .as_ref()
             .antenna_control()
-            .ok_or(Error::NotSupported)?
+            .ok_or_else(|| Error::unsupported(Capability::Antenna))?
             .antenna(direction, channel)
     }
 
@@ -1090,7 +1106,7 @@ impl AntennaControl for DynDevice {
         self.inner
             .as_ref()
             .antenna_control()
-            .ok_or(Error::NotSupported)?
+            .ok_or_else(|| Error::unsupported(Capability::Antenna))?
             .set_antenna(direction, channel, name)
     }
 }
@@ -1100,7 +1116,7 @@ impl GainControl for DynDevice {
         self.inner
             .as_ref()
             .gain_control()
-            .ok_or(Error::NotSupported)?
+            .ok_or_else(|| Error::unsupported(Capability::Gain))?
             .gain_elements(direction, channel)
     }
 
@@ -1108,7 +1124,7 @@ impl GainControl for DynDevice {
         self.inner
             .as_ref()
             .gain_control()
-            .ok_or(Error::NotSupported)?
+            .ok_or_else(|| Error::unsupported(Capability::Gain))?
             .set_gain(direction, channel, gain)
     }
 
@@ -1116,7 +1132,7 @@ impl GainControl for DynDevice {
         self.inner
             .as_ref()
             .gain_control()
-            .ok_or(Error::NotSupported)?
+            .ok_or_else(|| Error::unsupported(Capability::Gain))?
             .gain(direction, channel)
     }
 
@@ -1124,7 +1140,7 @@ impl GainControl for DynDevice {
         self.inner
             .as_ref()
             .gain_control()
-            .ok_or(Error::NotSupported)?
+            .ok_or_else(|| Error::unsupported(Capability::Gain))?
             .gain_range(direction, channel)
     }
 
@@ -1138,7 +1154,7 @@ impl GainControl for DynDevice {
         self.inner
             .as_ref()
             .gain_control()
-            .ok_or(Error::NotSupported)?
+            .ok_or_else(|| Error::unsupported(Capability::Gain))?
             .set_gain_element(direction, channel, name, gain)
     }
 
@@ -1151,7 +1167,7 @@ impl GainControl for DynDevice {
         self.inner
             .as_ref()
             .gain_control()
-            .ok_or(Error::NotSupported)?
+            .ok_or_else(|| Error::unsupported(Capability::Gain))?
             .gain_element(direction, channel, name)
     }
 
@@ -1164,7 +1180,7 @@ impl GainControl for DynDevice {
         self.inner
             .as_ref()
             .gain_control()
-            .ok_or(Error::NotSupported)?
+            .ok_or_else(|| Error::unsupported(Capability::Gain))?
             .gain_element_range(direction, channel, name)
     }
 }
@@ -1174,7 +1190,7 @@ impl FrequencyControl for DynDevice {
         self.inner
             .as_ref()
             .frequency_control()
-            .ok_or(Error::NotSupported)?
+            .ok_or_else(|| Error::unsupported(Capability::Frequency))?
             .frequency_range(direction, channel)
     }
 
@@ -1182,7 +1198,7 @@ impl FrequencyControl for DynDevice {
         self.inner
             .as_ref()
             .frequency_control()
-            .ok_or(Error::NotSupported)?
+            .ok_or_else(|| Error::unsupported(Capability::Frequency))?
             .frequency(direction, channel)
     }
 
@@ -1196,7 +1212,7 @@ impl FrequencyControl for DynDevice {
         self.inner
             .as_ref()
             .frequency_control()
-            .ok_or(Error::NotSupported)?
+            .ok_or_else(|| Error::unsupported(Capability::Frequency))?
             .set_frequency(direction, channel, frequency, args)
     }
 
@@ -1208,7 +1224,7 @@ impl FrequencyControl for DynDevice {
         self.inner
             .as_ref()
             .frequency_control()
-            .ok_or(Error::NotSupported)?
+            .ok_or_else(|| Error::unsupported(Capability::Frequency))?
             .frequency_components(direction, channel)
     }
 
@@ -1221,7 +1237,7 @@ impl FrequencyControl for DynDevice {
         self.inner
             .as_ref()
             .frequency_control()
-            .ok_or(Error::NotSupported)?
+            .ok_or_else(|| Error::unsupported(Capability::Frequency))?
             .component_frequency_range(direction, channel, name)
     }
 
@@ -1234,7 +1250,7 @@ impl FrequencyControl for DynDevice {
         self.inner
             .as_ref()
             .frequency_control()
-            .ok_or(Error::NotSupported)?
+            .ok_or_else(|| Error::unsupported(Capability::Frequency))?
             .component_frequency(direction, channel, name)
     }
 
@@ -1248,7 +1264,7 @@ impl FrequencyControl for DynDevice {
         self.inner
             .as_ref()
             .frequency_control()
-            .ok_or(Error::NotSupported)?
+            .ok_or_else(|| Error::unsupported(Capability::Frequency))?
             .set_component_frequency(direction, channel, name, frequency)
     }
 }
@@ -1258,7 +1274,7 @@ impl SampleRateControl for DynDevice {
         self.inner
             .as_ref()
             .sample_rate_control()
-            .ok_or(Error::NotSupported)?
+            .ok_or_else(|| Error::unsupported(Capability::SampleRate))?
             .sample_rate(direction, channel)
     }
 
@@ -1271,7 +1287,7 @@ impl SampleRateControl for DynDevice {
         self.inner
             .as_ref()
             .sample_rate_control()
-            .ok_or(Error::NotSupported)?
+            .ok_or_else(|| Error::unsupported(Capability::SampleRate))?
             .set_sample_rate(direction, channel, rate)
     }
 
@@ -1279,7 +1295,7 @@ impl SampleRateControl for DynDevice {
         self.inner
             .as_ref()
             .sample_rate_control()
-            .ok_or(Error::NotSupported)?
+            .ok_or_else(|| Error::unsupported(Capability::SampleRate))?
             .get_sample_rate_range(direction, channel)
     }
 }
@@ -1289,7 +1305,7 @@ impl BandwidthControl for DynDevice {
         self.inner
             .as_ref()
             .bandwidth_control()
-            .ok_or(Error::NotSupported)?
+            .ok_or_else(|| Error::unsupported(Capability::Bandwidth))?
             .bandwidth(direction, channel)
     }
 
@@ -1297,7 +1313,7 @@ impl BandwidthControl for DynDevice {
         self.inner
             .as_ref()
             .bandwidth_control()
-            .ok_or(Error::NotSupported)?
+            .ok_or_else(|| Error::unsupported(Capability::Bandwidth))?
             .set_bandwidth(direction, channel, bw)
     }
 
@@ -1305,7 +1321,7 @@ impl BandwidthControl for DynDevice {
         self.inner
             .as_ref()
             .bandwidth_control()
-            .ok_or(Error::NotSupported)?
+            .ok_or_else(|| Error::unsupported(Capability::Bandwidth))?
             .get_bandwidth_range(direction, channel)
     }
 }
@@ -1315,7 +1331,7 @@ impl AgcControl for DynDevice {
         self.inner
             .as_ref()
             .agc_control()
-            .ok_or(Error::NotSupported)?
+            .ok_or_else(|| Error::unsupported(Capability::Agc))?
             .agc_available(direction, channel)
     }
 
@@ -1323,7 +1339,7 @@ impl AgcControl for DynDevice {
         self.inner
             .as_ref()
             .agc_control()
-            .ok_or(Error::NotSupported)?
+            .ok_or_else(|| Error::unsupported(Capability::Agc))?
             .agc_enabled(direction, channel)
     }
 
@@ -1336,7 +1352,7 @@ impl AgcControl for DynDevice {
         self.inner
             .as_ref()
             .agc_control()
-            .ok_or(Error::NotSupported)?
+            .ok_or_else(|| Error::unsupported(Capability::Agc))?
             .set_agc_enabled(direction, channel, enabled)
     }
 }
@@ -1346,7 +1362,7 @@ impl DcOffsetControl for DynDevice {
         self.inner
             .as_ref()
             .dc_offset_control()
-            .ok_or(Error::NotSupported)?
+            .ok_or_else(|| Error::unsupported(Capability::DcOffset))?
             .dc_offset_available(direction, channel)
     }
 
@@ -1354,7 +1370,7 @@ impl DcOffsetControl for DynDevice {
         self.inner
             .as_ref()
             .dc_offset_control()
-            .ok_or(Error::NotSupported)?
+            .ok_or_else(|| Error::unsupported(Capability::DcOffset))?
             .dc_offset_enabled(direction, channel)
     }
 
@@ -1367,7 +1383,7 @@ impl DcOffsetControl for DynDevice {
         self.inner
             .as_ref()
             .dc_offset_control()
-            .ok_or(Error::NotSupported)?
+            .ok_or_else(|| Error::unsupported(Capability::DcOffset))?
             .set_dc_offset_enabled(direction, channel, enabled)
     }
 }
@@ -1390,10 +1406,11 @@ fn ensure_channel<T>(dev: &T, direction: Direction, channel: usize) -> Result<()
 where
     T: ChannelInfo + ?Sized,
 {
-    if channel < dev.num_channels(direction)? {
+    let available = dev.num_channels(direction)?;
+    if channel < available {
         Ok(())
     } else {
-        Err(Error::ValueError)
+        Err(Error::invalid_channel(direction, channel, available))
     }
 }
 
@@ -1590,7 +1607,10 @@ mod tests {
         fn rx_streamer(&self, channels: &[usize], _args: Args) -> Result<Self::RxStreamer, Error> {
             match channels {
                 &[0] => Ok(TestRxStreamer),
-                _ => Err(Error::ValueError),
+                _ => Err(Error::invalid_argument(
+                    "channels",
+                    "unsupported RX channel set",
+                )),
             }
         }
     }
@@ -1604,7 +1624,7 @@ mod tests {
             if channel == 0 {
                 Ok(true)
             } else {
-                Err(Error::ValueError)
+                Err(Error::invalid_channel(Direction::Rx, channel, 1))
             }
         }
 
@@ -1612,7 +1632,7 @@ mod tests {
             if channel == 0 {
                 Ok(*self.0.lock().unwrap())
             } else {
-                Err(Error::ValueError)
+                Err(Error::invalid_channel(Direction::Rx, channel, 1))
             }
         }
 
@@ -1626,7 +1646,7 @@ mod tests {
                 *self.0.lock().unwrap() = enabled;
                 Ok(())
             } else {
-                Err(Error::ValueError)
+                Err(Error::invalid_channel(Direction::Rx, channel, 1))
             }
         }
     }
@@ -1739,9 +1759,28 @@ mod tests {
         );
 
         assert!(dev.rx_streamer(&[0]).is_ok());
-        assert!(matches!(dev.tx(0), Err(Error::ValueError)));
+        assert!(matches!(
+            dev.tx(0),
+            Err(Error::InvalidChannel {
+                direction: Direction::Tx,
+                channel: 0,
+                available: 0
+            })
+        ));
         let rx0 = dev.rx(0).unwrap();
-        assert!(matches!(rx0.agc(), Err(Error::NotSupported)));
-        assert!(matches!(rx0.dc_offset(), Err(Error::NotSupported)));
+        assert!(matches!(
+            rx0.agc(),
+            Err(Error::Unsupported {
+                capability: Capability::Agc,
+                ..
+            })
+        ));
+        assert!(matches!(
+            rx0.dc_offset(),
+            Err(Error::Unsupported {
+                capability: Capability::DcOffset,
+                ..
+            })
+        ));
     }
 }

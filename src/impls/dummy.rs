@@ -152,7 +152,7 @@ impl RxDevice for Dummy {
     fn rx_streamer(&self, channels: &[usize], _args: Args) -> Result<Self::RxStreamer, Error> {
         match channels {
             &[0] => Ok(RxStreamer),
-            _ => Err(Error::ValueError),
+            _ => Err(Error::invalid_argument("dummy", "invalid dummy argument")),
         }
     }
 }
@@ -163,7 +163,7 @@ impl TxDevice for Dummy {
     fn tx_streamer(&self, channels: &[usize], _args: Args) -> Result<Self::TxStreamer, Error> {
         match channels {
             &[0] => Ok(TxStreamer),
-            _ => Err(Error::ValueError),
+            _ => Err(Error::invalid_argument("dummy", "invalid dummy argument")),
         }
     }
 }
@@ -173,7 +173,7 @@ impl AntennaControl for Dummy {
         if channel == 0 {
             Ok(vec!["A".to_string()])
         } else {
-            Err(Error::ValueError)
+            Err(Error::invalid_argument("dummy", "invalid dummy argument"))
         }
     }
 
@@ -181,14 +181,14 @@ impl AntennaControl for Dummy {
         if channel == 0 {
             Ok("A".to_string())
         } else {
-            Err(Error::ValueError)
+            Err(Error::invalid_argument("dummy", "invalid dummy argument"))
         }
     }
 
     fn set_antenna(&self, _direction: Direction, channel: usize, name: &str) -> Result<(), Error> {
         match (channel, name) {
             (0, "A") => Ok(()),
-            _ => Err(Error::ValueError),
+            _ => Err(Error::invalid_argument("dummy", "invalid dummy argument")),
         }
     }
 }
@@ -198,7 +198,7 @@ impl AgcControl for Dummy {
         if channel == 0 {
             Ok(true)
         } else {
-            Err(Error::ValueError)
+            Err(Error::invalid_argument("dummy", "invalid dummy argument"))
         }
     }
 
@@ -217,7 +217,7 @@ impl AgcControl for Dummy {
                 *self.tx_agc.lock().unwrap() = agc;
                 Ok(())
             }
-            _ => Err(Error::ValueError),
+            _ => Err(Error::invalid_argument("dummy", "invalid dummy argument")),
         }
     }
 
@@ -225,7 +225,7 @@ impl AgcControl for Dummy {
         match (channel, direction) {
             (0, Rx) => Ok(*self.rx_agc.lock().unwrap()),
             (0, Tx) => Ok(*self.tx_agc.lock().unwrap()),
-            _ => Err(Error::ValueError),
+            _ => Err(Error::invalid_argument("dummy", "invalid dummy argument")),
         }
     }
 }
@@ -235,7 +235,7 @@ impl GainControl for Dummy {
         if channel == 0 {
             Ok(vec!["RF".to_string()])
         } else {
-            Err(Error::ValueError)
+            Err(Error::invalid_argument("dummy", "invalid dummy argument"))
         }
     }
 
@@ -247,7 +247,7 @@ impl GainControl for Dummy {
             }
             Ok(())
         } else {
-            Err(Error::ValueError)
+            Err(Error::invalid_argument("dummy", "invalid dummy argument"))
         }
     }
 
@@ -267,7 +267,7 @@ impl GainControl for Dummy {
                     Ok(Some(*self.tx_gain.lock().unwrap()))
                 }
             }
-            _ => Err(Error::ValueError),
+            _ => Err(Error::invalid_argument("dummy", "invalid dummy argument")),
         }
     }
 
@@ -275,7 +275,7 @@ impl GainControl for Dummy {
         if channel == 0 {
             Ok(Range::new(vec![RangeItem::Interval(0.0, f64::MAX)]))
         } else {
-            Err(Error::ValueError)
+            Err(Error::invalid_argument("dummy", "invalid dummy argument"))
         }
     }
 
@@ -293,7 +293,7 @@ impl GainControl for Dummy {
             }
             Ok(())
         } else {
-            Err(Error::ValueError)
+            Err(Error::invalid_argument("dummy", "invalid dummy argument"))
         }
     }
 
@@ -318,7 +318,7 @@ impl GainControl for Dummy {
                     Ok(Some(*self.tx_gain.lock().unwrap()))
                 }
             }
-            _ => Err(Error::ValueError),
+            _ => Err(Error::invalid_argument("dummy", "invalid dummy argument")),
         }
     }
 
@@ -331,7 +331,7 @@ impl GainControl for Dummy {
         if channel == 0 && name == "RF" {
             Ok(Range::new(vec![RangeItem::Interval(0.0, f64::MAX)]))
         } else {
-            Err(Error::ValueError)
+            Err(Error::invalid_argument("dummy", "invalid dummy argument"))
         }
     }
 }
@@ -341,7 +341,7 @@ impl FrequencyControl for Dummy {
         if channel == 0 {
             Ok(Range::new(vec![RangeItem::Interval(0.0, f64::MAX)]))
         } else {
-            Err(Error::ValueError)
+            Err(Error::invalid_argument("dummy", "invalid dummy argument"))
         }
     }
 
@@ -349,7 +349,7 @@ impl FrequencyControl for Dummy {
         match (channel, direction) {
             (0, Rx) => Ok(*self.rx_freq.lock().unwrap()),
             (0, Tx) => Ok(*self.tx_freq.lock().unwrap()),
-            _ => Err(Error::ValueError),
+            _ => Err(Error::invalid_argument("dummy", "invalid dummy argument")),
         }
     }
 
@@ -367,7 +367,7 @@ impl FrequencyControl for Dummy {
             }
             Ok(())
         } else {
-            Err(Error::ValueError)
+            Err(Error::invalid_argument("dummy", "invalid dummy argument"))
         }
     }
 
@@ -379,7 +379,7 @@ impl FrequencyControl for Dummy {
         if channel == 0 {
             Ok(vec!["freq".to_string()])
         } else {
-            Err(Error::ValueError)
+            Err(Error::invalid_argument("dummy", "invalid dummy argument"))
         }
     }
 
@@ -392,7 +392,7 @@ impl FrequencyControl for Dummy {
         if channel == 0 && name == "freq" {
             Ok(Range::new(vec![RangeItem::Interval(0.0, f64::MAX)]))
         } else {
-            Err(Error::ValueError)
+            Err(Error::invalid_argument("dummy", "invalid dummy argument"))
         }
     }
 
@@ -408,7 +408,7 @@ impl FrequencyControl for Dummy {
                 Tx => Ok(*self.tx_freq.lock().unwrap()),
             }
         } else {
-            Err(Error::ValueError)
+            Err(Error::invalid_argument("dummy", "invalid dummy argument"))
         }
     }
 
@@ -431,7 +431,7 @@ impl FrequencyControl for Dummy {
                 }
             }
         } else {
-            Err(Error::ValueError)
+            Err(Error::invalid_argument("dummy", "invalid dummy argument"))
         }
     }
 }
@@ -441,7 +441,7 @@ impl SampleRateControl for Dummy {
         match (channel, direction) {
             (0, Rx) => Ok(*self.rx_rate.lock().unwrap()),
             (0, Tx) => Ok(*self.tx_rate.lock().unwrap()),
-            _ => Err(Error::ValueError),
+            _ => Err(Error::invalid_argument("dummy", "invalid dummy argument")),
         }
     }
 
@@ -458,7 +458,7 @@ impl SampleRateControl for Dummy {
             }
             Ok(())
         } else {
-            Err(Error::ValueError)
+            Err(Error::invalid_argument("dummy", "invalid dummy argument"))
         }
     }
 
@@ -466,7 +466,7 @@ impl SampleRateControl for Dummy {
         if channel == 0 {
             Ok(Range::new(vec![RangeItem::Interval(0.0, f64::MAX)]))
         } else {
-            Err(Error::ValueError)
+            Err(Error::invalid_argument("dummy", "invalid dummy argument"))
         }
     }
 }
@@ -476,7 +476,7 @@ impl BandwidthControl for Dummy {
         match (channel, direction) {
             (0, Rx) => Ok(*self.rx_bw.lock().unwrap()),
             (0, Tx) => Ok(*self.tx_bw.lock().unwrap()),
-            _ => Err(Error::ValueError),
+            _ => Err(Error::invalid_argument("dummy", "invalid dummy argument")),
         }
     }
 
@@ -488,7 +488,7 @@ impl BandwidthControl for Dummy {
             }
             Ok(())
         } else {
-            Err(Error::ValueError)
+            Err(Error::invalid_argument("dummy", "invalid dummy argument"))
         }
     }
 
@@ -496,7 +496,7 @@ impl BandwidthControl for Dummy {
         if channel == 0 {
             Ok(Range::new(vec![RangeItem::Interval(0.0, f64::MAX)]))
         } else {
-            Err(Error::ValueError)
+            Err(Error::invalid_argument("dummy", "invalid dummy argument"))
         }
     }
 }

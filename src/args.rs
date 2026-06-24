@@ -46,8 +46,15 @@ impl Args {
     ) -> Result<V, Error> {
         self.map
             .get(key.as_ref())
-            .ok_or(Error::NotFound)
-            .and_then(|v| v.parse().or(Err(Error::ValueError)))
+            .ok_or_else(|| Error::missing_argument(key.as_ref()))
+            .and_then(|v| {
+                v.parse().or_else(|_| {
+                    Err(Error::invalid_argument(
+                        key.as_ref(),
+                        "failed to parse value",
+                    ))
+                })
+            })
     }
     /// Map the `key` the stringified `value`.
     pub fn set<K: Into<String>, V: Into<String>>(&mut self, key: K, value: V) -> Option<String> {
@@ -136,7 +143,7 @@ impl FromStr for Args {
             ),
         )
         .parse(s)
-        .or(Err(Error::ValueError))?;
+        .or_else(|_| Err(Error::invalid_argument("args", "failed to parse args")))?;
         Ok(Args {
             map: HashMap::from_iter(v.1.iter().cloned().map(|(a, b)| (a.into(), b.into()))),
         })
@@ -254,9 +261,15 @@ mod tests {
         assert_eq!(c.map.len(), 2);
         assert_eq!(c.get::<u32>("foo").unwrap(), 123);
         assert_eq!(c.get::<String>("foo").unwrap(), "123");
-        assert!(matches!(c.get::<String>("fooo"), Err(Error::NotFound)));
+        assert!(matches!(
+            c.get::<String>("fooo"),
+            Err(Error::MissingArgument { name }) if name == "fooo"
+        ));
         assert_eq!(c.get::<String>("bar").unwrap(), "lol");
-        assert!(matches!(c.get::<u32>("bar"), Err(Error::ValueError)));
+        assert!(matches!(
+            c.get::<u32>("bar"),
+            Err(Error::InvalidArgument { name, .. }) if name == "bar"
+        ));
     }
     #[test]
     fn serde() {

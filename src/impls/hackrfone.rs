@@ -4,8 +4,9 @@ use num_complex::Complex32;
 use seify_hackrfone::Config;
 
 use crate::{
-    AntennaControl, Args, BandwidthControl, ChannelInfo, DeviceInfo, Direction, DynDeviceBackend,
-    Error, FrequencyControl, GainControl, Range, RangeItem, RxDevice, SampleRateControl, TxDevice,
+    AntennaControl, Args, BandwidthControl, Capability, ChannelInfo, DeviceInfo, Direction,
+    DynDeviceBackend, Error, FrequencyControl, GainControl, Range, RangeItem, RxDevice,
+    SampleRateControl, TxDevice,
 };
 
 pub struct HackRfOne {
@@ -32,7 +33,9 @@ impl HackRfOne {
 
     /// Create a Hackrf One devices
     pub fn open<A: TryInto<Args>>(args: A) -> Result<Self, Error> {
-        let args: Args = args.try_into().or(Err(Error::ValueError))?;
+        let args: Args = args
+            .try_into()
+            .map_err(|_| Error::invalid_argument("args", "failed to convert args"))?;
 
         // TODO(troy):
         // re-enable once new version of nusb is published: https://github.com/kevinmehall/nusb/issues/84
@@ -56,13 +59,13 @@ impl HackRfOne {
             (Ok(bus_number), Ok(address)) => {
                 seify_hackrfone::HackRf::open_bus(bus_number, address)?
             }
-            (Err(Error::NotFound), Err(Error::NotFound)) => {
+            (Err(Error::MissingArgument { .. }), Err(Error::MissingArgument { .. })) => {
                 log::debug!("Opening first hackrf device");
                 seify_hackrfone::HackRf::open_first()?
             }
             (bus_number, address) => {
                 log::warn!("HackRfOne::open received invalid args: bus_number: {bus_number:?}, address: {address:?}");
-                return Err(Error::ValueError);
+                return Err(Error::invalid_argument("args", "invalid HackRF selector"));
             }
         };
 
@@ -250,7 +253,7 @@ impl HackRfOne {
                 Direction::Tx => "TX".to_string(),
             })
         } else {
-            Err(Error::ValueError)
+            Err(Error::invalid_argument("hackrf", "invalid HackRF argument"))
         }
     }
 
@@ -261,10 +264,10 @@ impl HackRfOne {
             {
                 Ok(())
             } else {
-                Err(Error::NotSupported)
+                Err(Error::unsupported(Capability::Antenna))
             }
         } else {
-            Err(Error::ValueError)
+            Err(Error::invalid_argument("hackrf", "invalid HackRF argument"))
         }
     }
 
@@ -278,7 +281,7 @@ impl HackRfOne {
                 Direction::Rx => Ok(vec!["IF".into()]),
             }
         } else {
-            Err(Error::ValueError)
+            Err(Error::invalid_argument("hackrf", "invalid HackRF argument"))
         }
     }
 
@@ -313,7 +316,7 @@ impl HackRfOne {
             }
         } else {
             log::warn!("Gain out of range");
-            Err(Error::OutOfRange(r, gain))
+            Err(Error::out_of_range("gain", r, gain))
         }
     }
 
@@ -332,7 +335,7 @@ impl HackRfOne {
                 }
             }
         } else {
-            Err(Error::ValueError)
+            Err(Error::invalid_argument("hackrf", "invalid HackRF argument"))
         }
     }
 
@@ -349,7 +352,7 @@ impl HackRfOne {
                 Direction::Rx => Ok(Range::new(vec![RangeItem::Step(0.0, 40.0, 8.0)])),
             }
         } else {
-            Err(Error::ValueError)
+            Err(Error::invalid_argument("hackrf", "invalid HackRF argument"))
         }
     }
 
@@ -379,7 +382,7 @@ impl HackRfOne {
         if channel == 0 {
             Ok(vec!["TUNER".to_string()])
         } else {
-            Err(Error::ValueError)
+            Err(Error::invalid_argument("hackrf", "invalid HackRF argument"))
         }
     }
 
@@ -393,7 +396,7 @@ impl HackRfOne {
             // up to 7.25GHz
             Ok(Range::new(vec![RangeItem::Interval(0.0, 7_270_000_000.0)]))
         } else {
-            Err(Error::ValueError)
+            Err(Error::invalid_argument("hackrf", "invalid HackRF argument"))
         }
     }
 
@@ -406,7 +409,7 @@ impl HackRfOne {
         if channel == 0 && name == "TUNER" {
             self.with_config(direction, |config| Ok(config.frequency_hz as f64))
         } else {
-            Err(Error::ValueError)
+            Err(Error::invalid_argument("hackrf", "invalid HackRF argument"))
         }
     }
 
@@ -429,7 +432,7 @@ impl HackRfOne {
                 Ok(())
             })
         } else {
-            Err(Error::ValueError)
+            Err(Error::invalid_argument("hackrf", "invalid HackRF argument"))
         }
     }
 
@@ -439,7 +442,7 @@ impl HackRfOne {
         if channel == 0 {
             self.with_config(direction, |config| Ok(config.sample_rate_hz as f64))
         } else {
-            Err(Error::ValueError)
+            Err(Error::invalid_argument("hackrf", "invalid HackRF argument"))
         }
     }
 
@@ -461,7 +464,7 @@ impl HackRfOne {
             });
             Ok(())
         } else {
-            Err(Error::ValueError)
+            Err(Error::invalid_argument("hackrf", "invalid HackRF argument"))
         }
     }
 
@@ -472,12 +475,12 @@ impl HackRfOne {
                 20_000_000.0,
             )]))
         } else {
-            Err(Error::ValueError)
+            Err(Error::invalid_argument("hackrf", "invalid HackRF argument"))
         }
     }
 
     fn bandwidth(&self, _direction: Direction, _channel: usize) -> Result<f64, Error> {
-        Err(Error::NotSupported)
+        Err(Error::unsupported(Capability::Bandwidth))
     }
 
     fn set_bandwidth(&self, _direction: Direction, _channel: usize, bw: f64) -> Result<(), Error> {
@@ -485,7 +488,7 @@ impl HackRfOne {
     }
 
     fn get_bandwidth_range(&self, _direction: Direction, _channel: usize) -> Result<Range, Error> {
-        Err(Error::NotSupported)
+        Err(Error::unsupported(Capability::Bandwidth))
     }
 }
 
@@ -560,7 +563,7 @@ impl RxDevice for HackRfOne {
 
     fn rx_streamer(&self, channels: &[usize], _args: Args) -> Result<Self::RxStreamer, Error> {
         if channels != [0] {
-            Err(Error::ValueError)
+            Err(Error::invalid_argument("hackrf", "invalid HackRF argument"))
         } else {
             Ok(RxStreamer::new(Arc::clone(&self.inner)))
         }
@@ -572,7 +575,7 @@ impl TxDevice for HackRfOne {
 
     fn tx_streamer(&self, channels: &[usize], _args: Args) -> Result<Self::TxStreamer, Error> {
         if channels != [0] {
-            Err(Error::ValueError)
+            Err(Error::invalid_argument("hackrf", "invalid HackRF argument"))
         } else {
             Ok(TxStreamer::new(Arc::clone(&self.inner)))
         }

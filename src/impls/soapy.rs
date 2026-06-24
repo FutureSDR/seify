@@ -11,6 +11,7 @@ use crate::DcOffsetControl;
 use crate::DeviceInfo;
 use crate::Direction;
 use crate::Driver;
+use crate::DriverError;
 use crate::DynDeviceBackend;
 use crate::Error;
 use crate::FrequencyControl;
@@ -78,7 +79,9 @@ impl Soapy {
     /// to this function.
     pub fn open<A: TryInto<Args>>(args: A) -> Result<Self, Error> {
         init_soapy_logging();
-        let mut args: Args = args.try_into().or(Err(Error::ValueError))?;
+        let mut args: Args = args
+            .try_into()
+            .map_err(|_| Error::invalid_argument("args", "failed to convert args"))?;
         let index = args.get("index").unwrap_or(0);
 
         let orig_args = args.clone();
@@ -480,10 +483,11 @@ impl crate::TxStreamer for TxStreamer {
 
 impl From<soapysdr::Error> for Error {
     fn from(value: soapysdr::Error) -> Self {
-        if value.code == soapysdr::ErrorCode::Overflow {
-            Error::Overflow
-        } else {
-            Error::Soapy(value)
+        match value.code {
+            soapysdr::ErrorCode::Timeout => Error::Timeout,
+            soapysdr::ErrorCode::Overflow => Error::Overrun,
+            soapysdr::ErrorCode::Underflow => Error::Underrun,
+            _ => Error::Driver(DriverError::Soapy(value)),
         }
     }
 }

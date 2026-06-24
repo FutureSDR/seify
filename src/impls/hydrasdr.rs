@@ -12,9 +12,9 @@ use num_complex::Complex32;
 
 use crate::Direction::*;
 use crate::{
-    AgcControl, AntennaControl, Args, BandwidthControl, ChannelInfo, DeviceInfo, Direction, Driver,
-    DynDeviceBackend, Error, FrequencyControl, GainControl, Range, RangeItem, RxDevice,
-    SampleRateControl,
+    AgcControl, AntennaControl, Args, BandwidthControl, Capability, ChannelInfo, DeviceInfo,
+    Direction, Driver, DynDeviceBackend, Error, FrequencyControl, GainControl, Range, RangeItem,
+    RxDevice, SampleRateControl,
 };
 
 const MTU: usize = 262_144 / 8;
@@ -91,7 +91,9 @@ impl HydraSdr {
     }
 
     pub fn open<A: TryInto<Args>>(args: A) -> Result<Self, Error> {
-        let args = args.try_into().or(Err(Error::ValueError))?;
+        let args = args
+            .try_into()
+            .map_err(|_| Error::invalid_argument("args", "failed to convert args"))?;
         let selector = device_selector(&args)?;
         let (mut dev, serial) = open_selected_device(selector)?;
         let sample_rates = dev.sample_rates().unwrap_or_default();
@@ -133,7 +135,7 @@ impl HydraSdr {
         if self.inner.lock().unwrap().active_rx_streams == 0 {
             Ok(())
         } else {
-            Err(Error::DeviceError)
+            Err(Error::Busy)
         }
     }
 }
@@ -149,11 +151,11 @@ impl HydraSdr {
         }
 
         let dev = self.dev.lock().unwrap();
-        let dev = dev.as_ref().ok_or(Error::DeviceError)?;
+        let dev = dev.as_ref().ok_or(Error::DeviceDisconnected)?;
         dev.info()
             .serial
             .map(|serial| serial.to_string())
-            .ok_or(Error::NotSupported)
+            .ok_or_else(|| Error::unsupported(Capability::DeviceId))
     }
 
     fn info(&self) -> Result<Args, Error> {
@@ -190,14 +192,17 @@ impl HydraSdr {
     fn set_antenna(&self, direction: Direction, channel: usize, name: &str) -> Result<(), Error> {
         check_rx(direction, channel)?;
         self.ensure_rx_config_idle()?;
-        let (name, _) = antenna_port(name).ok_or(Error::ValueError)?;
+        let (name, _) = antenna_port(name).ok_or(Error::invalid_argument(
+            "hydrasdr",
+            "invalid HydraSDR argument",
+        ))?;
         let mut inner = self.inner.lock().unwrap();
         let old = inner.antenna;
         inner.antenna = name;
         let mut dev = self.dev.lock().unwrap();
         let Some(dev) = dev.as_mut() else {
             inner.antenna = old;
-            return Err(Error::DeviceError);
+            return Err(Error::DeviceDisconnected);
         };
         if let Err(err) = configure_device(dev, &inner) {
             inner.antenna = old;
@@ -228,7 +233,7 @@ impl HydraSdr {
         let Some(dev) = dev.as_mut() else {
             inner.agc = old_agc;
             inner.gain_config = old_gain_config;
-            return Err(Error::DeviceError);
+            return Err(Error::DeviceDisconnected);
         };
         if let Err(err) = configure_device(dev, &inner) {
             inner.agc = old_agc;
@@ -275,10 +280,13 @@ impl HydraSdr {
         gain: f64,
     ) -> Result<(), Error> {
         check_rx(direction, channel)?;
-        let gain_type = gain_type(name).ok_or(Error::ValueError)?;
+        let gain_type = gain_type(name).ok_or(Error::invalid_argument(
+            "hydrasdr",
+            "invalid HydraSDR argument",
+        ))?;
         let range = self.gain_element_range(direction, channel, name)?;
         if !range.contains(gain) {
-            return Err(Error::OutOfRange(range, gain));
+            return Err(Error::out_of_range("gain", range, gain));
         }
 
         self.ensure_rx_config_idle()?;
@@ -303,7 +311,7 @@ impl HydraSdr {
         let Some(dev) = dev.as_mut() else {
             inner.gains = old_gains;
             inner.gain_config = old_gain_config;
-            return Err(Error::DeviceError);
+            return Err(Error::DeviceDisconnected);
         };
         if let Err(err) = configure_device(dev, &inner) {
             inner.gains = old_gains;
@@ -320,7 +328,10 @@ impl HydraSdr {
         name: &str,
     ) -> Result<Option<f64>, Error> {
         check_rx(direction, channel)?;
-        let gain_type = gain_type(name).ok_or(Error::ValueError)?;
+        let gain_type = gain_type(name).ok_or(Error::invalid_argument(
+            "hydrasdr",
+            "invalid HydraSDR argument",
+        ))?;
         Ok(Some(
             self.inner
                 .lock()
@@ -328,7 +339,10 @@ impl HydraSdr {
                 .gains
                 .iter()
                 .find(|cached| cached.gain_type == gain_type)
-                .ok_or(Error::ValueError)?
+                .ok_or(Error::invalid_argument(
+                    "hydrasdr",
+                    "invalid HydraSDR argument",
+                ))?
                 .value,
         ))
     }
@@ -340,7 +354,10 @@ impl HydraSdr {
         name: &str,
     ) -> Result<Range, Error> {
         check_rx(direction, channel)?;
-        let gain_type = gain_type(name).ok_or(Error::ValueError)?;
+        let gain_type = gain_type(name).ok_or(Error::invalid_argument(
+            "hydrasdr",
+            "invalid HydraSDR argument",
+        ))?;
         Ok(self
             .inner
             .lock()
@@ -348,7 +365,10 @@ impl HydraSdr {
             .gains
             .iter()
             .find(|cached| cached.gain_type == gain_type)
-            .ok_or(Error::ValueError)?
+            .ok_or(Error::invalid_argument(
+                "hydrasdr",
+                "invalid HydraSDR argument",
+            ))?
             .range
             .clone())
     }
@@ -394,7 +414,10 @@ impl HydraSdr {
                 inner.max_frequency,
             )]))
         } else {
-            Err(Error::ValueError)
+            Err(Error::invalid_argument(
+                "hydrasdr",
+                "invalid HydraSDR argument",
+            ))
         }
     }
 
@@ -406,13 +429,16 @@ impl HydraSdr {
     ) -> Result<f64, Error> {
         check_rx(direction, channel)?;
         if name != "TUNER" {
-            return Err(Error::ValueError);
+            return Err(Error::invalid_argument(
+                "hydrasdr",
+                "invalid HydraSDR argument",
+            ));
         }
         self.inner
             .lock()
             .unwrap()
             .frequency
-            .ok_or(Error::NotSupported)
+            .ok_or(Error::unsupported(Capability::DriverOperation))
     }
 
     fn set_component_frequency(
@@ -424,7 +450,7 @@ impl HydraSdr {
     ) -> Result<(), Error> {
         let range = self.component_frequency_range(direction, channel, name)?;
         if !range.contains(frequency) {
-            return Err(Error::OutOfRange(range, frequency));
+            return Err(Error::out_of_range("frequency", range, frequency));
         }
         self.ensure_rx_config_idle()?;
         let mut inner = self.inner.lock().unwrap();
@@ -433,7 +459,7 @@ impl HydraSdr {
         let mut dev = self.dev.lock().unwrap();
         let Some(dev) = dev.as_mut() else {
             inner.frequency = old;
-            return Err(Error::DeviceError);
+            return Err(Error::DeviceDisconnected);
         };
         if let Err(err) = configure_device(dev, &inner) {
             inner.frequency = old;
@@ -448,7 +474,7 @@ impl HydraSdr {
             .lock()
             .unwrap()
             .sample_rate
-            .ok_or(Error::NotSupported)
+            .ok_or(Error::unsupported(Capability::DriverOperation))
     }
 
     fn set_sample_rate(
@@ -459,7 +485,7 @@ impl HydraSdr {
     ) -> Result<(), Error> {
         let range = self.get_sample_rate_range(direction, channel)?;
         if !range.contains(rate) {
-            return Err(Error::OutOfRange(range, rate));
+            return Err(Error::out_of_range("sample_rate", range, rate));
         }
         self.ensure_rx_config_idle()?;
         let mut inner = self.inner.lock().unwrap();
@@ -468,7 +494,7 @@ impl HydraSdr {
         let mut dev = self.dev.lock().unwrap();
         let Some(dev) = dev.as_mut() else {
             inner.sample_rate = old;
-            return Err(Error::DeviceError);
+            return Err(Error::DeviceDisconnected);
         };
         if let Err(err) = configure_device(dev, &inner) {
             inner.sample_rate = old;
@@ -501,13 +527,13 @@ impl HydraSdr {
             .lock()
             .unwrap()
             .bandwidth
-            .ok_or(Error::NotSupported)
+            .ok_or(Error::unsupported(Capability::DriverOperation))
     }
 
     fn set_bandwidth(&self, direction: Direction, channel: usize, bw: f64) -> Result<(), Error> {
         let range = self.get_bandwidth_range(direction, channel)?;
         if !range.contains(bw) {
-            return Err(Error::OutOfRange(range, bw));
+            return Err(Error::out_of_range("bandwidth", range, bw));
         }
         self.ensure_rx_config_idle()?;
         let mut inner = self.inner.lock().unwrap();
@@ -516,7 +542,7 @@ impl HydraSdr {
         let mut dev = self.dev.lock().unwrap();
         let Some(dev) = dev.as_mut() else {
             inner.bandwidth = old;
-            return Err(Error::DeviceError);
+            return Err(Error::DeviceDisconnected);
         };
         if let Err(err) = configure_device(dev, &inner) {
             inner.bandwidth = old;
@@ -615,7 +641,10 @@ impl RxDevice for HydraSdr {
 
     fn rx_streamer(&self, channels: &[usize], _args: Args) -> Result<Self::RxStreamer, Error> {
         if channels != [0] {
-            return Err(Error::ValueError);
+            return Err(Error::invalid_argument(
+                "hydrasdr",
+                "invalid HydraSDR argument",
+            ));
         }
         self.ensure_rx_config_idle()?;
         Ok(RxStreamer::new(
@@ -810,13 +839,13 @@ impl crate::RxStreamer for RxStreamer {
 
     fn activate_at(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
         if time_ns.is_some() {
-            return Err(Error::NotSupported);
+            return Err(Error::unsupported(Capability::TimedActivation));
         }
         if self.active {
             return Ok(());
         }
         if self.dev.lock().unwrap().is_none() {
-            return Err(Error::DeviceError);
+            return Err(Error::DeviceDisconnected);
         }
         self.active = true;
         self.inner.lock().unwrap().active_rx_streams += 1;
@@ -825,7 +854,7 @@ impl crate::RxStreamer for RxStreamer {
 
     fn deactivate_at(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
         if time_ns.is_some() {
-            return Err(Error::NotSupported);
+            return Err(Error::unsupported(Capability::TimedDeactivation));
         }
         if self.active {
             self.active = false;
@@ -837,10 +866,13 @@ impl crate::RxStreamer for RxStreamer {
 
     fn read(&mut self, buffers: &mut [&mut [Complex32]], timeout_us: i64) -> Result<usize, Error> {
         if !self.active {
-            return Err(Error::Inactive);
+            return Err(Error::StreamInactive);
         }
         if buffers.len() != 1 {
-            return Err(Error::ValueError);
+            return Err(Error::invalid_argument(
+                "hydrasdr",
+                "invalid HydraSDR argument",
+            ));
         }
         if buffers[0].is_empty() {
             return Ok(0);
@@ -853,7 +885,7 @@ impl crate::RxStreamer for RxStreamer {
             Duration::from_micros(timeout_us as u64)
         };
         let mut dev = self.dev.lock().unwrap();
-        let device = dev.as_mut().ok_or(Error::DeviceError)?;
+        let device = dev.as_mut().ok_or(Error::DeviceDisconnected)?;
         let mut stream = device.f32_rx_stream().map_err(map_hydrasdr_error)?;
         let mut iq = vec![(0.0, 0.0); out.len()];
         let read = stream.read(&mut iq, timeout).map_err(map_hydrasdr_error)?;
@@ -909,9 +941,9 @@ fn check_rx(direction: Direction, channel: usize) -> Result<(), Error> {
     if matches!(direction, Rx) && channel == 0 {
         Ok(())
     } else if matches!(direction, Rx) {
-        Err(Error::ValueError)
+        Err(Error::invalid_channel(Direction::Rx, channel, 1))
     } else {
-        Err(Error::NotSupported)
+        Err(Error::unsupported(Capability::RxStreaming))
     }
 }
 
@@ -968,13 +1000,13 @@ fn probe_args_from_info(dev: DeviceDescriptor) -> Args {
 fn device_selector(args: &Args) -> Result<DeviceSelector, Error> {
     match args.get::<usize>("index") {
         Ok(index) => return Ok(DeviceSelector::Index(index)),
-        Err(Error::NotFound) => {}
+        Err(Error::MissingArgument { .. }) => {}
         Err(err) => return Err(err),
     }
 
     match args.get::<u64>("serial") {
         Ok(serial) => Ok(DeviceSelector::Serial(serial)),
-        Err(Error::NotFound) => Ok(DeviceSelector::First),
+        Err(Error::MissingArgument { .. }) => Ok(DeviceSelector::First),
         Err(err) => Err(err),
     }
 }
@@ -1000,7 +1032,7 @@ fn open_selected_device(selector: DeviceSelector) -> Result<(HydraSdrDevice, Opt
         DeviceSelector::Index(index) => {
             let devices = HydraSdrDevice::list().map_err(map_hydrasdr_error)?;
             let Some(info) = devices.get(index) else {
-                return Err(Error::NotFound);
+                return Err(Error::DeviceNotFound);
             };
             if let Some(serial) = info.serial {
                 HydraSdrDevice::builder()
@@ -1021,14 +1053,17 @@ fn open_selected_device(selector: DeviceSelector) -> Result<(HydraSdrDevice, Opt
                     })
                     .map_err(map_hydrasdr_error)
             } else {
-                Err(Error::NotFound)
+                Err(Error::DeviceNotFound)
             }
         }
     }
 }
 
 fn configure_device(dev: &mut HydraSdrDevice, inner: &Inner) -> Result<(), Error> {
-    let (_, port) = antenna_port(inner.antenna).ok_or(Error::ValueError)?;
+    let (_, port) = antenna_port(inner.antenna).ok_or(Error::invalid_argument(
+        "hydrasdr",
+        "invalid HydraSDR argument",
+    ))?;
     let mut builder = Config::builder()
         .sample_format(SampleFormat::F32Iq)
         .decimation_mode(DecimationMode::HighDefinition)
@@ -1089,8 +1124,11 @@ fn gain_cache_item(
 
 fn map_hydrasdr_error(err: hydrasdr_rs::Error) -> Error {
     match err.kind() {
-        ErrorKind::NotFound => Error::NotFound,
-        ErrorKind::Unsupported => Error::NotSupported,
+        ErrorKind::InvalidConfig => Error::invalid_argument("hydrasdr", err.to_string()),
+        ErrorKind::NotFound => Error::DeviceNotFound,
+        ErrorKind::Busy => Error::Busy,
+        ErrorKind::Unsupported => Error::unsupported(Capability::DriverOperation),
+        ErrorKind::StreamClosed => Error::StreamClosed,
         _ => err.into(),
     }
 }
@@ -1125,8 +1163,21 @@ mod tests {
     #[test]
     fn check_rx_accepts_only_rx_channel_zero_and_rejects_tx() {
         assert!(check_rx(Rx, 0).is_ok());
-        assert!(matches!(check_rx(Rx, 1), Err(Error::ValueError)));
-        assert!(matches!(check_rx(Tx, 0), Err(Error::NotSupported)));
+        assert!(matches!(
+            check_rx(Rx, 1),
+            Err(Error::InvalidChannel {
+                direction: Rx,
+                channel: 1,
+                available: 1,
+            })
+        ));
+        assert!(matches!(
+            check_rx(Tx, 0),
+            Err(Error::Unsupported {
+                capability: Capability::RxStreaming,
+                ..
+            })
+        ));
     }
 
     #[test]
@@ -1158,13 +1209,13 @@ mod tests {
         let bad_index: Args = "driver=hydrasdr,index=not-a-number".try_into().unwrap();
         assert!(matches!(
             device_selector(&bad_index),
-            Err(Error::ValueError)
+            Err(Error::InvalidArgument { name, .. }) if name == "index"
         ));
 
         let bad_serial: Args = "driver=hydrasdr,serial=not-a-number".try_into().unwrap();
         assert!(matches!(
             device_selector(&bad_serial),
-            Err(Error::ValueError)
+            Err(Error::InvalidArgument { name, .. }) if name == "serial"
         ));
     }
 }

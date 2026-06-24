@@ -11,6 +11,7 @@ use crate::AgcControl;
 use crate::AntennaControl;
 use crate::Args;
 use crate::BandwidthControl;
+use crate::Capability;
 use crate::ChannelInfo;
 use crate::DeviceInfo;
 use crate::Direction;
@@ -66,7 +67,7 @@ impl RtlSdr {
     /// this particular device. At the moment, this just uses the index in the list of devices
     /// returned by the driver.
     pub fn probe(_args: &Args) -> Result<Vec<Args>, Error> {
-        let rtls = enumerate().or(Err(Error::DeviceError))?;
+        let rtls = enumerate()?;
         let mut devs = Vec::new();
         for r in rtls {
             devs.push(format!("driver=rtlsdr, index={}, serial={}", r.index, r.serial).try_into()?);
@@ -80,20 +81,22 @@ impl RtlSdr {
     /// `index` has precedence and defines the index in the list returned by the driver. When no
     /// `index` is provided, `serial` is matched against the enumerated devices.
     pub fn open<A: TryInto<Args>>(args: A) -> Result<Self, Error> {
-        let args = args.try_into().or(Err(Error::ValueError))?;
-        let rtls = enumerate().or(Err(Error::DeviceError))?;
+        let args = args
+            .try_into()
+            .map_err(|_| Error::invalid_argument("args", "failed to convert args"))?;
+        let rtls = enumerate()?;
 
         let index = if let Ok(index) = args.get::<usize>("index") {
             index
         } else if let Ok(serial) = args.get::<String>("serial") {
             rtls.iter()
                 .position(|rtl| rtl.serial == serial)
-                .ok_or(Error::NotFound)?
+                .ok_or(Error::DeviceNotFound)?
         } else {
             0
         };
         if index >= rtls.len() {
-            return Err(Error::NotFound);
+            return Err(Error::DeviceNotFound);
         }
         #[allow(clippy::arc_with_non_send_sync)]
         let dev = Arc::new(Sdr::open(index)?);
@@ -142,9 +145,12 @@ impl RtlSdr {
         if matches!(direction, Rx) && channel == 0 {
             Ok("RX".to_string())
         } else if matches!(direction, Rx) {
-            Err(Error::ValueError)
+            Err(Error::invalid_argument(
+                "rtlsdr",
+                "invalid RTL-SDR argument",
+            ))
         } else {
-            Err(Error::NotSupported)
+            Err(Error::unsupported(Capability::DriverOperation))
         }
     }
 
@@ -152,9 +158,12 @@ impl RtlSdr {
         if matches!(direction, Rx) && channel == 0 && name == "RX" {
             Ok(())
         } else if matches!(direction, Rx) {
-            Err(Error::ValueError)
+            Err(Error::invalid_argument(
+                "rtlsdr",
+                "invalid RTL-SDR argument",
+            ))
         } else {
-            Err(Error::NotSupported)
+            Err(Error::unsupported(Capability::DriverOperation))
         }
     }
 
@@ -162,9 +171,12 @@ impl RtlSdr {
         if matches!(direction, Rx) && channel == 0 {
             Ok(vec!["TUNER".to_string()])
         } else if matches!(direction, Rx) {
-            Err(Error::ValueError)
+            Err(Error::invalid_argument(
+                "rtlsdr",
+                "invalid RTL-SDR argument",
+            ))
         } else {
-            Err(Error::NotSupported)
+            Err(Error::unsupported(Capability::DriverOperation))
         }
     }
 
@@ -172,9 +184,12 @@ impl RtlSdr {
         if matches!(direction, Rx) && channel == 0 {
             Ok(true)
         } else if matches!(direction, Rx) {
-            Err(Error::ValueError)
+            Err(Error::invalid_argument(
+                "rtlsdr",
+                "invalid RTL-SDR argument",
+            ))
         } else {
-            Err(Error::NotSupported)
+            Err(Error::unsupported(Capability::DriverOperation))
         }
     }
 
@@ -184,7 +199,7 @@ impl RtlSdr {
         channel: usize,
         agc: bool,
     ) -> Result<(), Error> {
-        let gains = self.dev.get_tuner_gains().or(Err(Error::DeviceError))?;
+        let gains = self.dev.get_tuner_gains()?;
         if matches!(direction, Rx) && channel == 0 {
             let mut inner = self.i.lock().unwrap();
             if agc {
@@ -195,9 +210,12 @@ impl RtlSdr {
                 Ok(self.dev.set_tuner_gain(inner.gain.clone())?)
             }
         } else if matches!(direction, Rx) {
-            Err(Error::ValueError)
+            Err(Error::invalid_argument(
+                "rtlsdr",
+                "invalid RTL-SDR argument",
+            ))
         } else {
-            Err(Error::NotSupported)
+            Err(Error::unsupported(Capability::DriverOperation))
         }
     }
 
@@ -206,9 +224,12 @@ impl RtlSdr {
             let inner = self.i.lock().unwrap();
             Ok(matches!(inner.gain, TunerGain::Auto))
         } else if matches!(direction, Rx) {
-            Err(Error::ValueError)
+            Err(Error::invalid_argument(
+                "rtlsdr",
+                "invalid RTL-SDR argument",
+            ))
         } else {
-            Err(Error::NotSupported)
+            Err(Error::unsupported(Capability::DriverOperation))
         }
     }
 
@@ -238,7 +259,7 @@ impl RtlSdr {
             Ok(self.dev.set_tuner_gain(inner.gain.clone())?)
         } else {
             log::warn!("Gain out of range");
-            Err(Error::OutOfRange(r, gain))
+            Err(Error::out_of_range("gain", r, gain))
         }
     }
 
@@ -255,9 +276,12 @@ impl RtlSdr {
                 TunerGain::Manual(i) => Ok(Some(i as f64)),
             }
         } else if matches!(direction, Rx) {
-            Err(Error::ValueError)
+            Err(Error::invalid_argument(
+                "rtlsdr",
+                "invalid RTL-SDR argument",
+            ))
         } else {
-            Err(Error::NotSupported)
+            Err(Error::unsupported(Capability::DriverOperation))
         }
     }
 
@@ -270,9 +294,12 @@ impl RtlSdr {
         if matches!(direction, Rx) && channel == 0 && name == "TUNER" {
             Ok(Range::new(vec![RangeItem::Interval(0.0, 50.0)]))
         } else if matches!(direction, Rx) {
-            Err(Error::ValueError)
+            Err(Error::invalid_argument(
+                "rtlsdr",
+                "invalid RTL-SDR argument",
+            ))
         } else {
-            Err(Error::NotSupported)
+            Err(Error::unsupported(Capability::DriverOperation))
         }
     }
 
@@ -302,9 +329,12 @@ impl RtlSdr {
         if matches!(direction, Rx) && channel == 0 {
             Ok(vec!["TUNER".to_string()])
         } else if matches!(direction, Rx) {
-            Err(Error::ValueError)
+            Err(Error::invalid_argument(
+                "rtlsdr",
+                "invalid RTL-SDR argument",
+            ))
         } else {
-            Err(Error::NotSupported)
+            Err(Error::unsupported(Capability::DriverOperation))
         }
     }
 
@@ -317,9 +347,12 @@ impl RtlSdr {
         if matches!(direction, Rx) && channel == 0 && name == "TUNER" {
             Ok(Range::new(vec![RangeItem::Interval(0.0, 2e9)]))
         } else if matches!(direction, Rx) {
-            Err(Error::ValueError)
+            Err(Error::invalid_argument(
+                "rtlsdr",
+                "invalid RTL-SDR argument",
+            ))
         } else {
-            Err(Error::NotSupported)
+            Err(Error::unsupported(Capability::DriverOperation))
         }
     }
 
@@ -332,9 +365,12 @@ impl RtlSdr {
         if matches!(direction, Rx) && channel == 0 && name == "TUNER" {
             Ok(self.dev.get_center_freq() as f64)
         } else if matches!(direction, Rx) {
-            Err(Error::ValueError)
+            Err(Error::invalid_argument(
+                "rtlsdr",
+                "invalid RTL-SDR argument",
+            ))
         } else {
-            Err(Error::NotSupported)
+            Err(Error::unsupported(Capability::DriverOperation))
         }
     }
 
@@ -353,9 +389,12 @@ impl RtlSdr {
             self.dev.set_center_freq(frequency as u32)?;
             Ok(self.dev.reset_buffer()?)
         } else if matches!(direction, Rx) {
-            Err(Error::ValueError)
+            Err(Error::invalid_argument(
+                "rtlsdr",
+                "invalid RTL-SDR argument",
+            ))
         } else {
-            Err(Error::NotSupported)
+            Err(Error::unsupported(Capability::DriverOperation))
         }
     }
 
@@ -363,9 +402,12 @@ impl RtlSdr {
         if matches!(direction, Rx) && channel == 0 {
             Ok(self.dev.get_sample_rate() as f64)
         } else if matches!(direction, Rx) {
-            Err(Error::ValueError)
+            Err(Error::invalid_argument(
+                "rtlsdr",
+                "invalid RTL-SDR argument",
+            ))
         } else {
-            Err(Error::NotSupported)
+            Err(Error::unsupported(Capability::DriverOperation))
         }
     }
 
@@ -382,9 +424,12 @@ impl RtlSdr {
             self.dev.set_tuner_bandwidth(rate as u32)?;
             Ok(self.dev.set_sample_rate(rate as u32)?)
         } else if matches!(direction, Rx) {
-            Err(Error::ValueError)
+            Err(Error::invalid_argument(
+                "rtlsdr",
+                "invalid RTL-SDR argument",
+            ))
         } else {
-            Err(Error::NotSupported)
+            Err(Error::unsupported(Capability::DriverOperation))
         }
     }
 
@@ -395,14 +440,17 @@ impl RtlSdr {
                 RangeItem::Interval(900_001.0, 3_200_000.0),
             ]))
         } else if matches!(direction, Rx) {
-            Err(Error::ValueError)
+            Err(Error::invalid_argument(
+                "rtlsdr",
+                "invalid RTL-SDR argument",
+            ))
         } else {
-            Err(Error::NotSupported)
+            Err(Error::unsupported(Capability::DriverOperation))
         }
     }
 
     fn bandwidth(&self, _direction: Direction, _channel: usize) -> Result<f64, Error> {
-        Err(Error::NotSupported)
+        Err(Error::unsupported(Capability::DriverOperation))
     }
 
     fn set_bandwidth(&self, _direction: Direction, _channel: usize, bw: f64) -> Result<(), Error> {
@@ -410,7 +458,7 @@ impl RtlSdr {
     }
 
     fn get_bandwidth_range(&self, _direction: Direction, _channel: usize) -> Result<Range, Error> {
-        Err(Error::NotSupported)
+        Err(Error::unsupported(Capability::DriverOperation))
     }
 }
 
@@ -485,7 +533,10 @@ impl RxDevice for RtlSdr {
 
     fn rx_streamer(&self, channels: &[usize], _args: Args) -> Result<Self::RxStreamer, Error> {
         if channels != [0] {
-            Err(Error::ValueError)
+            Err(Error::invalid_argument(
+                "rtlsdr",
+                "invalid RTL-SDR argument",
+            ))
         } else {
             Ok(RxStreamer::new(self.dev.clone()))
         }
@@ -665,7 +716,7 @@ impl crate::RxStreamer for RxStreamer {
         Ok(MTU)
     }
     fn activate_at(&mut self, _time_ns: Option<i64>) -> Result<(), Error> {
-        self.dev.reset_buffer().or(Err(Error::DeviceError))
+        Ok(self.dev.reset_buffer()?)
     }
     fn deactivate_at(&mut self, _time_ns: Option<i64>) -> Result<(), Error> {
         Ok(())

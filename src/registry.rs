@@ -85,7 +85,9 @@ impl Registry {
     where
         A: TryInto<Args>,
     {
-        let args = args.try_into().map_err(|_| Error::ValueError)?;
+        let args = args
+            .try_into()
+            .map_err(|_| Error::invalid_argument("args", "failed to convert args"))?;
         let driver = requested_driver(&args)?;
         let mut descriptors = Vec::new();
         let mut matched_backend = false;
@@ -99,7 +101,7 @@ impl Registry {
 
         if let Some(driver) = driver {
             if !matched_backend && !builtin_driver_enabled(driver) {
-                return Err(Error::FeatureNotEnabled);
+                return Err(Error::DriverFeatureNotEnabled { driver });
             }
         }
 
@@ -118,16 +120,16 @@ impl Registry {
             matched_backend = true;
             match backend.open(descriptor) {
                 Ok(device) => return Ok(device),
-                Err(Error::NotFound) => {}
+                Err(Error::DeviceNotFound) => {}
                 Err(e) => return Err(e),
             }
         }
 
         if !matched_backend && !builtin_driver_enabled(driver) {
-            return Err(Error::FeatureNotEnabled);
+            return Err(Error::DriverFeatureNotEnabled { driver });
         }
 
-        Err(Error::NotFound)
+        Err(Error::DeviceNotFound)
     }
 
     /// Open the first device matching `args`.
@@ -135,7 +137,9 @@ impl Registry {
     where
         A: TryInto<Args>,
     {
-        let args = args.try_into().map_err(|_| Error::ValueError)?;
+        let args = args
+            .try_into()
+            .map_err(|_| Error::invalid_argument("args", "failed to convert args"))?;
         let driver = requested_driver(&args)?;
 
         if let Some(driver) = driver {
@@ -147,12 +151,12 @@ impl Registry {
             let descriptor = DeviceDescriptor::new(backend.driver(), args.clone());
             match backend.open(&descriptor) {
                 Ok(device) => return Ok(device),
-                Err(Error::NotFound) => {}
+                Err(Error::DeviceNotFound) => {}
                 Err(e) => return Err(e),
             }
         }
 
-        Err(Error::NotFound)
+        Err(Error::DeviceNotFound)
     }
 }
 
@@ -195,7 +199,7 @@ impl Default for Registry {
 fn requested_driver(args: &Args) -> Result<Option<Driver>, Error> {
     match args.get::<Driver>("driver") {
         Ok(driver) => Ok(Some(driver)),
-        Err(Error::NotFound) => Ok(None),
+        Err(Error::MissingArgument { .. }) => Ok(None),
         Err(e) => Err(e),
     }
 }
@@ -364,7 +368,10 @@ mod tests {
     fn typed_device_from_args_rejects_mismatched_driver_filter() {
         assert!(matches!(
             crate::Device::<crate::impls::Dummy>::from_args("driver=soapy"),
-            Err(Error::ValueError)
+            Err(Error::DriverMismatch {
+                expected: Driver::Dummy,
+                requested: Driver::Soapy
+            })
         ));
     }
 
@@ -382,7 +389,9 @@ mod tests {
     fn registry_probe_reports_disabled_hydrasdr_feature() {
         assert!(matches!(
             Registry::default().probe("driver=hydrasdr"),
-            Err(Error::FeatureNotEnabled)
+            Err(Error::DriverFeatureNotEnabled {
+                driver: Driver::HydraSdr
+            })
         ));
     }
 
@@ -391,7 +400,9 @@ mod tests {
     fn registry_open_args_reports_disabled_hydrasdr_feature() {
         assert!(matches!(
             Registry::default().open_args("driver=hydrasdr"),
-            Err(Error::FeatureNotEnabled)
+            Err(Error::DriverFeatureNotEnabled {
+                driver: Driver::HydraSdr
+            })
         ));
     }
 }
