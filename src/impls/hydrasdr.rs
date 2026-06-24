@@ -873,12 +873,7 @@ impl crate::RxStreamer for RxStreamer {
         if !self.active {
             return Err(Error::StreamInactive);
         }
-        if buffers.len() != 1 {
-            return Err(Error::invalid_argument(
-                "hydrasdr",
-                "invalid HydraSDR argument",
-            ));
-        }
+        crate::streamer::expect_buffer_count(buffers.len(), 1)?;
         if buffers[0].is_empty() {
             return Ok(0);
         }
