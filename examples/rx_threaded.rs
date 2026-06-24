@@ -14,6 +14,15 @@ struct Args {
     /// Device Filter
     #[clap(short, long, default_value = "")]
     args: String,
+    /// RX center frequency in Hz
+    #[clap(long)]
+    frequency: Option<f64>,
+    /// RX sample rate in samples per second
+    #[clap(long)]
+    sample_rate: Option<f64>,
+    /// RX gain in dB
+    #[clap(long)]
+    gain: Option<f64>,
 }
 
 pub fn main() -> Result<(), Box<dyn Error>> {
@@ -27,6 +36,19 @@ pub fn main() -> Result<(), Box<dyn Error>> {
     println!("info:        {:?}", dev.info()?);
     {
         let rx0 = dev.rx(0)?;
+        if let Some(frequency) = cli.frequency {
+            rx0.frequency()?.set(frequency)?;
+        }
+        if let Some(sample_rate) = cli.sample_rate {
+            rx0.sample_rate()?.set(sample_rate)?;
+        }
+        if let Some(gain) = cli.gain {
+            if let Ok(agc) = rx0.agc() {
+                agc.disable()?;
+            }
+            rx0.gain()?.set(gain)?;
+        }
+
         println!("sample rate: {:?}", rx0.sample_rate()?.value()?);
         println!("frequency:   {:?}", rx0.frequency()?.value()?);
         println!("gain:        {:?}", rx0.gain()?.value()?);
