@@ -2,9 +2,23 @@
 use std::sync::Arc;
 use std::sync::Mutex;
 
+use futures::future::{BoxFuture, FutureExt};
+
 use crate::AgcControl;
 use crate::AntennaControl;
 use crate::Args;
+use crate::AsyncAgcControl;
+use crate::AsyncAntennaControl;
+use crate::AsyncBandwidthControl;
+use crate::AsyncChannelInfo;
+use crate::AsyncDeviceInfo;
+use crate::AsyncDynDeviceBackend;
+use crate::AsyncFrequencyControl;
+use crate::AsyncGainControl;
+use crate::AsyncRxDevice;
+use crate::AsyncSampleRateControl;
+use crate::AsyncTxDevice;
+use crate::AsyncTypedDeviceBackend;
 use crate::BandwidthControl;
 use crate::ChannelInfo;
 use crate::DeviceInfo;
@@ -98,6 +112,28 @@ impl DeviceInfo for Dummy {
     }
 }
 
+impl AsyncDeviceInfo for Dummy {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+
+    fn driver(&self) -> Driver {
+        Driver::Dummy
+    }
+
+    fn async_id(&self) -> BoxFuture<'_, Result<String, Error>> {
+        async { self.id() }.boxed()
+    }
+
+    fn async_info(&self) -> BoxFuture<'_, Result<Args, Error>> {
+        async { self.info() }.boxed()
+    }
+}
+
 impl DynDeviceBackend for Dummy {
     fn channel_info(&self) -> Option<&dyn ChannelInfo> {
         Some(self)
@@ -136,6 +172,44 @@ impl DynDeviceBackend for Dummy {
     }
 }
 
+impl AsyncDynDeviceBackend for Dummy {
+    fn async_channel_info(&self) -> Option<&dyn AsyncChannelInfo> {
+        Some(self)
+    }
+
+    fn async_rx_device(&self) -> Option<&dyn crate::ErasedAsyncRxDevice> {
+        Some(self)
+    }
+
+    fn async_tx_device(&self) -> Option<&dyn crate::ErasedAsyncTxDevice> {
+        Some(self)
+    }
+
+    fn async_antenna_control(&self) -> Option<&dyn AsyncAntennaControl> {
+        Some(self)
+    }
+
+    fn async_agc_control(&self) -> Option<&dyn AsyncAgcControl> {
+        Some(self)
+    }
+
+    fn async_gain_control(&self) -> Option<&dyn AsyncGainControl> {
+        Some(self)
+    }
+
+    fn async_frequency_control(&self) -> Option<&dyn AsyncFrequencyControl> {
+        Some(self)
+    }
+
+    fn async_sample_rate_control(&self) -> Option<&dyn AsyncSampleRateControl> {
+        Some(self)
+    }
+
+    fn async_bandwidth_control(&self) -> Option<&dyn AsyncBandwidthControl> {
+        Some(self)
+    }
+}
+
 impl ChannelInfo for Dummy {
     fn num_channels(&self, _direction: Direction) -> Result<usize, Error> {
         Ok(1)
@@ -143,6 +217,20 @@ impl ChannelInfo for Dummy {
 
     fn full_duplex(&self, _direction: Direction, _channel: usize) -> Result<bool, Error> {
         Ok(true)
+    }
+}
+
+impl AsyncChannelInfo for Dummy {
+    fn async_num_channels(&self, direction: Direction) -> BoxFuture<'_, Result<usize, Error>> {
+        async move { self.num_channels(direction) }.boxed()
+    }
+
+    fn async_full_duplex(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> BoxFuture<'_, Result<bool, Error>> {
+        async move { self.full_duplex(direction, channel) }.boxed()
     }
 }
 
@@ -157,6 +245,18 @@ impl RxDevice for Dummy {
     }
 }
 
+impl AsyncRxDevice for Dummy {
+    type RxStreamer = RxStreamer;
+
+    fn async_rx_streamer<'a>(
+        &'a self,
+        channels: &'a [usize],
+        args: Args,
+    ) -> BoxFuture<'a, Result<Self::RxStreamer, Error>> {
+        async move { self.rx_streamer(channels, args) }.boxed()
+    }
+}
+
 impl TxDevice for Dummy {
     type TxStreamer = TxStreamer;
 
@@ -165,6 +265,18 @@ impl TxDevice for Dummy {
             &[0] => Ok(TxStreamer),
             _ => Err(Error::invalid_argument("dummy", "invalid dummy argument")),
         }
+    }
+}
+
+impl AsyncTxDevice for Dummy {
+    type TxStreamer = TxStreamer;
+
+    fn async_tx_streamer<'a>(
+        &'a self,
+        channels: &'a [usize],
+        args: Args,
+    ) -> BoxFuture<'a, Result<Self::TxStreamer, Error>> {
+        async move { self.tx_streamer(channels, args) }.boxed()
     }
 }
 
@@ -190,6 +302,33 @@ impl AntennaControl for Dummy {
             (0, "A") => Ok(()),
             _ => Err(Error::invalid_argument("dummy", "invalid dummy argument")),
         }
+    }
+}
+
+impl AsyncAntennaControl for Dummy {
+    fn async_antennas(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> BoxFuture<'_, Result<Vec<String>, Error>> {
+        async move { self.antennas(direction, channel) }.boxed()
+    }
+
+    fn async_antenna(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> BoxFuture<'_, Result<String, Error>> {
+        async move { self.antenna(direction, channel) }.boxed()
+    }
+
+    fn async_set_antenna<'a>(
+        &'a self,
+        direction: Direction,
+        channel: usize,
+        name: &'a str,
+    ) -> BoxFuture<'a, Result<(), Error>> {
+        async move { self.set_antenna(direction, channel, name) }.boxed()
     }
 }
 
@@ -227,6 +366,33 @@ impl AgcControl for Dummy {
             (0, Tx) => Ok(*self.tx_agc.lock().unwrap()),
             _ => Err(Error::invalid_argument("dummy", "invalid dummy argument")),
         }
+    }
+}
+
+impl AsyncAgcControl for Dummy {
+    fn async_agc_available(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> BoxFuture<'_, Result<bool, Error>> {
+        async move { self.agc_available(direction, channel) }.boxed()
+    }
+
+    fn async_agc_enabled(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> BoxFuture<'_, Result<bool, Error>> {
+        async move { self.agc_enabled(direction, channel) }.boxed()
+    }
+
+    fn async_set_agc_enabled(
+        &self,
+        direction: Direction,
+        channel: usize,
+        enabled: bool,
+    ) -> BoxFuture<'_, Result<(), Error>> {
+        async move { self.set_agc_enabled(direction, channel, enabled) }.boxed()
     }
 }
 
@@ -336,6 +502,69 @@ impl GainControl for Dummy {
     }
 }
 
+impl AsyncGainControl for Dummy {
+    fn async_gain_elements(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> BoxFuture<'_, Result<Vec<String>, Error>> {
+        async move { self.gain_elements(direction, channel) }.boxed()
+    }
+
+    fn async_set_gain(
+        &self,
+        direction: Direction,
+        channel: usize,
+        gain: f64,
+    ) -> BoxFuture<'_, Result<(), Error>> {
+        async move { self.set_gain(direction, channel, gain) }.boxed()
+    }
+
+    fn async_gain(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> BoxFuture<'_, Result<Option<f64>, Error>> {
+        async move { self.gain(direction, channel) }.boxed()
+    }
+
+    fn async_gain_range(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> BoxFuture<'_, Result<Range, Error>> {
+        async move { self.gain_range(direction, channel) }.boxed()
+    }
+
+    fn async_set_gain_element<'a>(
+        &'a self,
+        direction: Direction,
+        channel: usize,
+        name: &'a str,
+        gain: f64,
+    ) -> BoxFuture<'a, Result<(), Error>> {
+        async move { self.set_gain_element(direction, channel, name, gain) }.boxed()
+    }
+
+    fn async_gain_element<'a>(
+        &'a self,
+        direction: Direction,
+        channel: usize,
+        name: &'a str,
+    ) -> BoxFuture<'a, Result<Option<f64>, Error>> {
+        async move { self.gain_element(direction, channel, name) }.boxed()
+    }
+
+    fn async_gain_element_range<'a>(
+        &'a self,
+        direction: Direction,
+        channel: usize,
+        name: &'a str,
+    ) -> BoxFuture<'a, Result<Range, Error>> {
+        async move { self.gain_element_range(direction, channel, name) }.boxed()
+    }
+}
+
 impl FrequencyControl for Dummy {
     fn frequency_range(&self, _direction: Direction, channel: usize) -> Result<Range, Error> {
         if channel == 0 {
@@ -436,6 +665,70 @@ impl FrequencyControl for Dummy {
     }
 }
 
+impl AsyncFrequencyControl for Dummy {
+    fn async_frequency_range(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> BoxFuture<'_, Result<Range, Error>> {
+        async move { self.frequency_range(direction, channel) }.boxed()
+    }
+
+    fn async_frequency(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> BoxFuture<'_, Result<f64, Error>> {
+        async move { self.frequency(direction, channel) }.boxed()
+    }
+
+    fn async_set_frequency(
+        &self,
+        direction: Direction,
+        channel: usize,
+        frequency: f64,
+        args: Args,
+    ) -> BoxFuture<'_, Result<(), Error>> {
+        async move { self.set_frequency(direction, channel, frequency, args) }.boxed()
+    }
+
+    fn async_frequency_components(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> BoxFuture<'_, Result<Vec<String>, Error>> {
+        async move { self.frequency_components(direction, channel) }.boxed()
+    }
+
+    fn async_component_frequency_range<'a>(
+        &'a self,
+        direction: Direction,
+        channel: usize,
+        name: &'a str,
+    ) -> BoxFuture<'a, Result<Range, Error>> {
+        async move { self.component_frequency_range(direction, channel, name) }.boxed()
+    }
+
+    fn async_component_frequency<'a>(
+        &'a self,
+        direction: Direction,
+        channel: usize,
+        name: &'a str,
+    ) -> BoxFuture<'a, Result<f64, Error>> {
+        async move { self.component_frequency(direction, channel, name) }.boxed()
+    }
+
+    fn async_set_component_frequency<'a>(
+        &'a self,
+        direction: Direction,
+        channel: usize,
+        name: &'a str,
+        frequency: f64,
+    ) -> BoxFuture<'a, Result<(), Error>> {
+        async move { self.set_component_frequency(direction, channel, name, frequency) }.boxed()
+    }
+}
+
 impl SampleRateControl for Dummy {
     fn sample_rate(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
         match (channel, direction) {
@@ -471,6 +764,33 @@ impl SampleRateControl for Dummy {
     }
 }
 
+impl AsyncSampleRateControl for Dummy {
+    fn async_sample_rate(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> BoxFuture<'_, Result<f64, Error>> {
+        async move { self.sample_rate(direction, channel) }.boxed()
+    }
+
+    fn async_set_sample_rate(
+        &self,
+        direction: Direction,
+        channel: usize,
+        rate: f64,
+    ) -> BoxFuture<'_, Result<(), Error>> {
+        async move { self.set_sample_rate(direction, channel, rate) }.boxed()
+    }
+
+    fn async_get_sample_rate_range(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> BoxFuture<'_, Result<Range, Error>> {
+        async move { self.get_sample_rate_range(direction, channel) }.boxed()
+    }
+}
+
 impl BandwidthControl for Dummy {
     fn bandwidth(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
         match (channel, direction) {
@@ -501,6 +821,33 @@ impl BandwidthControl for Dummy {
     }
 }
 
+impl AsyncBandwidthControl for Dummy {
+    fn async_bandwidth(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> BoxFuture<'_, Result<f64, Error>> {
+        async move { self.bandwidth(direction, channel) }.boxed()
+    }
+
+    fn async_set_bandwidth(
+        &self,
+        direction: Direction,
+        channel: usize,
+        bandwidth: f64,
+    ) -> BoxFuture<'_, Result<(), Error>> {
+        async move { self.set_bandwidth(direction, channel, bandwidth) }.boxed()
+    }
+
+    fn async_get_bandwidth_range(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> BoxFuture<'_, Result<Range, Error>> {
+        async move { self.get_bandwidth_range(direction, channel) }.boxed()
+    }
+}
+
 impl crate::RxStreamer for RxStreamer {
     fn mtu(&self) -> Result<usize, Error> {
         Ok(1500)
@@ -523,6 +870,28 @@ impl crate::RxStreamer for RxStreamer {
             b.fill(num_complex::Complex32::new(0.0, 0.0))
         }
         Ok(buffers[0].len())
+    }
+}
+
+impl crate::AsyncRxStreamer for RxStreamer {
+    fn mtu(&self) -> BoxFuture<'_, Result<usize, Error>> {
+        async { <Self as crate::RxStreamer>::mtu(self) }.boxed()
+    }
+
+    fn activate_at(&mut self, time_ns: Option<i64>) -> BoxFuture<'_, Result<(), Error>> {
+        async move { <Self as crate::RxStreamer>::activate_at(self, time_ns) }.boxed()
+    }
+
+    fn deactivate_at(&mut self, time_ns: Option<i64>) -> BoxFuture<'_, Result<(), Error>> {
+        async move { <Self as crate::RxStreamer>::deactivate_at(self, time_ns) }.boxed()
+    }
+
+    fn read<'a>(
+        &'a mut self,
+        buffers: &'a mut [&'a mut [num_complex::Complex32]],
+        timeout_us: i64,
+    ) -> BoxFuture<'a, Result<usize, Error>> {
+        async move { <Self as crate::RxStreamer>::read(self, buffers, timeout_us) }.boxed()
     }
 }
 
@@ -557,5 +926,59 @@ impl crate::TxStreamer for TxStreamer {
         _timeout_us: i64,
     ) -> Result<(), Error> {
         Ok(())
+    }
+}
+
+impl crate::AsyncTxStreamer for TxStreamer {
+    fn mtu(&self) -> BoxFuture<'_, Result<usize, Error>> {
+        async { <Self as crate::TxStreamer>::mtu(self) }.boxed()
+    }
+
+    fn activate_at(&mut self, time_ns: Option<i64>) -> BoxFuture<'_, Result<(), Error>> {
+        async move { <Self as crate::TxStreamer>::activate_at(self, time_ns) }.boxed()
+    }
+
+    fn deactivate_at(&mut self, time_ns: Option<i64>) -> BoxFuture<'_, Result<(), Error>> {
+        async move { <Self as crate::TxStreamer>::deactivate_at(self, time_ns) }.boxed()
+    }
+
+    fn write<'a>(
+        &'a mut self,
+        buffers: &'a [&'a [num_complex::Complex32]],
+        at_ns: Option<i64>,
+        end_burst: bool,
+        timeout_us: i64,
+    ) -> BoxFuture<'a, Result<usize, Error>> {
+        async move {
+            <Self as crate::TxStreamer>::write(self, buffers, at_ns, end_burst, timeout_us)
+        }
+        .boxed()
+    }
+
+    fn write_all<'a>(
+        &'a mut self,
+        buffers: &'a [&'a [num_complex::Complex32]],
+        at_ns: Option<i64>,
+        end_burst: bool,
+        timeout_us: i64,
+    ) -> BoxFuture<'a, Result<(), Error>> {
+        async move {
+            <Self as crate::TxStreamer>::write_all(self, buffers, at_ns, end_burst, timeout_us)
+        }
+        .boxed()
+    }
+}
+
+impl AsyncTypedDeviceBackend for Dummy {
+    fn driver() -> Driver {
+        Driver::Dummy
+    }
+
+    fn async_probe(args: &Args) -> BoxFuture<'_, Result<Vec<Args>, Error>> {
+        async move { Self::probe(args) }.boxed()
+    }
+
+    fn async_open(args: &Args) -> BoxFuture<'_, Result<Self, Error>> {
+        async move { Self::open(args.clone()) }.boxed()
     }
 }
