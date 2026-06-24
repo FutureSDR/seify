@@ -73,7 +73,7 @@ impl HackRfOne {
 
         Ok(Self {
             inner: Arc::new(HackRfInner {
-                dev,
+                dev: Arc::new(dev),
                 tx_config: Mutex::new(Config::tx_default()),
                 rx_config: Mutex::new(Config::rx_default()),
             }),
@@ -94,7 +94,7 @@ impl HackRfOne {
 }
 
 struct HackRfInner {
-    dev: seify_hackrfone::HackRf,
+    dev: Arc<seify_hackrfone::HackRf>,
     tx_config: Mutex<seify_hackrfone::Config>,
     rx_config: Mutex<seify_hackrfone::Config>,
 }
@@ -133,7 +133,7 @@ impl crate::RxStreamer for RxStreamer {
         // TODO: sleep precisely for `time_ns`
 
         let _ = self.stream.take().ok_or(Error::StreamInactive)?;
-        self.inner.dev.stop_rx()?;
+        self.inner.dev.stop()?;
         Ok(())
     }
 
