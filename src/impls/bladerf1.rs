@@ -86,13 +86,23 @@ const fn sign_extend_12(val: u16) -> f32 {
     ((val << 4) as i16 >> 4) as f32
 }
 
-fn convert_bytes_to_complex32(format: SampleFormat, src: &[u8], dst: &mut [Complex32]) -> usize {
-    match format {
+fn convert_bytes_to_complex32(
+    format: SampleFormat,
+    src: &[u8],
+    dst: &mut [Complex32],
+) -> Result<usize, Error> {
+    let written = match format {
         SampleFormat::Sc16Q11 => convert_sc16q11_to_complex32(src, dst),
         SampleFormat::Sc8Q7 => convert_sc8q7_to_complex32(src, dst),
         SampleFormat::Sc16Q11Packed => convert_sc16q11_packed_to_complex32(src, dst),
-        _ => unimplemented!("unsupported sample format: {format:?}"),
-    }
+        _ => {
+            return Err(Error::unsupported_reason(
+                Capability::RxStreaming,
+                format!("unsupported sample format: {format:?}"),
+            ));
+        }
+    };
+    Ok(written)
 }
 
 fn convert_complex32_to_sc16q11(src: &[Complex32], dst: &mut [u8]) -> usize {
@@ -117,12 +127,22 @@ fn convert_complex32_to_sc8q7(src: &[Complex32], dst: &mut [u8]) -> usize {
     len
 }
 
-fn convert_complex32_to_bytes(format: SampleFormat, src: &[Complex32], dst: &mut [u8]) -> usize {
-    match format {
+fn convert_complex32_to_bytes(
+    format: SampleFormat,
+    src: &[Complex32],
+    dst: &mut [u8],
+) -> Result<usize, Error> {
+    let written = match format {
         SampleFormat::Sc16Q11 => convert_complex32_to_sc16q11(src, dst),
         SampleFormat::Sc8Q7 => convert_complex32_to_sc8q7(src, dst),
-        _ => unimplemented!("unsupported TX sample format: {format:?}"),
-    }
+        _ => {
+            return Err(Error::unsupported_reason(
+                Capability::TxStreaming,
+                format!("unsupported TX sample format: {format:?}"),
+            ));
+        }
+    };
+    Ok(written)
 }
 
 impl From<BladeRfRangeItem> for RangeItem {
@@ -278,7 +298,7 @@ impl crate::RxStreamer for RxStreamer {
     }
 
     fn read(&mut self, buffers: &mut [&mut [Complex32]], timeout_us: i64) -> Result<usize, Error> {
-        debug_assert_eq!(buffers.len(), 1);
+        crate::streamer::expect_buffer_count(buffers.len(), 1)?;
         let streamer = self.streamer.as_mut().ok_or(Error::StreamInactive)?;
         let bytes_per_sample = self.format.sample_size();
         let output = &mut buffers[0];
@@ -291,7 +311,7 @@ impl crate::RxStreamer for RxStreamer {
                 self.format,
                 &buf[offset..offset + samples_to_produce * bytes_per_sample],
                 &mut output[..samples_to_produce],
-            );
+            )?;
             offset += samples_to_produce * bytes_per_sample;
             written += samples_to_produce;
             if offset < buf.len() {
@@ -318,7 +338,7 @@ impl crate::RxStreamer for RxStreamer {
             self.format,
             &dma_buffer[..samples_to_produce * bytes_per_sample],
             &mut remaining[..samples_to_produce],
-        );
+        )?;
 
         if samples_available > samples_to_produce {
             let offset = samples_to_produce * bytes_per_sample;
@@ -373,7 +393,7 @@ impl crate::TxStreamer for TxStreamer {
         _end_burst: bool,
         timeout_us: i64,
     ) -> Result<usize, Error> {
-        debug_assert_eq!(buffers.len(), 1);
+        crate::streamer::expect_buffer_count(buffers.len(), 1)?;
         let streamer = self.streamer.as_mut().ok_or(Error::StreamInactive)?;
         let buffer_size = streamer.buffer_size().map_err(bladerf_err)?;
         let bytes_per_sample = self.format.sample_size();
@@ -389,7 +409,7 @@ impl crate::TxStreamer for TxStreamer {
             self.format,
             &buffers[0][..samples_to_write],
             &mut dma_buffer[..bytes_needed],
-        );
+        )?;
 
         streamer
             .submit(dma_buffer, bytes_needed)
@@ -405,6 +425,7 @@ impl crate::TxStreamer for TxStreamer {
         _end_burst: bool,
         timeout_us: i64,
     ) -> Result<(), Error> {
+        crate::streamer::expect_buffer_count(buffers.len(), 1)?;
         let mut offset = 0;
         while offset < buffers[0].len() {
             let samples = &buffers[0][offset..];

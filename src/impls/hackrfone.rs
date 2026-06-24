@@ -132,7 +132,7 @@ impl crate::RxStreamer for RxStreamer {
     fn deactivate_at(&mut self, _time_ns: Option<i64>) -> Result<(), Error> {
         // TODO: sleep precisely for `time_ns`
 
-        let _ = self.stream.take().unwrap();
+        let _ = self.stream.take().ok_or(Error::StreamInactive)?;
         self.inner.dev.stop_rx()?;
         Ok(())
     }
@@ -142,12 +142,16 @@ impl crate::RxStreamer for RxStreamer {
         buffers: &mut [&mut [num_complex::Complex32]],
         _timeout_us: i64,
     ) -> Result<usize, Error> {
-        debug_assert_eq!(buffers.len(), 1);
+        crate::streamer::expect_buffer_count(buffers.len(), 1)?;
 
         if buffers[0].is_empty() {
             return Ok(0);
         }
-        let buf = self.stream.as_mut().unwrap().read_sync(buffers[0].len())?;
+        let buf = self
+            .stream
+            .as_mut()
+            .ok_or(Error::StreamInactive)?
+            .read_sync(buffers[0].len())?;
 
         let samples = buf.len() / 2;
         for i in 0..samples {
@@ -180,7 +184,7 @@ impl crate::TxStreamer for TxStreamer {
         // TODO: sleep precisely for `time_ns`
 
         let config = self.inner.tx_config.lock().unwrap();
-        self.inner.dev.start_rx(&config)?;
+        self.inner.dev.start_tx(&config)?;
 
         Ok(())
     }
@@ -199,10 +203,8 @@ impl crate::TxStreamer for TxStreamer {
         _end_burst: bool,
         _timeout_us: i64,
     ) -> Result<usize, Error> {
-        debug_assert_eq!(buffers.len(), 1);
-        todo!();
-
-        // self.inner.dev.write(samples)
+        crate::streamer::expect_buffer_count(buffers.len(), 1)?;
+        Err(Error::unsupported(Capability::TxStreaming))
     }
 
     fn write_all(
@@ -212,7 +214,7 @@ impl crate::TxStreamer for TxStreamer {
         _end_burst: bool,
         _timeout_us: i64,
     ) -> Result<(), Error> {
-        debug_assert_eq!(buffers.len(), 1);
+        crate::streamer::expect_buffer_count(buffers.len(), 1)?;
 
         let mut n = 0;
         while n < buffers[0].len() {
@@ -312,7 +314,7 @@ impl HackRfOne {
         let r = self.gain_range(direction, channel)?;
         if r.contains(gain) && name == "IF" {
             match direction {
-                Direction::Tx => todo!(),
+                Direction::Tx => Err(Error::unsupported(Capability::Gain)),
                 Direction::Rx => {
                     let mut config = self.inner.rx_config.lock().unwrap();
                     config.lna_db = gain as u16;
@@ -333,7 +335,7 @@ impl HackRfOne {
     ) -> Result<Option<f64>, Error> {
         if channel == 0 && name == "IF" {
             match direction {
-                Direction::Tx => todo!(),
+                Direction::Tx => Err(Error::unsupported(Capability::Gain)),
                 Direction::Rx => {
                     let config = self.inner.rx_config.lock().unwrap();
                     Ok(Some(config.lna_db as f64))

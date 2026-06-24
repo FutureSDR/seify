@@ -2,6 +2,17 @@ use num_complex::Complex32;
 
 use crate::Error;
 
+pub(crate) fn expect_buffer_count(actual: usize, expected: usize) -> Result<(), Error> {
+    if actual == expected {
+        Ok(())
+    } else {
+        Err(Error::invalid_argument(
+            "buffers",
+            format!("expected {expected} stream buffer(s), got {actual}"),
+        ))
+    }
+}
+
 /// Receive samples from a [Device](crate::Device) through one or multiple channels.
 pub trait RxStreamer: Send {
     /// Get the stream's maximum transmission unit (MTU) in number of elements.
@@ -47,9 +58,8 @@ pub trait RxStreamer: Send {
     ///
     /// Returns the number of samples read, which may be smaller than the size of the passed arrays.
     ///
-    /// # Panics
-    ///  * If `buffers` is not the same length as the `channels` array passed to
-    ///    [`Device::rx_streamer`](crate::Device::rx_streamer) that created the streamer.
+    /// Returns an error if `buffers` is not the same length as the `channels` array passed to
+    /// [`Device::rx_streamer`](crate::Device::rx_streamer) that created the streamer.
     fn read(&mut self, buffers: &mut [&mut [Complex32]], timeout_us: i64) -> Result<usize, Error>;
 }
 
@@ -121,9 +131,8 @@ pub trait TxStreamer: Send {
     ///
     /// Returns the number of samples written, which may be smaller than the size of the passed arrays.
     ///
-    /// # Panics
-    ///  * If `buffers` are not the same length as the `channels` array passed to [`Device::tx_streamer`](crate::Device::tx_streamer).
-    ///  * If the buffers in `buffers` are not the same length.
+    /// Returns an error if `buffers` is not the same length as the `channels` array passed to
+    /// [`Device::tx_streamer`](crate::Device::tx_streamer) that created the streamer.
     fn write(
         &mut self,
         buffers: &[&[Complex32]],
@@ -146,9 +155,8 @@ pub trait TxStreamer: Send {
     ///
     /// `end_burst` indicates the end of a burst transmission.
     ///
-    /// # Panics
-    ///  * If `buffers` are not the same length as the `channels` array passed to [`Device::tx_streamer`](crate::Device::tx_streamer).
-    ///  * If the buffers in `buffers` are not the same length.
+    /// Returns an error if `buffers` is not the same length as the `channels` array passed to
+    /// [`Device::tx_streamer`](crate::Device::tx_streamer) that created the streamer.
     fn write_all(
         &mut self,
         buffers: &[&[Complex32]],

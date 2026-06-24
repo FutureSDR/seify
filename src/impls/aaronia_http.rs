@@ -335,49 +335,79 @@ impl AaroniaHttp {
                     self.get_f64(vec!["Block_Spectran_V6B_0", "config", "main", "reflevel"])?;
                 Ok(Some(-lvl - 8.0))
             }
-            _ => {
-                todo!()
-            }
+            (Tx, 0) => Err(Error::unsupported(Capability::Gain)),
+            _ => Err(Error::invalid_argument(
+                "aaronia_http",
+                "invalid Aaronia HTTP argument",
+            )),
         }
     }
 
     fn gain_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
         match (direction, channel) {
             (Rx, 0 | 1) => Ok(Range::new(vec![RangeItem::Interval(0.0, 30.0)])),
-            _ => todo!(),
+            (Tx, 0) => Err(Error::unsupported(Capability::Gain)),
+            _ => Err(Error::invalid_argument(
+                "aaronia_http",
+                "invalid Aaronia HTTP argument",
+            )),
         }
     }
 
     fn set_gain_element(
         &self,
-        _direction: Direction,
-        _channel: usize,
+        direction: Direction,
+        channel: usize,
         _name: &str,
         _gain: f64,
     ) -> Result<(), Error> {
-        todo!()
+        match (direction, channel) {
+            (Rx, 0 | 1) | (Tx, 0) => Err(Error::unsupported(Capability::Gain)),
+            _ => Err(Error::invalid_argument(
+                "aaronia_http",
+                "invalid Aaronia HTTP argument",
+            )),
+        }
     }
 
     fn gain_element(
         &self,
-        _direction: Direction,
-        _channel: usize,
+        direction: Direction,
+        channel: usize,
         _name: &str,
     ) -> Result<Option<f64>, Error> {
-        todo!()
+        match (direction, channel) {
+            (Rx, 0 | 1) | (Tx, 0) => Err(Error::unsupported(Capability::Gain)),
+            _ => Err(Error::invalid_argument(
+                "aaronia_http",
+                "invalid Aaronia HTTP argument",
+            )),
+        }
     }
 
     fn gain_element_range(
         &self,
-        _direction: Direction,
-        _channel: usize,
+        direction: Direction,
+        channel: usize,
         _name: &str,
     ) -> Result<Range, Error> {
-        todo!()
+        match (direction, channel) {
+            (Rx, 0 | 1) | (Tx, 0) => Err(Error::unsupported(Capability::Gain)),
+            _ => Err(Error::invalid_argument(
+                "aaronia_http",
+                "invalid Aaronia HTTP argument",
+            )),
+        }
     }
 
-    fn frequency_range(&self, _direction: Direction, _channel: usize) -> Result<Range, Error> {
-        todo!()
+    fn frequency_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
+        match (direction, channel) {
+            (Rx, 0 | 1) | (Tx, 0) => Err(Error::unsupported(Capability::Frequency)),
+            _ => Err(Error::invalid_argument(
+                "aaronia_http",
+                "invalid Aaronia HTTP argument",
+            )),
+        }
     }
 
     fn frequency(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
@@ -424,17 +454,29 @@ impl AaroniaHttp {
     ) -> Result<Vec<String>, Error> {
         match (direction, channel) {
             (Rx, 0 | 1) => Ok(vec!["RF".to_string(), "DEMOD".to_string()]),
-            _ => todo!(),
+            (Tx, 0) => Ok(vec!["RF".to_string()]),
+            _ => Err(Error::invalid_argument(
+                "aaronia_http",
+                "invalid Aaronia HTTP argument",
+            )),
         }
     }
 
     fn component_frequency_range(
         &self,
-        _direction: Direction,
-        _channel: usize,
-        _name: &str,
+        direction: Direction,
+        channel: usize,
+        name: &str,
     ) -> Result<Range, Error> {
-        todo!()
+        match (direction, channel, name) {
+            (Rx, 0 | 1, "RF" | "DEMOD") | (Tx, 0, "RF") => {
+                Err(Error::unsupported(Capability::Frequency))
+            }
+            _ => Err(Error::invalid_argument(
+                "aaronia_http",
+                "invalid Aaronia HTTP argument",
+            )),
+        }
     }
 
     fn component_frequency(
@@ -458,7 +500,11 @@ impl AaroniaHttp {
             (Rx, 0 | 1, "RF") => {
                 self.get_f64(vec!["Block_Spectran_V6B_0", "config", "main", "centerfreq"])
             }
-            _ => todo!(),
+            (Tx, 0, "RF") => Ok(self.tx_frequency.load(Ordering::SeqCst) as f64),
+            _ => Err(Error::invalid_argument(
+                "aaronia_http",
+                "invalid Aaronia HTTP argument",
+            )),
         }
     }
 
@@ -554,7 +600,7 @@ impl AaroniaHttp {
     fn get_sample_rate_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
         match (direction, channel) {
             (Rx, 0 | 1) => Ok(Range::new(vec![RangeItem::Interval(0.0, 92.16e6)])),
-            (Tx, 0) => todo!(),
+            (Tx, 0) => Err(Error::unsupported(Capability::SampleRate)),
             _ => Err(Error::invalid_argument(
                 "aaronia_http",
                 "invalid Aaronia HTTP argument",
@@ -860,9 +906,10 @@ impl BandwidthControl for AaroniaHttp {
 impl RxStreamer {
     fn parse_header(&mut self) -> Result<(), Error> {
         let mut buf = Vec::with_capacity(512);
-        self.reader.as_mut().unwrap().read_until(10, &mut buf)?;
+        let reader = self.reader.as_mut().ok_or(Error::StreamInactive)?;
+        reader.read_until(10, &mut buf)?;
         let header: Value = serde_json::from_str(&String::from_utf8_lossy(&buf))?;
-        self.reader.as_mut().unwrap().consume(1);
+        reader.consume(1);
 
         let i = header
             .get("samples")
@@ -900,6 +947,8 @@ impl crate::RxStreamer for RxStreamer {
         buffers: &mut [&mut [num_complex::Complex32]],
         _timeout_us: i64,
     ) -> Result<usize, Error> {
+        crate::streamer::expect_buffer_count(buffers.len(), 1)?;
+
         if self.items_left == 0 {
             self.parse_header()?;
         }
@@ -911,7 +960,7 @@ impl crate::RxStreamer for RxStreamer {
             unsafe { std::slice::from_raw_parts_mut(buffers[0].as_mut_ptr() as *mut u8, n * is) };
         self.reader
             .as_mut()
-            .unwrap()
+            .ok_or(Error::StreamInactive)?
             .read_exact(&mut out[0..n * is])?;
 
         self.items_left -= n;
@@ -940,8 +989,13 @@ impl crate::TxStreamer for TxStreamer {
         end_burst: bool,
         _timeout_us: i64,
     ) -> Result<usize, Error> {
-        debug_assert_eq!(buffers.len(), 1);
-        debug_assert_eq!(at_ns, None);
+        crate::streamer::expect_buffer_count(buffers.len(), 1)?;
+        if at_ns.is_some() {
+            return Err(Error::unsupported_reason(
+                Capability::DriverOperation,
+                "timed TX is not supported by Aaronia HTTP",
+            ));
+        }
 
         let frequency = self.frequency.load(Ordering::SeqCst) as f64;
         let sample_rate = self.sample_rate.load(Ordering::SeqCst) as f64;
@@ -1024,11 +1078,27 @@ impl crate::TxStreamer for TxStreamer {
 
     fn write_all(
         &mut self,
-        _buffers: &[&[num_complex::Complex32]],
-        _at_ns: Option<i64>,
-        _end_burst: bool,
-        _timeout_us: i64,
+        buffers: &[&[num_complex::Complex32]],
+        at_ns: Option<i64>,
+        end_burst: bool,
+        timeout_us: i64,
     ) -> Result<(), Error> {
-        unimplemented!()
+        crate::streamer::expect_buffer_count(buffers.len(), 1)?;
+
+        let mut offset = 0;
+        while offset < buffers[0].len() {
+            let samples = &buffers[0][offset..];
+            let written = self.write(
+                &[samples],
+                if offset == 0 { at_ns } else { None },
+                end_burst && offset + samples.len() == buffers[0].len(),
+                timeout_us,
+            )?;
+            if written == 0 {
+                return Err(Error::Busy);
+            }
+            offset += written;
+        }
+        Ok(())
     }
 }

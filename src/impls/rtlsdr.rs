@@ -722,7 +722,7 @@ impl crate::RxStreamer for RxStreamer {
         Ok(())
     }
     fn read(&mut self, buffers: &mut [&mut [Complex32]], _timeout_us: i64) -> Result<usize, Error> {
-        debug_assert_eq!(buffers.len(), 1);
+        crate::streamer::expect_buffer_count(buffers.len(), 1)?;
         // make len multiple of 256 to make u multiple of 512
         let len = std::cmp::min(buffers[0].len(), MTU / 2);
         let len = len & !0xff;
