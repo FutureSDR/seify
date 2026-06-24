@@ -6,7 +6,7 @@ use seify_hackrfone::Config;
 use crate::{
     AntennaControl, Args, BandwidthControl, Capability, ChannelInfo, DeviceInfo, Direction,
     DynDeviceBackend, Error, FrequencyControl, GainControl, Range, RangeItem, RxDevice,
-    SampleRateControl, TxDevice,
+    SampleRateControl,
 };
 
 /// HackRF One device backend.
@@ -164,68 +164,6 @@ impl crate::RxStreamer for RxStreamer {
     }
 }
 
-/// HackRF One transmit streamer.
-pub struct TxStreamer {
-    inner: Arc<HackRfInner>,
-}
-
-impl TxStreamer {
-    fn new(inner: Arc<HackRfInner>) -> Self {
-        Self { inner }
-    }
-}
-
-impl crate::TxStreamer for TxStreamer {
-    fn mtu(&self) -> Result<usize, Error> {
-        Ok(MTU)
-    }
-
-    fn activate_at(&mut self, _time_ns: Option<i64>) -> Result<(), Error> {
-        // TODO: sleep precisely for `time_ns`
-
-        let config = self.inner.tx_config.lock().unwrap();
-        self.inner.dev.start_tx(&config)?;
-
-        Ok(())
-    }
-
-    fn deactivate_at(&mut self, _time_ns: Option<i64>) -> Result<(), Error> {
-        // TODO: sleep precisely for `time_ns`
-
-        self.inner.dev.stop_tx()?;
-        Ok(())
-    }
-
-    fn write(
-        &mut self,
-        buffers: &[&[num_complex::Complex32]],
-        _at_ns: Option<i64>,
-        _end_burst: bool,
-        _timeout_us: i64,
-    ) -> Result<usize, Error> {
-        crate::streamer::expect_buffer_count(buffers.len(), 1)?;
-        Err(Error::unsupported(Capability::TxStreaming))
-    }
-
-    fn write_all(
-        &mut self,
-        buffers: &[&[num_complex::Complex32]],
-        _at_ns: Option<i64>,
-        _end_burst: bool,
-        _timeout_us: i64,
-    ) -> Result<(), Error> {
-        crate::streamer::expect_buffer_count(buffers.len(), 1)?;
-
-        let mut n = 0;
-        while n < buffers[0].len() {
-            let buf = &buffers[0][n..];
-            n += self.write(&[buf], None, false, 0)?;
-        }
-
-        Ok(())
-    }
-}
-
 impl HackRfOne {
     fn driver(&self) -> crate::Driver {
         crate::Driver::HackRf
@@ -241,8 +179,11 @@ impl HackRfOne {
         Ok(args)
     }
 
-    fn num_channels(&self, _: crate::Direction) -> Result<usize, Error> {
-        Ok(1)
+    fn num_channels(&self, direction: crate::Direction) -> Result<usize, Error> {
+        Ok(match direction {
+            Direction::Rx => 1,
+            Direction::Tx => 0,
+        })
     }
 
     fn full_duplex(&self, _direction: Direction, _channel: usize) -> Result<bool, Error> {
@@ -530,10 +471,6 @@ impl DynDeviceBackend for HackRfOne {
         Some(self)
     }
 
-    fn tx_device(&self) -> Option<&dyn crate::ErasedTxDevice> {
-        Some(self)
-    }
-
     fn antenna_control(&self) -> Option<&dyn AntennaControl> {
         Some(self)
     }
@@ -573,18 +510,6 @@ impl RxDevice for HackRfOne {
             Err(Error::invalid_argument("hackrf", "invalid HackRF argument"))
         } else {
             Ok(RxStreamer::new(Arc::clone(&self.inner)))
-        }
-    }
-}
-
-impl TxDevice for HackRfOne {
-    type TxStreamer = TxStreamer;
-
-    fn tx_streamer(&self, channels: &[usize], _args: Args) -> Result<Self::TxStreamer, Error> {
-        if channels != [0] {
-            Err(Error::invalid_argument("hackrf", "invalid HackRF argument"))
-        } else {
-            Ok(TxStreamer::new(Arc::clone(&self.inner)))
         }
     }
 }

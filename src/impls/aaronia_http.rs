@@ -133,27 +133,75 @@ impl AaroniaHttp {
 
     fn get_element(&self, path: Vec<&str>) -> Result<Value, Error> {
         let config = self.config()?;
-        let mut element = &config["config"];
-        for p in path {
-            for i in element["items"].as_array().unwrap() {
-                if i["name"].as_str().unwrap() == p {
-                    element = i;
-                }
-            }
+        let path_label = path.join(".");
+        let mut element = config.get("config").ok_or_else(|| {
+            Error::invalid_argument("aaronia_http", "remote config is missing config object")
+        })?;
+
+        for p in &path {
+            let items = element
+                .get("items")
+                .and_then(Value::as_array)
+                .ok_or_else(|| {
+                    Error::invalid_argument(
+                        "aaronia_http",
+                        format!("remote config path {path_label} is missing items array"),
+                    )
+                })?;
+            element = items
+                .iter()
+                .find(|item| item.get("name").and_then(Value::as_str) == Some(*p))
+                .ok_or_else(|| {
+                    Error::invalid_argument(
+                        "aaronia_http",
+                        format!("remote config path {path_label} is missing element {p}"),
+                    )
+                })?;
         }
         Ok(element.clone())
     }
 
     fn get_enum(&self, path: Vec<&str>) -> Result<(u64, String), Error> {
+        let path_label = path.join(".");
         let element = self.get_element(path)?;
-        let i = element["value"].as_u64().unwrap();
-        let v: Vec<&str> = element["values"].as_str().unwrap().split(',').collect();
-        Ok((i, v[i as usize].to_string()))
+        let i = element
+            .get("value")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| {
+                Error::invalid_argument(
+                    "aaronia_http",
+                    format!("remote config path {path_label} is missing enum value"),
+                )
+            })?;
+        let values: Vec<&str> = element
+            .get("values")
+            .and_then(Value::as_str)
+            .ok_or_else(|| {
+                Error::invalid_argument(
+                    "aaronia_http",
+                    format!("remote config path {path_label} is missing enum values"),
+                )
+            })?
+            .split(',')
+            .collect();
+        let value = values.get(i as usize).ok_or_else(|| {
+            Error::invalid_argument(
+                "aaronia_http",
+                format!("remote config path {path_label} has enum value outside values list"),
+            )
+        })?;
+        Ok((i, value.to_string()))
     }
 
     fn get_f64(&self, path: Vec<&str>) -> Result<f64, Error> {
+        let path_label = path.join(".");
         let element = self.get_element(path)?;
-        Ok(element["value"].as_f64().unwrap())
+        element.get("value").and_then(Value::as_f64).ok_or_else(|| {
+            Error::invalid_argument(
+                "aaronia_http",
+                format!("remote config path {path_label} is missing numeric value"),
+            )
+        })
     }
     fn send_json(&self, json: Value) -> Result<(), Error> {
         self.agent
@@ -233,8 +281,7 @@ impl AaroniaHttp {
 
     fn gain_elements(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
         match (direction, channel) {
-            (Rx, 0 | 1) => Ok(vec!["TUNER".to_string()]),
-            (Tx, 0) => Ok(vec!["TUNER".to_string()]),
+            (Rx, 0 | 1) | (Tx, 0) => Ok(Vec::new()),
             _ => Err(Error::invalid_argument(
                 "aaronia_http",
                 "invalid Aaronia HTTP argument",
@@ -245,6 +292,7 @@ impl AaroniaHttp {
     fn agc_available(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
         match (direction, channel) {
             (Rx, 0 | 1) => Ok(true),
+            (Tx, 0) => Ok(false),
             _ => Err(Error::invalid_argument(
                 "aaronia_http",
                 "invalid Aaronia HTTP argument",
@@ -270,6 +318,7 @@ impl AaroniaHttp {
                 });
                 self.send_json(json)
             }
+            (Tx, 0) => Err(Error::unsupported(Capability::Agc)),
             _ => Err(Error::invalid_argument(
                 "aaronia_http",
                 "invalid Aaronia HTTP argument",
@@ -277,17 +326,22 @@ impl AaroniaHttp {
         }
     }
 
-    fn agc_enabled(&self, _direction: Direction, _channel: usize) -> Result<bool, Error> {
-        let (_, s) = self.get_enum(vec![
-            "Block_Spectran_V6B_0",
-            "config",
-            "device",
-            "gaincontrol",
-        ])?;
-        if s == "manual" {
-            Ok(false)
-        } else {
-            Ok(true)
+    fn agc_enabled(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+        match (direction, channel) {
+            (Rx, 0 | 1) => {
+                let (_, s) = self.get_enum(vec![
+                    "Block_Spectran_V6B_0",
+                    "config",
+                    "device",
+                    "gaincontrol",
+                ])?;
+                Ok(s != "manual")
+            }
+            (Tx, 0) => Err(Error::unsupported(Capability::Agc)),
+            _ => Err(Error::invalid_argument(
+                "aaronia_http",
+                "invalid Aaronia HTTP argument",
+            )),
         }
     }
 
