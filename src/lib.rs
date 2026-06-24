@@ -90,7 +90,6 @@ impl From<ureq::Error> for Error {
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum Driver {
-    Aaronia,
     AaroniaHttp,
     BladeRf,
     Dummy,
@@ -105,9 +104,6 @@ impl FromStr for Driver {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let s = s.to_lowercase();
-        if s == "aaronia" {
-            return Ok(Driver::Aaronia);
-        }
         if s == "aaronia_http" || s == "aaronia-http" || s == "aaroniahttp" {
             return Ok(Driver::AaroniaHttp);
         }
@@ -267,6 +263,21 @@ mod tests {
     fn hydrasdr_driver_aliases_parse() {
         for alias in ["hydrasdr", "hydra-sdr", "hydra"] {
             assert_eq!(alias.parse::<Driver>().unwrap(), Driver::HydraSdr);
+        }
+    }
+
+    #[test]
+    fn native_aaronia_driver_is_not_parseable() {
+        assert!(matches!(
+            "aaronia".parse::<Driver>(),
+            Err(Error::ValueError)
+        ));
+    }
+
+    #[test]
+    fn aaronia_http_driver_aliases_parse() {
+        for alias in ["aaronia_http", "aaronia-http", "aaroniahttp"] {
+            assert_eq!(alias.parse::<Driver>().unwrap(), Driver::AaroniaHttp);
         }
     }
 
