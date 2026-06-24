@@ -1594,26 +1594,24 @@ where
     T: AsyncTypedDeviceBackend,
 {
     /// Open a typed asynchronous device matching `args`.
-    pub fn from_args<A>(args: A) -> impl Future<Output = Result<Self, Error>> + MaybeSend + 'static
+    pub async fn from_args<A>(args: A) -> Result<Self, Error>
     where
         A: TryInto<Args> + MaybeSend + 'static,
     {
-        async move {
-            let args = args
-                .try_into()
-                .map_err(|_| Error::invalid_argument("args", "failed to convert args"))?;
-            match args.get::<Driver>("driver") {
-                Ok(driver) if driver != <T as AsyncTypedDeviceBackend>::driver() => {
-                    return Err(Error::DriverMismatch {
-                        expected: <T as AsyncTypedDeviceBackend>::driver(),
-                        requested: driver,
-                    });
-                }
-                Ok(_) | Err(Error::MissingArgument { .. }) => {}
-                Err(e) => return Err(e),
+        let args = args
+            .try_into()
+            .map_err(|_| Error::invalid_argument("args", "failed to convert args"))?;
+        match args.get::<Driver>("driver") {
+            Ok(driver) if driver != <T as AsyncTypedDeviceBackend>::driver() => {
+                return Err(Error::DriverMismatch {
+                    expected: <T as AsyncTypedDeviceBackend>::driver(),
+                    requested: driver,
+                });
             }
-            Ok(Self::from_impl(T::async_open(&args).await?))
+            Ok(_) | Err(Error::MissingArgument { .. }) => {}
+            Err(e) => return Err(e),
         }
+        Ok(Self::from_impl(T::async_open(&args).await?))
     }
 }
 
@@ -1646,24 +1644,20 @@ impl<T: AsyncDeviceInfo> AsyncDevice<T> {
 
 impl AsyncDynDevice {
     /// Open the first discovered runtime-dispatched asynchronous device.
-    pub fn new() -> impl Future<Output = Result<Self, Error>> + MaybeSend + 'static {
-        async {
-            let registry = AsyncRegistry::default();
-            let descriptors = registry.probe(Args::new()).await?;
-            let descriptor = descriptors.first().ok_or(Error::DeviceNotFound)?;
-            registry.open(descriptor).await
-        }
+    pub async fn new() -> Result<Self, Error> {
+        let registry = AsyncRegistry::default();
+        let descriptors = registry.probe(Args::new()).await?;
+        let descriptor = descriptors.first().ok_or(Error::DeviceNotFound)?;
+        registry.open(descriptor).await
     }
 
     /// Open a runtime-dispatched asynchronous device matching `args`.
-    pub fn from_args<A>(args: A) -> impl Future<Output = Result<Self, Error>> + MaybeSend + 'static
+    pub async fn from_args<A>(args: A) -> Result<Self, Error>
     where
         A: TryInto<Args> + MaybeSend + 'static,
     {
-        async move {
-            let registry = AsyncRegistry::default();
-            registry.open_args(args).await
-        }
+        let registry = AsyncRegistry::default();
+        registry.open_args(args).await
     }
 
     /// Create a runtime-dispatched asynchronous device from an implementation.
@@ -1713,25 +1707,15 @@ impl AsyncDynDevice {
     }
 
     /// RX channel handle.
-    pub fn rx(
-        &self,
-        index: usize,
-    ) -> impl Future<Output = Result<AsyncRxChannel<'_, Self>, Error>> + MaybeSend + '_ {
-        async move {
-            async_ensure_channel(self, Direction::Rx, index).await?;
-            Ok(AsyncRxChannel::new(self, index))
-        }
+    pub async fn rx(&self, index: usize) -> Result<AsyncRxChannel<'_, Self>, Error> {
+        async_ensure_channel(self, Direction::Rx, index).await?;
+        Ok(AsyncRxChannel::new(self, index))
     }
 
     /// TX channel handle.
-    pub fn tx(
-        &self,
-        index: usize,
-    ) -> impl Future<Output = Result<AsyncTxChannel<'_, Self>, Error>> + MaybeSend + '_ {
-        async move {
-            async_ensure_channel(self, Direction::Tx, index).await?;
-            Ok(AsyncTxChannel::new(self, index))
-        }
+    pub async fn tx(&self, index: usize) -> Result<AsyncTxChannel<'_, Self>, Error> {
+        async_ensure_channel(self, Direction::Tx, index).await?;
+        Ok(AsyncTxChannel::new(self, index))
     }
 
     /// Create an RX streamer.
@@ -1743,26 +1727,24 @@ impl AsyncDynDevice {
     }
 
     /// Create an RX streamer, using `args`.
-    pub fn rx_streamer_with_args<'a, A>(
+    pub async fn rx_streamer_with_args<'a, A>(
         &'a self,
         channels: &'a [usize],
         args: A,
-    ) -> impl Future<Output = Result<DynAsyncRxStreamer, Error>> + MaybeSend + 'a
+    ) -> Result<DynAsyncRxStreamer, Error>
     where
         A: TryInto<Args> + MaybeSend + 'a,
     {
-        async move {
-            for channel in channels {
-                async_ensure_channel(self, Direction::Rx, *channel).await?;
-            }
-            <Self as AsyncRxDevice>::async_rx_streamer(
-                self,
-                channels,
-                args.try_into()
-                    .map_err(|_| Error::invalid_argument("args", "failed to convert args"))?,
-            )
-            .await
+        for channel in channels {
+            async_ensure_channel(self, Direction::Rx, *channel).await?;
         }
+        <Self as AsyncRxDevice>::async_rx_streamer(
+            self,
+            channels,
+            args.try_into()
+                .map_err(|_| Error::invalid_argument("args", "failed to convert args"))?,
+        )
+        .await
     }
 
     /// Create a TX streamer.
@@ -1774,26 +1756,24 @@ impl AsyncDynDevice {
     }
 
     /// Create a TX streamer, using `args`.
-    pub fn tx_streamer_with_args<'a, A>(
+    pub async fn tx_streamer_with_args<'a, A>(
         &'a self,
         channels: &'a [usize],
         args: A,
-    ) -> impl Future<Output = Result<DynAsyncTxStreamer, Error>> + MaybeSend + 'a
+    ) -> Result<DynAsyncTxStreamer, Error>
     where
         A: TryInto<Args> + MaybeSend + 'a,
     {
-        async move {
-            for channel in channels {
-                async_ensure_channel(self, Direction::Tx, *channel).await?;
-            }
-            <Self as AsyncTxDevice>::async_tx_streamer(
-                self,
-                channels,
-                args.try_into()
-                    .map_err(|_| Error::invalid_argument("args", "failed to convert args"))?,
-            )
-            .await
+        for channel in channels {
+            async_ensure_channel(self, Direction::Tx, *channel).await?;
         }
+        <Self as AsyncTxDevice>::async_tx_streamer(
+            self,
+            channels,
+            args.try_into()
+                .map_err(|_| Error::invalid_argument("args", "failed to convert args"))?,
+        )
+        .await
     }
 }
 
@@ -2212,25 +2192,15 @@ impl AsyncDcOffsetControl for AsyncDynDevice {
 
 impl<T: AsyncChannelInfo> AsyncDevice<T> {
     /// RX channel handle.
-    pub fn rx(
-        &self,
-        index: usize,
-    ) -> impl Future<Output = Result<AsyncRxChannel<'_, T>, Error>> + MaybeSend + '_ {
-        async move {
-            async_ensure_channel(&self.dev, Direction::Rx, index).await?;
-            Ok(AsyncRxChannel::new(&self.dev, index))
-        }
+    pub async fn rx(&self, index: usize) -> Result<AsyncRxChannel<'_, T>, Error> {
+        async_ensure_channel(&self.dev, Direction::Rx, index).await?;
+        Ok(AsyncRxChannel::new(&self.dev, index))
     }
 
     /// TX channel handle.
-    pub fn tx(
-        &self,
-        index: usize,
-    ) -> impl Future<Output = Result<AsyncTxChannel<'_, T>, Error>> + MaybeSend + '_ {
-        async move {
-            async_ensure_channel(&self.dev, Direction::Tx, index).await?;
-            Ok(AsyncTxChannel::new(&self.dev, index))
-        }
+    pub async fn tx(&self, index: usize) -> Result<AsyncTxChannel<'_, T>, Error> {
+        async_ensure_channel(&self.dev, Direction::Tx, index).await?;
+        Ok(AsyncTxChannel::new(&self.dev, index))
     }
 }
 
@@ -2256,17 +2226,15 @@ impl<T: AsyncRxDevice + AsyncChannelInfo> AsyncDevice<T> {
     }
 
     /// Create an RX streamer over one or more RX channels, using `args`.
-    pub fn rx_streamer_with_args<'a>(
+    pub async fn rx_streamer_with_args<'a>(
         &'a self,
         channels: &'a [usize],
         args: Args,
-    ) -> impl Future<Output = Result<T::RxStreamer, Error>> + MaybeSend + 'a {
-        async move {
-            for channel in channels {
-                async_ensure_channel(&self.dev, Direction::Rx, *channel).await?;
-            }
-            self.dev.async_rx_streamer(channels, args).await
+    ) -> Result<T::RxStreamer, Error> {
+        for channel in channels {
+            async_ensure_channel(&self.dev, Direction::Rx, *channel).await?;
         }
+        self.dev.async_rx_streamer(channels, args).await
     }
 }
 
@@ -2280,17 +2248,15 @@ impl<T: AsyncTxDevice + AsyncChannelInfo> AsyncDevice<T> {
     }
 
     /// Create a TX streamer over one or more TX channels, using `args`.
-    pub fn tx_streamer_with_args<'a>(
+    pub async fn tx_streamer_with_args<'a>(
         &'a self,
         channels: &'a [usize],
         args: Args,
-    ) -> impl Future<Output = Result<T::TxStreamer, Error>> + MaybeSend + 'a {
-        async move {
-            for channel in channels {
-                async_ensure_channel(&self.dev, Direction::Tx, *channel).await?;
-            }
-            self.dev.async_tx_streamer(channels, args).await
+    ) -> Result<T::TxStreamer, Error> {
+        for channel in channels {
+            async_ensure_channel(&self.dev, Direction::Tx, *channel).await?;
         }
+        self.dev.async_tx_streamer(channels, args).await
     }
 }
 
@@ -2454,65 +2420,25 @@ impl AsyncRegistry {
     }
 
     /// Probe devices matching `args`.
-    pub fn probe<'a, A>(
-        &'a self,
-        args: A,
-    ) -> impl Future<Output = Result<Vec<DeviceDescriptor>, Error>> + MaybeSend + 'a
+    pub async fn probe<'a, A>(&'a self, args: A) -> Result<Vec<DeviceDescriptor>, Error>
     where
         A: TryInto<Args> + MaybeSend + 'a,
     {
-        async move {
-            let args = args
-                .try_into()
-                .map_err(|_| Error::invalid_argument("args", "failed to convert args"))?;
-            let driver = requested_driver(&args)?;
-            let mut descriptors = Vec::new();
-            let mut matched_backend = false;
+        let args = args
+            .try_into()
+            .map_err(|_| Error::invalid_argument("args", "failed to convert args"))?;
+        let driver = requested_driver(&args)?;
+        let mut descriptors = Vec::new();
+        let mut matched_backend = false;
 
-            for backend in &self.backends {
-                if driver.is_none() || driver == Some(backend.driver()) {
-                    matched_backend = true;
-                    descriptors.append(&mut backend.probe(&args).await?);
-                }
-            }
-
-            if let Some(driver) = driver {
-                if !matched_backend {
-                    if async_builtin_driver_enabled(driver) {
-                        return Err(Error::unsupported_reason(
-                            Capability::DriverOperation,
-                            format!("driver {driver:?} does not expose an async API"),
-                        ));
-                    }
-                    return Err(Error::DriverFeatureNotEnabled { driver });
-                }
-            }
-
-            Ok(descriptors)
-        }
-    }
-
-    /// Open a discovered device descriptor.
-    pub fn open<'a>(
-        &'a self,
-        descriptor: &'a DeviceDescriptor,
-    ) -> impl Future<Output = Result<AsyncDynDevice, Error>> + MaybeSend + 'a {
-        async move {
-            let driver = descriptor.driver();
-            let mut matched_backend = false;
-
-            for backend in &self.backends {
-                if backend.driver() != driver {
-                    continue;
-                }
+        for backend in &self.backends {
+            if driver.is_none() || driver == Some(backend.driver()) {
                 matched_backend = true;
-                match backend.open(descriptor).await {
-                    Ok(device) => return Ok(device),
-                    Err(Error::DeviceNotFound) => {}
-                    Err(e) => return Err(e),
-                }
+                descriptors.append(&mut backend.probe(&args).await?);
             }
+        }
 
+        if let Some(driver) = driver {
             if !matched_backend {
                 if async_builtin_driver_enabled(driver) {
                     return Err(Error::unsupported_reason(
@@ -2522,41 +2448,69 @@ impl AsyncRegistry {
                 }
                 return Err(Error::DriverFeatureNotEnabled { driver });
             }
-
-            Err(Error::DeviceNotFound)
         }
+
+        Ok(descriptors)
+    }
+
+    /// Open a discovered device descriptor.
+    pub async fn open<'a>(
+        &'a self,
+        descriptor: &'a DeviceDescriptor,
+    ) -> Result<AsyncDynDevice, Error> {
+        let driver = descriptor.driver();
+        let mut matched_backend = false;
+
+        for backend in &self.backends {
+            if backend.driver() != driver {
+                continue;
+            }
+            matched_backend = true;
+            match backend.open(descriptor).await {
+                Ok(device) => return Ok(device),
+                Err(Error::DeviceNotFound) => {}
+                Err(e) => return Err(e),
+            }
+        }
+
+        if !matched_backend {
+            if async_builtin_driver_enabled(driver) {
+                return Err(Error::unsupported_reason(
+                    Capability::DriverOperation,
+                    format!("driver {driver:?} does not expose an async API"),
+                ));
+            }
+            return Err(Error::DriverFeatureNotEnabled { driver });
+        }
+
+        Err(Error::DeviceNotFound)
     }
 
     /// Open the first asynchronous device matching `args`.
-    pub fn open_args<'a, A>(
-        &'a self,
-        args: A,
-    ) -> impl Future<Output = Result<AsyncDynDevice, Error>> + MaybeSend + 'a
+    pub async fn open_args<'a, A>(&'a self, args: A) -> Result<AsyncDynDevice, Error>
     where
         A: TryInto<Args> + MaybeSend + 'a,
     {
-        async move {
-            let args = args
-                .try_into()
-                .map_err(|_| Error::invalid_argument("args", "failed to convert args"))?;
-            let driver = requested_driver(&args)?;
+        let args = args
+            .try_into()
+            .map_err(|_| Error::invalid_argument("args", "failed to convert args"))?;
+        let driver = requested_driver(&args)?;
 
-            if let Some(driver) = driver {
-                let descriptor = DeviceDescriptor::new(driver, args);
-                return self.open(&descriptor).await;
-            }
-
-            for backend in &self.backends {
-                let descriptor = DeviceDescriptor::new(backend.driver(), args.clone());
-                match backend.open(&descriptor).await {
-                    Ok(device) => return Ok(device),
-                    Err(Error::DeviceNotFound) => {}
-                    Err(e) => return Err(e),
-                }
-            }
-
-            Err(Error::DeviceNotFound)
+        if let Some(driver) = driver {
+            let descriptor = DeviceDescriptor::new(driver, args);
+            return self.open(&descriptor).await;
         }
+
+        for backend in &self.backends {
+            let descriptor = DeviceDescriptor::new(backend.driver(), args.clone());
+            match backend.open(&descriptor).await {
+                Ok(device) => return Ok(device),
+                Err(Error::DeviceNotFound) => {}
+                Err(e) => return Err(e),
+            }
+        }
+
+        Err(Error::DeviceNotFound)
     }
 }
 
