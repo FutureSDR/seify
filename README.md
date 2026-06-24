@@ -8,7 +8,7 @@ A clear path towards a great Rust SDR driver ecosystem.
 - Seify supports both typed and generic devices with dynamic dispatch. There is no or minimal overhead for the typed version, i.e., there should be no reason not to use Seify.
 - Once more native Rust drivers become available, they can be added to Seify and gradually move from Soapy to pure-Rust drivers.
 - A clear path towards a proper async and WASM WebUSB.
-- Zero-installation: Rust drivers need no libraries from the base system. Either they are network/http-based or they use `rusb`, which vendors `libusb`.
+- Zero-installation: Rust drivers need no libraries from the base system. Either they are network/http-based or they use `nusb` (a pure Rust USB implementation).
 - Proper driver integration for Rust drivers (e.g., no threads in the core library).
 - Rust drivers are added with crate features per binary and do not rely on system-wide libraries.  
 - Provide a framework for Rust SDR drivers, to avoid diverging concepts of driver implementations in the ecosystem.
