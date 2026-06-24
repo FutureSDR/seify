@@ -447,23 +447,26 @@ pub struct Antenna<'a, T: AntennaControl + ?Sized> {
     dev: &'a T,
     direction: Direction,
     channel: usize,
+    ports: Vec<String>,
 }
 
 impl<'a, T> Antenna<'a, T>
 where
     T: AntennaControl + ?Sized,
 {
-    fn new(dev: &'a T, direction: Direction, channel: usize) -> Self {
-        Self {
+    fn new(dev: &'a T, direction: Direction, channel: usize) -> Result<Self, Error> {
+        let ports = dev.antennas(direction, channel)?;
+        Ok(Self {
             dev,
             direction,
             channel,
-        }
+            ports,
+        })
     }
 
-    /// Available antenna ports.
-    pub fn available(&self) -> Result<Vec<String>, Error> {
-        self.dev.antennas(self.direction, self.channel)
+    /// Selectable antenna ports.
+    pub fn ports(&self) -> &[String] {
+        &self.ports
     }
 
     /// Currently selected antenna.
@@ -1467,7 +1470,7 @@ macro_rules! impl_channel_controls {
         impl<'a, T: AntennaControl + ?Sized> $channel<'a, T> {
             /// Antenna control.
             pub fn antenna(&self) -> Result<Antenna<'_, T>, Error> {
-                Ok(Antenna::new(self.dev, $direction, self.channel))
+                Antenna::new(self.dev, $direction, self.channel)
             }
         }
 
@@ -1663,6 +1666,18 @@ mod tests {
             Some(vec!["freq".to_string()])
         );
         assert!(!rx0.controls.dc_offset);
+    }
+
+    #[test]
+    fn antenna_handle_reports_ports_and_selected_port() {
+        let dummy = crate::impls::Dummy::open(Args::new()).unwrap();
+        let dev = Device::from_impl(dummy);
+        let rx0 = dev.rx(0).unwrap();
+        let antenna = rx0.antenna().unwrap();
+
+        assert_eq!(antenna.ports(), &[String::from("A")]);
+        assert_eq!(antenna.selected().unwrap(), "A");
+        antenna.select("A").unwrap();
     }
 
     #[test]
