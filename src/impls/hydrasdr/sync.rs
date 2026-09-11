@@ -22,8 +22,10 @@ pub struct HydraSdr {
 }
 /// Exclusively claimed HydraSDR RFOne receive streamer.
 ///
-/// The streamer owns only the bulk receive queue. The device remains available
-/// for control operations while reception is active.
+/// The streamer shares ownership of the hardware with the device, which remains
+/// available for control operations while reception is active. The driver
+/// performs final receiver and queue cleanup when the stream is dropped.
+/// Reads may return fewer samples than the supplied buffer can hold.
 pub struct RxStreamer {
     stream: RxStream,
     active: bool,
@@ -619,16 +621,6 @@ impl crate::RxStreamer for RxStreamer {
             .read(&mut out[..read_len], timeout)
             .wait()
             .map_err(map_hydrasdr_error)
-    }
-}
-
-impl Drop for RxStreamer {
-    fn drop(&mut self) {
-        if self.cleanup_required {
-            let _ = self.stream.stop().wait();
-            self.cleanup_required = false;
-        }
-        self.active = false;
     }
 }
 

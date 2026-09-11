@@ -43,6 +43,8 @@ async fn exercise_lifecycle() -> Result<(), Error> {
     assert_eq!(rx.gain().element("MIXER").value().await?, Some(6.0));
     assert_eq!(rx.gain().element("VGA").value().await?, Some(0.0));
 
+    // Dormant streams also hold an exclusive claim until final close.
+    drop(rx.streamer().await?);
     let mut stream = rx.streamer().await?;
     stream.activate().await?;
     read_samples(&mut stream).await?;
@@ -65,6 +67,10 @@ async fn exercise_lifecycle() -> Result<(), Error> {
     stream.activate().await?;
     read_samples(&mut stream).await?;
     stream.deactivate().await?;
+
+    // Stopping retains the claim; dropping must close it before replacement.
+    drop(stream);
+    let mut stream = rx.streamer().await?;
 
     // Dropping an active Seify streamer must be recoverable by the next
     // streamer after deferred receiver-off cleanup.

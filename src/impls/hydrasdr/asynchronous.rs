@@ -25,9 +25,9 @@ pub struct AsyncHydraSdr {
 
 /// HydraSDR RFOne asynchronous receive streamer.
 ///
-/// The streamer owns only the bulk receive queue. The device remains available
-/// for control operations while reception is active. Dropping an active
-/// streamer leaves receiver-off cleanup to the next asynchronous operation.
+/// The streamer shares ownership of the hardware with the device, which remains
+/// available for control operations while reception is active. Dropping a
+/// streamer defers final close to the next asynchronous device operation.
 #[must_use = "deactivate the HydraSDR stream before dropping it"]
 pub struct AsyncHydraSdrRxStreamer {
     abandoned_stream_slot: Shared<AsyncSlot<RxStream>>,
@@ -140,15 +140,16 @@ impl<T> Drop for AsyncSlotLease<T> {
 }
 
 async fn cleanup_abandoned_stream(slot: &Shared<AsyncSlot<RxStream>>) -> Result<(), Error> {
-    let Some(mut stream) = AsyncSlotLease::try_acquire(slot) else {
+    let Some(stream) = AsyncSlotLease::try_acquire(slot) else {
         return Ok(());
     };
+    // Close consumes the stream and releases even a dormant or stopped claim.
+    // Its owned operation handles best-effort cleanup on failure/cancellation.
     stream
-        .value_mut()
-        .stop()
+        .into_value()
+        .close()
         .await
         .map_err(map_hydrasdr_error)?;
-    drop(stream.into_value());
     Ok(())
 }
 
@@ -807,14 +808,12 @@ impl crate::AsyncRxStreamer for AsyncHydraSdrRxStreamer {
 
 impl Drop for AsyncHydraSdrRxStreamer {
     fn drop(&mut self) {
-        if self.cleanup_required {
-            if let Some(stream) = self.stream.take() {
-                let result = self.abandoned_stream_slot.put(stream);
-                debug_assert!(
-                    result.is_ok(),
-                    "abandoned stream slot was unexpectedly occupied"
-                );
-            }
+        if let Some(stream) = self.stream.take() {
+            let result = self.abandoned_stream_slot.put(stream);
+            debug_assert!(
+                result.is_ok(),
+                "abandoned stream slot was unexpectedly occupied"
+            );
         }
         self.active = false;
     }
