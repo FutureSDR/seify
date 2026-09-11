@@ -15,10 +15,10 @@ bladerf1 = ["dep:libbladerf-rs"]
 dummy = []
 hackrf = ["dep:hackrf-nusb"]
 hydrasdr = ["dep:hydrasdr-rs"]
-rtlsdr = ["dep:seify-rtlsdr"]
-smol = ["dep:async-io", "hackrf-nusb?/smol", "hydrasdr-rs?/smol", "libbladerf-rs?/smol"]
+rtlsdr = ["dep:rtlsdr-nusb"]
+smol = ["dep:async-io", "hackrf-nusb?/smol", "hydrasdr-rs?/smol", "libbladerf-rs?/smol", "rtlsdr-nusb?/smol"]
 soapy = ["dep:soapysdr"]
-tokio = ["dep:tokio", "hackrf-nusb?/tokio", "hydrasdr-rs?/tokio", "libbladerf-rs?/tokio"]
+tokio = ["dep:tokio", "hackrf-nusb?/tokio", "hydrasdr-rs?/tokio", "libbladerf-rs?/tokio", "rtlsdr-nusb?/tokio"]
 
 [[example]]
 name = "rx_typed"
@@ -32,6 +32,7 @@ libbladerf-rs = { version = "0.6.0", optional = true, default-features = false, 
 log = "0.4"
 nom = "8.0"
 num-complex = "0.4"
+rtlsdr-nusb = { version = "0.1.1", optional = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_with = "3.21"
@@ -40,7 +41,6 @@ thiserror = "2.0"
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 async-io = { version = "2.6", optional = true }
 once_cell = "1.21"
-seify-rtlsdr = { version = "0.0.4", optional = true }
 soapysdr = { version = "0.5", optional = true }
 tokio = { version = "1", default-features = false, features = ["time"], optional = true }
 ureq = { version = "3.3", features = ["json"], optional = true }
@@ -73,5 +73,6 @@ features = [
     "dummy",
     "hackrf",
     "hydrasdr",
+    "rtlsdr",
     "smol",
 ]

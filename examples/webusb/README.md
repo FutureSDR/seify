@@ -18,5 +18,5 @@ browser with WebUSB support. The first **Open SDR** click requests device
 permission.
 
 The application code contains no driver-specific selection or controls. Its
-manifest enables the HackRF and HydraSDR WebUSB backends; either can be selected
-without changing the page logic.
+manifest enables the HackRF, HydraSDR, and RTL-SDR WebUSB backends; any can be
+selected without changing the page logic.

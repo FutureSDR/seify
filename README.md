@@ -38,7 +38,7 @@ Available features:
 | `bladerf1` | `driver=bladerf` | Full-duplex bladeRF 1 RX/TX backend; requires `smol` or `tokio` on native targets; async WebUSB support on `wasm32-unknown-unknown`. |
 | `hackrf` | `driver=hackrf` | Half-duplex HackRF RX/TX backend; async WebUSB support on `wasm32-unknown-unknown`. |
 | `hydrasdr` | `driver=hydrasdr` | HydraSDR backend; async WebUSB support on `wasm32-unknown-unknown`. |
-| `rtlsdr` | `driver=rtlsdr` | RTL-SDR backend. |
+| `rtlsdr` | `driver=rtlsdr` | RTL-SDR backend using `rtlsdr-nusb`; native sync/async and WebUSB support. |
 | `smol` / `tokio` | n/a | Pick one for async `nusb` runtime integration. |
 
 For native async use with `nusb`-based drivers, enable exactly one of `smol` or
@@ -51,15 +51,15 @@ feature.
 
 ## WebUSB
 
-HackRF, HydraSDR and bladeRF 1 are available on `wasm32-unknown-unknown`. Only
-`AsyncHackRf`, `AsyncHydraSdr`, `AsyncBladeRf`, `AsyncRegistry`, and the async
+HackRF, HydraSDR, bladeRF 1, and RTL-SDR are available on `wasm32-unknown-unknown`. Only
+`AsyncHackRf`, `AsyncHydraSdr`, `AsyncBladeRf`, `AsyncRtlSdr`, `AsyncRegistry`, and the async
 device/streamer APIs are connected to those drivers on wasm; their synchronous
 backends remain native-only.
 
 Build it with:
 
 ```bash
-cargo check --target wasm32-unknown-unknown --no-default-features --features hackrf,hydrasdr,bladerf1
+cargo check --target wasm32-unknown-unknown --no-default-features --features hackrf,hydrasdr,bladerf1,rtlsdr
 ```
 
 WebUSB's `web-sys` bindings require `--cfg=web_sys_unstable_apis`; this
@@ -84,6 +84,16 @@ The HackRF backend exposes RX channel 0, the single `ANT` port, 1 MHz–6 GHz
 tuning, 2–20 Msample/s rates, and physical `AMP`, `LNA`, and `VGA` gain elements.
 Its baseband-filter bandwidth follows the selected sample rate and is not a
 separate Seify capability.
+
+The RTL-SDR backend supports R820T-family and R828D tuners through `rtlsdr-nusb`.
+Use `rtlsdr,smol` or `rtlsdr,tokio` for native async operation. It exposes RX
+channel 0, the `RX` antenna, automatic/manual `TUNER` gain in dB (0–52.5), and
+900,001–3,200,000 samples/s. Tuning spans 28.8 MHz–1.766 GHz; Blog V4 devices
+also expose HF tuning. The driver reports quantized frequency/sample rates,
+and reads return converted complex samples with partial-read and timeout support.
+Standalone bandwidth control and other tuner families are not supported by this
+driver. `index` takes precedence over `serial`; serials retain their USB spelling
+and leading zeros.
 
 Use the generic API with an argument string to select a backend at runtime:
 

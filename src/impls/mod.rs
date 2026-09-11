@@ -21,8 +21,13 @@ pub mod dummy;
 #[cfg(feature = "dummy")]
 pub use dummy::Dummy;
 
-#[cfg(all(feature = "rtlsdr", not(target_arch = "wasm32")))]
+#[cfg(feature = "rtlsdr")]
 pub mod rtlsdr;
+#[cfg(all(
+    feature = "rtlsdr",
+    any(target_arch = "wasm32", feature = "smol", feature = "tokio")
+))]
+pub use rtlsdr::AsyncRtlSdr;
 #[cfg(all(feature = "rtlsdr", not(target_arch = "wasm32")))]
 pub use rtlsdr::RtlSdr;
 

@@ -216,10 +216,10 @@ pub enum DriverError {
     #[error("Ureq ({0})")]
     /// HTTP client error returned by the Aaronia HTTP backend.
     Ureq(Box<ureq::Error>),
-    #[cfg(all(feature = "rtlsdr", not(target_arch = "wasm32")))]
+    #[cfg(feature = "rtlsdr")]
     #[error("RtlSdr ({0})")]
     /// Error returned by the RTL-SDR backend.
-    RtlSdr(seify_rtlsdr::error::RtlsdrError),
+    RtlSdr(rtlsdr_nusb::Error),
     #[cfg(feature = "hackrf")]
     #[error("Hackrf ({0})")]
     /// Error returned by the HackRF backend.
@@ -398,9 +398,9 @@ impl From<ureq::Error> for Error {
     }
 }
 
-#[cfg(all(feature = "rtlsdr", not(target_arch = "wasm32")))]
-impl From<seify_rtlsdr::error::RtlsdrError> for Error {
-    fn from(value: seify_rtlsdr::error::RtlsdrError) -> Self {
+#[cfg(feature = "rtlsdr")]
+impl From<rtlsdr_nusb::Error> for Error {
+    fn from(value: rtlsdr_nusb::Error) -> Self {
         Error::Driver(DriverError::RtlSdr(value))
     }
 }

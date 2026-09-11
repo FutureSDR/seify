@@ -7,7 +7,7 @@ use crate::Error;
     all(feature = "bladerf1", not(target_arch = "wasm32")),
     feature = "hackrf",
     feature = "hydrasdr",
-    all(feature = "rtlsdr", not(target_arch = "wasm32")),
+    feature = "rtlsdr",
 ))]
 pub(crate) fn expect_buffer_count(actual: usize, expected: usize) -> Result<(), Error> {
     if actual == expected {
