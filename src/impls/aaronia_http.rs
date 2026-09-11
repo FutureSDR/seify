@@ -351,7 +351,7 @@ impl AaroniaHttp {
                 self.send_json(json)
             }
             (Tx, 0) => {
-                let range = Range::new(vec![RangeItem::Interval(-100.0, 10.0)]);
+                let range = Range::new(vec![RangeItem::Interval(-100.0, 10.0)])?;
                 if !range.contains(gain) {
                     log::warn!("aaronia_http: gain out of range");
                     return Err(Error::out_of_range("gain", range, gain));
@@ -390,7 +390,7 @@ impl AaroniaHttp {
 
     fn gain_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
         match (direction, channel) {
-            (Rx, 0 | 1) => Ok(Range::new(vec![RangeItem::Interval(0.0, 30.0)])),
+            (Rx, 0 | 1) => Range::new(vec![RangeItem::Interval(0.0, 30.0)]),
             (Tx, 0) => Err(Error::unsupported(Capability::Gain)),
             _ => Err(Error::invalid_argument(
                 "aaronia_http",
@@ -644,7 +644,7 @@ impl AaroniaHttp {
 
     fn get_sample_rate_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
         match (direction, channel) {
-            (Rx, 0 | 1) => Ok(Range::new(vec![RangeItem::Interval(0.0, 92.16e6)])),
+            (Rx, 0 | 1) => Range::new(vec![RangeItem::Interval(0.0, 92.16e6)]),
             (Tx, 0) => Err(Error::unsupported(Capability::SampleRate)),
             _ => Err(Error::invalid_argument(
                 "aaronia_http",

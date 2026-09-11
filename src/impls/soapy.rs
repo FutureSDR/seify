@@ -6,6 +6,7 @@ use crate::AgcControl;
 use crate::AntennaControl;
 use crate::Args;
 use crate::BandwidthControl;
+use crate::Capability;
 use crate::DcOffsetControl;
 use crate::DeviceInfo;
 use crate::Direction;
@@ -219,7 +220,7 @@ impl GainControl for Soapy {
 
     fn gain_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
         let range = self.dev.gain_range(direction.into(), channel)?;
-        Ok(range.into())
+        range.try_into()
     }
 
     fn set_gain_element(
@@ -260,14 +261,17 @@ impl GainControl for Soapy {
         let range = self
             .dev
             .gain_element_range(direction.into(), channel, name)?;
-        Ok(range.into())
+        range.try_into()
     }
 }
 
 impl FrequencyControl for Soapy {
     fn frequency_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
         let range = self.dev.frequency_range(direction.into(), channel)?;
-        Ok(range.into())
+        if range.is_empty() {
+            return Err(Error::unsupported(Capability::Frequency));
+        }
+        range.try_into()
     }
 
     fn frequency(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
@@ -306,7 +310,10 @@ impl FrequencyControl for Soapy {
         let range = self
             .dev
             .component_frequency_range(direction.into(), channel, name)?;
-        Ok(range.into())
+        if range.is_empty() {
+            return Err(Error::unsupported(Capability::Frequency));
+        }
+        range.try_into()
     }
 
     fn component_frequency(
@@ -353,7 +360,10 @@ impl SampleRateControl for Soapy {
 
     fn get_sample_rate_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
         let range = self.dev.get_sample_rate_range(direction.into(), channel)?;
-        Ok(range.into())
+        if range.is_empty() {
+            return Err(Error::unsupported(Capability::SampleRate));
+        }
+        range.try_into()
     }
 }
 
@@ -368,7 +378,10 @@ impl BandwidthControl for Soapy {
 
     fn get_bandwidth_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
         let range = self.dev.bandwidth_range(direction.into(), channel)?;
-        Ok(range.into())
+        if range.is_empty() {
+            return Err(Error::unsupported(Capability::Bandwidth));
+        }
+        range.try_into()
     }
 }
 
@@ -471,27 +484,31 @@ impl From<crate::Direction> for soapysdr::Direction {
     }
 }
 
-impl From<soapysdr::Range> for Range {
+impl From<soapysdr::Range> for RangeItem {
     fn from(range: soapysdr::Range) -> Self {
-        let mut r = vec![];
         if range.step == 0.0 && range.minimum == range.maximum {
-            r.push(RangeItem::Value(range.minimum));
+            RangeItem::Value(range.minimum)
         } else if range.step == 0.0 {
-            r.push(RangeItem::Interval(range.minimum, range.maximum));
+            RangeItem::Interval(range.minimum, range.maximum)
         } else {
-            r.push(RangeItem::Step(range.minimum, range.maximum, range.step));
+            RangeItem::Step(range.minimum, range.maximum, range.step)
         }
-        Range::new(r)
     }
 }
 
-impl From<Vec<soapysdr::Range>> for Range {
-    fn from(value: Vec<soapysdr::Range>) -> Self {
-        let mut range = Range::new(vec![]);
-        for v in value.into_iter() {
-            range.merge(v.into());
-        }
-        range
+impl TryFrom<soapysdr::Range> for Range {
+    type Error = Error;
+
+    fn try_from(value: soapysdr::Range) -> Result<Self, Self::Error> {
+        Range::new(vec![value.into()])
+    }
+}
+
+impl TryFrom<Vec<soapysdr::Range>> for Range {
+    type Error = Error;
+
+    fn try_from(value: Vec<soapysdr::Range>) -> Result<Self, Self::Error> {
+        Range::new(value.into_iter().map(Into::into).collect())
     }
 }
 
@@ -511,5 +528,49 @@ impl From<soapysdr::Args> for Args {
             a.set(key, value);
         }
         a
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn range_conversion_validates_backend_data() {
+        assert!(Range::try_from(Vec::<soapysdr::Range>::new()).is_err());
+        for (minimum, maximum, step) in [(2.0, 1.0, 0.0), (0.0, 1.0, -1.0), (0.0, 1.0, f64::NAN)] {
+            assert!(Range::try_from(soapysdr::Range {
+                minimum,
+                maximum,
+                step
+            })
+            .is_err());
+        }
+        let range = Range::try_from(vec![
+            soapysdr::Range {
+                minimum: 3.0,
+                maximum: 3.0,
+                step: 0.0,
+            },
+            soapysdr::Range {
+                minimum: 4.0,
+                maximum: 5.0,
+                step: 0.0,
+            },
+            soapysdr::Range {
+                minimum: 6.0,
+                maximum: 10.0,
+                step: 2.0,
+            },
+        ])
+        .unwrap();
+        assert_eq!(
+            range.items(),
+            &[
+                RangeItem::Value(3.0),
+                RangeItem::Interval(4.0, 5.0),
+                RangeItem::Step(6.0, 10.0, 2.0),
+            ]
+        );
     }
 }

@@ -464,7 +464,7 @@ impl BladeRf {
     }
 
     fn gain_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
-        Ok(RfLinkSession::get_gain_range(ch(direction, channel)?).into())
+        RfLinkSession::get_gain_range(ch(direction, channel)?).try_into()
     }
 
     fn set_gain_element(
@@ -512,17 +512,17 @@ impl BladeRf {
         name: &str,
     ) -> Result<Range, Error> {
         let stage = gain_stage(direction, channel, name)?;
-        Ok(RfLinkSession::get_gain_stage_range(stage).into())
+        RfLinkSession::get_gain_stage_range(stage).try_into()
     }
 
     fn frequency_range(&self, _direction: Direction, _channel: usize) -> Result<Range, Error> {
         let mut dev = self.inner.lock().unwrap();
         let mut session = dev.rf_link_session().wait().map_err(bladerf_err)?;
-        Ok(session
+        session
             .get_frequency_range()
             .wait()
             .map_err(bladerf_err)?
-            .into())
+            .try_into()
     }
 
     fn frequency(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
@@ -651,7 +651,7 @@ impl BladeRf {
         _direction: Direction,
         _channel: usize,
     ) -> Result<Range, Error> {
-        Ok(RfLinkSession::get_sample_rate_range().into())
+        RfLinkSession::get_sample_rate_range().try_into()
     }
 
     fn bandwidth(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
@@ -677,7 +677,7 @@ impl BladeRf {
     }
 
     fn get_bandwidth_range(&self, _direction: Direction, _channel: usize) -> Result<Range, Error> {
-        Ok(RfLinkSession::get_bandwidth_range().into())
+        RfLinkSession::get_bandwidth_range().try_into()
     }
 }
 

@@ -370,8 +370,10 @@ impl From<BladeRfRangeItem> for RangeItem {
     }
 }
 
-impl From<BladeRfRange> for Range {
-    fn from(val: BladeRfRange) -> Self {
+impl TryFrom<BladeRfRange> for Range {
+    type Error = Error;
+
+    fn try_from(val: BladeRfRange) -> Result<Self, Self::Error> {
         Range::new(val.iter().cloned().map(Into::into).collect())
     }
 }

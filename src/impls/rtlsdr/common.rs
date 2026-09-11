@@ -20,11 +20,11 @@ impl ReceiverContext {
     }
 
     pub(super) fn frequency_range(&self) -> Result<Range, Error> {
-        Ok(Range::new(vec![RangeItem::Step(
+        Range::new(vec![RangeItem::Step(
             if self.blog_v4 { 1.0 } else { 28_800_000.0 },
             1_766_000_000.0,
             1.0,
-        )]))
+        )])
     }
 
     pub(super) fn antennas(&self) -> Vec<String> {
@@ -76,7 +76,7 @@ pub(super) fn gain_type(name: &str) -> Option<GainType> {
 }
 
 pub(super) fn overall_gain_range() -> Range {
-    Range::new(vec![RangeItem::Interval(0.0, 52.5)])
+    Range::new(vec![RangeItem::Interval(0.0, 52.5)]).expect("valid driver range")
 }
 
 pub(super) fn overall_gain_config(gain: f64) -> GainConfig {
@@ -95,7 +95,7 @@ pub(super) fn agc_gain_config(config: &Config, enabled: bool) -> Result<GainConf
 }
 
 pub(super) fn sample_rate_range() -> Range {
-    Range::new(vec![RangeItem::Step(900_001.0, 3_200_000.0, 1.0)])
+    Range::new(vec![RangeItem::Step(900_001.0, 3_200_000.0, 1.0)]).expect("valid driver range")
 }
 
 pub(super) fn check_rx(direction: Direction, channel: usize) -> Result<(), Error> {

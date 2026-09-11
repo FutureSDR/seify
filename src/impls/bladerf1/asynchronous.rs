@@ -386,7 +386,7 @@ impl AsyncBladeRf {
     }
 
     async fn gain_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
-        Ok(RfLinkSession::get_gain_range(ch(direction, channel)?).into())
+        RfLinkSession::get_gain_range(ch(direction, channel)?).try_into()
     }
 
     async fn set_gain_element(
@@ -429,7 +429,7 @@ impl AsyncBladeRf {
         name: &str,
     ) -> Result<Range, Error> {
         let stage = gain_stage(direction, channel, name)?;
-        Ok(RfLinkSession::get_gain_stage_range(stage).into())
+        RfLinkSession::get_gain_stage_range(stage).try_into()
     }
 
     async fn frequency_range(
@@ -439,7 +439,7 @@ impl AsyncBladeRf {
     ) -> Result<Range, Error> {
         let mut dev = self.lease_device().await?;
         let mut rf = session(&mut dev).await?;
-        Ok(rf.get_frequency_range().await.map_err(bladerf_err)?.into())
+        rf.get_frequency_range().await.map_err(bladerf_err)?.try_into()
     }
 
     async fn frequency(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
@@ -558,7 +558,7 @@ impl AsyncBladeRf {
         _direction: Direction,
         _channel: usize,
     ) -> Result<Range, Error> {
-        Ok(RfLinkSession::get_sample_rate_range().into())
+        RfLinkSession::get_sample_rate_range().try_into()
     }
 
     async fn bandwidth(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
@@ -593,7 +593,7 @@ impl AsyncBladeRf {
         _direction: Direction,
         _channel: usize,
     ) -> Result<Range, Error> {
-        Ok(RfLinkSession::get_bandwidth_range().into())
+        RfLinkSession::get_bandwidth_range().try_into()
     }
 }
 

@@ -334,7 +334,7 @@ impl GainControl for Dummy {
 
     fn gain_range(&self, _direction: Direction, channel: usize) -> Result<Range, Error> {
         if channel == 0 {
-            Ok(Range::new(vec![RangeItem::Interval(0.0, f64::MAX)]))
+            Range::new(vec![RangeItem::Interval(0.0, f64::MAX)])
         } else {
             Err(Error::invalid_argument("dummy", "invalid dummy argument"))
         }
@@ -390,7 +390,7 @@ impl GainControl for Dummy {
         name: &str,
     ) -> Result<Range, Error> {
         if channel == 0 && name == "RF" {
-            Ok(Range::new(vec![RangeItem::Interval(0.0, f64::MAX)]))
+            Range::new(vec![RangeItem::Interval(0.0, f64::MAX)])
         } else {
             Err(Error::invalid_argument("dummy", "invalid dummy argument"))
         }
@@ -455,7 +455,7 @@ impl AsyncGainControl for Dummy {
 impl FrequencyControl for Dummy {
     fn frequency_range(&self, _direction: Direction, channel: usize) -> Result<Range, Error> {
         if channel == 0 {
-            Ok(Range::new(vec![RangeItem::Interval(0.0, f64::MAX)]))
+            Range::new(vec![RangeItem::Interval(0.0, f64::MAX)])
         } else {
             Err(Error::invalid_argument("dummy", "invalid dummy argument"))
         }
@@ -506,7 +506,7 @@ impl FrequencyControl for Dummy {
         name: &str,
     ) -> Result<Range, Error> {
         if channel == 0 && name == "freq" {
-            Ok(Range::new(vec![RangeItem::Interval(0.0, f64::MAX)]))
+            Range::new(vec![RangeItem::Interval(0.0, f64::MAX)])
         } else {
             Err(Error::invalid_argument("dummy", "invalid dummy argument"))
         }
@@ -640,7 +640,7 @@ impl SampleRateControl for Dummy {
 
     fn get_sample_rate_range(&self, _direction: Direction, channel: usize) -> Result<Range, Error> {
         if channel == 0 {
-            Ok(Range::new(vec![RangeItem::Interval(0.0, f64::MAX)]))
+            Range::new(vec![RangeItem::Interval(0.0, f64::MAX)])
         } else {
             Err(Error::invalid_argument("dummy", "invalid dummy argument"))
         }
@@ -693,7 +693,7 @@ impl BandwidthControl for Dummy {
 
     fn get_bandwidth_range(&self, _direction: Direction, channel: usize) -> Result<Range, Error> {
         if channel == 0 {
-            Ok(Range::new(vec![RangeItem::Interval(0.0, f64::MAX)]))
+            Range::new(vec![RangeItem::Interval(0.0, f64::MAX)])
         } else {
             Err(Error::invalid_argument("dummy", "invalid dummy argument"))
         }

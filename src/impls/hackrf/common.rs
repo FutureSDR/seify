@@ -119,9 +119,12 @@ impl GainType {
             Self::Amp => Range::new(vec![
                 RangeItem::Value(0.0),
                 RangeItem::Value(f64::from(AMP_GAIN_DB)),
-            ]),
-            Self::Lna => Range::new(vec![RangeItem::Step(0.0, f64::from(LNA_GAIN_MAX_DB), 8.0)]),
-            Self::Vga => Range::new(vec![RangeItem::Step(0.0, f64::from(VGA_GAIN_MAX_DB), 2.0)]),
+            ])
+            .expect("valid driver range"),
+            Self::Lna => Range::new(vec![RangeItem::Step(0.0, f64::from(LNA_GAIN_MAX_DB), 8.0)])
+                .expect("valid driver range"),
+            Self::Vga => Range::new(vec![RangeItem::Step(0.0, f64::from(VGA_GAIN_MAX_DB), 2.0)])
+                .expect("valid driver range"),
         }
     }
 }
@@ -152,6 +155,7 @@ pub(super) fn overall_gain_range() -> Range {
         f64::from(OVERALL_GAIN_MAX_DB),
         2.0,
     )])
+    .expect("valid driver range")
 }
 
 pub(super) struct DistributedGain {
@@ -190,10 +194,11 @@ pub(super) fn distribute_overall_gain(gain: f64) -> DistributedGain {
 
 pub(super) fn frequency_range() -> Range {
     Range::new(vec![RangeItem::Step(1_000_000.0, 6_000_000_000.0, 1.0)])
+        .expect("valid driver range")
 }
 
 pub(super) fn sample_rate_range() -> Range {
-    Range::new(vec![RangeItem::Step(2_000_000.0, 20_000_000.0, 1.0)])
+    Range::new(vec![RangeItem::Step(2_000_000.0, 20_000_000.0, 1.0)]).expect("valid driver range")
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -236,7 +241,9 @@ pub(super) fn directional_gain_value(direction: Direction, gain: GainType, confi
 
 pub(super) fn directional_gain_range(direction: Direction, gain: GainType) -> Range {
     match (direction, gain) {
-        (Tx, GainType::Vga) => Range::new(vec![RangeItem::Step(0.0, 47.0, 1.0)]),
+        (Tx, GainType::Vga) => {
+            Range::new(vec![RangeItem::Step(0.0, 47.0, 1.0)]).expect("valid driver range")
+        }
         _ => gain.range(),
     }
 }
@@ -254,7 +261,8 @@ pub(super) fn directional_overall_gain(direction: Direction, config: &Config) ->
 pub(super) fn directional_overall_gain_range(direction: Direction) -> Range {
     match direction {
         Rx => overall_gain_range(),
-        Tx => Range::new(vec![RangeItem::Step(0.0, f64::from(AMP_GAIN_DB + 47), 1.0)]),
+        Tx => Range::new(vec![RangeItem::Step(0.0, f64::from(AMP_GAIN_DB + 47), 1.0)])
+            .expect("valid driver range"),
     }
 }
 

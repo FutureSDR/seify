@@ -398,29 +398,14 @@ mod web {
 
     fn configure_number_input(id: &str, range: &Range) -> UiResult<()> {
         let input = input(id)?;
-        if let Some((min, max)) = range_bounds(range) {
-            input.set_min(&min.to_string());
-            input.set_max(&max.to_string());
-        }
-        let step = match range.items.as_slice() {
+        input.set_min(&range.min().to_string());
+        input.set_max(&range.max().to_string());
+        let step = match range.items() {
             [RangeItem::Step(_, _, step)] => step.to_string(),
             _ => "any".to_string(),
         };
         input.set_step(&step);
         Ok(())
-    }
-
-    fn range_bounds(range: &Range) -> Option<(f64, f64)> {
-        range.items.iter().fold(None, |bounds, item| {
-            let (item_min, item_max) = match item {
-                RangeItem::Interval(min, max) | RangeItem::Step(min, max, _) => (*min, *max),
-                RangeItem::Value(value) => (*value, *value),
-            };
-            Some(match bounds {
-                Some((min, max)) => (min.min(item_min), max.max(item_max)),
-                None => (item_min, item_max),
-            })
-        })
     }
 
     fn set_select_options(id: &str, values: &[String]) -> UiResult<()> {

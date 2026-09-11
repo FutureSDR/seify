@@ -40,12 +40,12 @@ fn discrete_range(values: &[u32], capability: Capability) -> Result<Range, Error
     if values.is_empty() {
         return Err(Error::unsupported(capability));
     }
-    Ok(Range::new(
+    Range::new(
         values
             .iter()
             .map(|value| RangeItem::Value(*value as f64))
             .collect(),
-    ))
+    )
 }
 
 impl ReceiverContext {
@@ -61,14 +61,14 @@ impl ReceiverContext {
         if self.rf_ports.is_empty() {
             return Err(Error::unsupported(Capability::Frequency));
         }
-        Ok(Range::new(
+        Range::new(
             self.rf_ports
                 .iter()
                 .map(|port| {
                     RangeItem::Interval(port.min_frequency as f64, port.max_frequency as f64)
                 })
                 .collect(),
-        ))
+        )
     }
 
     pub(super) fn antennas(&self) -> Vec<String> {
@@ -235,7 +235,7 @@ fn non_stage_gain_error() -> Error {
 
 pub(super) fn overall_gain_range() -> Range {
     let max = LNA_GAIN_MAX_DB + MIXER_GAIN_MAX_DB + VGA_GAIN_MAX_DB;
-    Range::new(vec![RangeItem::Step(0.0, f64::from(max), 1.0)])
+    Range::new(vec![RangeItem::Step(0.0, f64::from(max), 1.0)]).expect("valid driver range")
 }
 
 pub(super) fn distribute_overall_gain(mut gain: f64) -> [(GainType, f64); 3] {
@@ -343,7 +343,8 @@ pub(super) fn gain_element(
             min_value as f64,
             max_value as f64,
             step,
-        )]),
+        )])
+        .expect("valid driver range"),
     }
 }
 
