@@ -123,10 +123,25 @@ impl AsyncHalfDuplexSession {
     }
 
     async fn discard_stream(&mut self, direction: Direction) -> Result<(), Error> {
-        self.stop_direction(direction).await?;
+        // Close consumes the stream even on failure or cancellation. The core
+        // retains any pending cleanup and rejects unsafe starts or replacement.
+        if matches!(
+            self.phase,
+            HalfDuplexPhase::Active(active) | HalfDuplexPhase::NeedsStop(active) if active == direction
+        ) {
+            self.phase = HalfDuplexPhase::Off;
+        }
         match direction {
-            Rx => self.rx_stream = None,
-            Tx => self.tx_stream = None,
+            Rx => {
+                if let Some(stream) = self.rx_stream.take() {
+                    stream.close().await.map_err(map_hackrf_error)?;
+                }
+            }
+            Tx => {
+                if let Some(stream) = self.tx_stream.take() {
+                    stream.close().await.map_err(map_hackrf_error)?;
+                }
+            }
         }
         Ok(())
     }
@@ -141,26 +156,19 @@ impl AsyncHalfDuplexSession {
         Ok(())
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn drop_stream_best_effort(&mut self, direction: Direction) {
+        if matches!(
+            self.phase,
+            HalfDuplexPhase::Active(active) | HalfDuplexPhase::NeedsStop(active) if active == direction
+        ) {
+            self.phase = HalfDuplexPhase::Off;
+        }
+        // Native driver drop finishes cleanup synchronously, even for an
+        // asynchronously started stream. Do not leave TX running until reuse.
         match direction {
-            Rx => {
-                if matches!(
-                    self.phase,
-                    HalfDuplexPhase::Active(Rx) | HalfDuplexPhase::NeedsStop(Rx)
-                ) {
-                    self.phase = HalfDuplexPhase::Off;
-                }
-                drop(self.rx_stream.take());
-            }
-            Tx => {
-                if matches!(
-                    self.phase,
-                    HalfDuplexPhase::Active(Tx) | HalfDuplexPhase::NeedsStop(Tx)
-                ) {
-                    self.phase = HalfDuplexPhase::Off;
-                }
-                drop(self.tx_stream.take());
-            }
+            Rx => drop(self.rx_stream.take()),
+            Tx => drop(self.tx_stream.take()),
         }
     }
 }
@@ -265,6 +273,7 @@ impl<T> AsyncSlotLease<T> {
         })
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn try_acquire(slot: &Shared<AsyncSlot<T>>) -> Option<Self> {
         Some(Self {
             slot: Shared::clone(slot),
@@ -971,11 +980,14 @@ impl crate::AsyncRxStreamer for AsyncHackRfRxStreamer {
 
 impl Drop for AsyncHackRfRxStreamer {
     fn drop(&mut self) {
+        #[cfg(not(target_arch = "wasm32"))]
         if let Some(mut session) = AsyncSlotLease::try_acquire(&self.session_slot) {
             session.value_mut().drop_stream_best_effort(Rx);
-        } else {
-            self.dropped_streams.request(Rx);
+            return;
         }
+        // The next session operation awaits close before claiming a replacement
+        // or switching direction, including on WebUSB where drop is asynchronous.
+        self.dropped_streams.request(Rx);
     }
 }
 
@@ -1100,11 +1112,12 @@ impl crate::AsyncTxStreamer for AsyncHackRfTxStreamer {
 
 impl Drop for AsyncHackRfTxStreamer {
     fn drop(&mut self) {
+        #[cfg(not(target_arch = "wasm32"))]
         if let Some(mut session) = AsyncSlotLease::try_acquire(&self.session_slot) {
             session.value_mut().drop_stream_best_effort(Tx);
-        } else {
-            self.dropped_streams.request(Tx);
+            return;
         }
+        self.dropped_streams.request(Tx);
     }
 }
 
@@ -1207,5 +1220,29 @@ mod tests {
 
         dropped.restore(DroppedStreams::RX);
         assert_eq!(dropped.take(), DroppedStreams::RX);
+    }
+
+    #[test]
+    fn cancelled_cleanup_preserves_pending_and_new_drop_requests() {
+        let dropped = DroppedStreams::new();
+        dropped.request(Rx);
+        let cleanup = DroppedStreamCleanup::take(&dropped);
+        assert_eq!(cleanup.bits(), DroppedStreams::RX);
+
+        dropped.request(Tx);
+        drop(cleanup);
+        assert_eq!(dropped.take(), DroppedStreams::RX | DroppedStreams::TX);
+    }
+
+    #[test]
+    fn completed_cleanup_preserves_only_new_drop_requests() {
+        let dropped = DroppedStreams::new();
+        dropped.request(Rx);
+        let mut cleanup = DroppedStreamCleanup::take(&dropped);
+
+        dropped.request(Tx);
+        cleanup.commit();
+        drop(cleanup);
+        assert_eq!(dropped.take(), DroppedStreams::TX);
     }
 }

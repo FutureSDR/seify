@@ -118,10 +118,23 @@ impl HalfDuplexSession {
     }
 
     fn discard_stream(&mut self, direction: Direction) -> Result<(), Error> {
-        self.stop_direction(direction)?;
+        if matches!(
+            self.phase,
+            HalfDuplexPhase::Active(active) | HalfDuplexPhase::NeedsStop(active) if active == direction
+        ) {
+            self.phase = HalfDuplexPhase::Off;
+        }
         match direction {
-            Rx => self.rx_stream = None,
-            Tx => self.tx_stream = None,
+            Rx => {
+                if let Some(stream) = self.rx_stream.take() {
+                    stream.close().wait().map_err(map_hackrf_error)?;
+                }
+            }
+            Tx => {
+                if let Some(stream) = self.tx_stream.take() {
+                    stream.close().wait().map_err(map_hackrf_error)?;
+                }
+            }
         }
         Ok(())
     }
