@@ -414,6 +414,12 @@ impl Default for AsyncRegistry {
         ))]
         registry.register::<crate::impls::AsyncRtlSdr>();
 
+        #[cfg(all(
+            feature = "uhd",
+            any(target_arch = "wasm32", feature = "smol", feature = "tokio")
+        ))]
+        registry.register::<crate::impls::AsyncUhd>();
+
         #[cfg(feature = "dummy")]
         registry.register::<crate::impls::Dummy>();
 
@@ -432,7 +438,7 @@ fn requested_driver(args: &Args) -> Result<Option<Driver>, Error> {
 fn unavailable_driver(driver: Driver) -> Error {
     if !matches!(
         driver,
-        Driver::Dummy | Driver::HackRf | Driver::HydraSdr | Driver::BladeRf | Driver::RtlSdr
+        Driver::Dummy | Driver::HackRf | Driver::HydraSdr | Driver::BladeRf | Driver::RtlSdr | Driver::Uhd
     ) && crate::Registry::default().contains(driver)
     {
         Error::unsupported_reason(

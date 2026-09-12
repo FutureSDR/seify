@@ -10,7 +10,7 @@
 //!
 //! The default feature set enables the `soapy` backend. Other backends are
 //! enabled with Cargo features such as `rtlsdr`, `hackrf`, `hydrasdr`,
-//! `bladerf1`, `aaronia_http`, and `dummy`.
+//! `uhd`, `bladerf1`, `aaronia_http`, and `dummy`.
 //! Async applications that use `nusb`-based drivers on native targets should
 //! enable exactly one of `smol` or `tokio` for runtime integration. For example,
 //! native HackRF, HydraSDR and bladeRF 1 async support combines the driver
@@ -228,6 +228,10 @@ pub enum DriverError {
     #[error("HydraSdr ({0})")]
     /// Error returned by the HydraSDR backend.
     HydraSdr(hydrasdr_rs::Error),
+    #[cfg(feature = "uhd")]
+    #[error("Uhd ({0})")]
+    /// Error returned by the native Rust USRP backend.
+    Uhd(uhd_rs::Error),
     #[error("{0}")]
     /// Backend error represented as a string.
     Other(String),
@@ -237,7 +241,7 @@ pub enum DriverError {
 #[derive(Debug, Error)]
 pub enum Error {
     /// A device or channel does not expose the requested capability.
-    #[error("unsupported capability {capability:?}")]
+    #[error("unsupported capability {capability:?}{detail}", detail = .reason.as_ref().map(|reason| format!(": {reason}")).unwrap_or_default())]
     Unsupported {
         /// Capability that is not supported.
         capability: Capability,
@@ -437,6 +441,8 @@ pub enum Driver {
     RtlSdr,
     /// SoapySDR backend.
     Soapy,
+    /// Native Rust USRP B2xx RX backend.
+    Uhd,
 }
 
 impl FromStr for Driver {
@@ -461,6 +467,9 @@ impl FromStr for Driver {
         }
         if s == "hydrasdr" || s == "hydra-sdr" || s == "hydra" {
             return Ok(Driver::HydraSdr);
+        }
+        if s == "uhd" || s == "usrp" {
+            return Ok(Driver::Uhd);
         }
         if s == "dummy" || s == "Dummy" {
             return Ok(Driver::Dummy);
@@ -507,6 +516,22 @@ pub fn enumerate_with_args<A: TryInto<Args>>(a: A) -> Result<Vec<Args>, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unsupported_error_displays_backend_reason() {
+        assert_eq!(
+            Error::unsupported_reason(
+                Capability::DriverOperation,
+                "WebUSB requires a browser window"
+            )
+            .to_string(),
+            "unsupported capability DriverOperation: WebUSB requires a browser window"
+        );
+        assert_eq!(
+            Error::unsupported(Capability::DriverOperation).to_string(),
+            "unsupported capability DriverOperation"
+        );
+    }
 
     #[test]
     fn hackrf_driver_aliases_parse() {

@@ -42,6 +42,9 @@ jobs:
       fail-fast: false
       matrix:
         features:
+          - uhd
+          - uhd,smol
+          - uhd,tokio
           - hydrasdr
           - hydrasdr,smol
           - hydrasdr,tokio
@@ -75,7 +78,7 @@ jobs:
           targets: wasm32-unknown-unknown
 
       - name: Clippy Seify WebUSB API
-        run: cargo clippy --target wasm32-unknown-unknown --lib --no-default-features --features=hydrasdr,bladerf1,rtlsdr -- -D warnings
+        run: cargo clippy --target wasm32-unknown-unknown --lib --no-default-features --features=hydrasdr,bladerf1,rtlsdr,uhd -- -D warnings
 
       - name: Clippy WebUSB example
         run: cargo clippy --manifest-path examples/webusb/Cargo.toml --target wasm32-unknown-unknown --all-targets -- -D warnings

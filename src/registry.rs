@@ -218,6 +218,9 @@ impl Default for Registry {
         #[cfg(all(feature = "hydrasdr", not(target_arch = "wasm32")))]
         registry.register::<crate::impls::HydraSdr>();
 
+        #[cfg(all(feature = "uhd", not(target_arch = "wasm32")))]
+        registry.register::<crate::impls::Uhd>();
+
         #[cfg(all(feature = "soapy", not(target_arch = "wasm32")))]
         registry.register::<crate::impls::Soapy>();
 
@@ -260,6 +263,14 @@ pub(crate) use impl_typed_device_backend;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn uhd_registration_matches_feature_and_target() {
+        assert_eq!(
+            Registry::default().contains(Driver::Uhd),
+            cfg!(all(feature = "uhd", not(target_arch = "wasm32")))
+        );
+    }
 
     #[test]
     fn default_registry_prefers_specific_drivers_before_fallbacks() {

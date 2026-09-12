@@ -56,3 +56,13 @@ pub mod hydrasdr;
 pub use hydrasdr::AsyncHydraSdr;
 #[cfg(all(feature = "hydrasdr", not(target_arch = "wasm32")))]
 pub use hydrasdr::HydraSdr;
+
+#[cfg(feature = "uhd")]
+pub mod uhd;
+#[cfg(all(
+    feature = "uhd",
+    any(target_arch = "wasm32", feature = "smol", feature = "tokio")
+))]
+pub use uhd::AsyncUhd;
+#[cfg(all(feature = "uhd", not(target_arch = "wasm32")))]
+pub use uhd::Uhd;

@@ -39,6 +39,7 @@ Available features:
 | `hackrf` | `driver=hackrf` | Half-duplex HackRF RX/TX backend; async WebUSB support on `wasm32-unknown-unknown`. |
 | `hydrasdr` | `driver=hydrasdr` | HydraSDR backend; async WebUSB support on `wasm32-unknown-unknown`. |
 | `rtlsdr` | `driver=rtlsdr` | RTL-SDR backend using `rtlsdr-nusb`; native sync/async and WebUSB support. |
+| `uhd` | `driver=uhd` | USRP B2xx channel-zero RX using `uhd-rs`; native sync/async and WebUSB support. |
 | `smol` / `tokio` | n/a | Pick one for async `nusb` runtime integration. |
 
 For native async use with `nusb`-based drivers, enable exactly one of `smol` or
@@ -51,15 +52,15 @@ feature.
 
 ## WebUSB
 
-HackRF, HydraSDR, bladeRF 1, and RTL-SDR are available on `wasm32-unknown-unknown`. Only
-`AsyncHackRf`, `AsyncHydraSdr`, `AsyncBladeRf`, `AsyncRtlSdr`, `AsyncRegistry`, and the async
+HackRF, HydraSDR, bladeRF 1, RTL-SDR, and UHD are available on `wasm32-unknown-unknown`. Only
+`AsyncHackRf`, `AsyncHydraSdr`, `AsyncBladeRf`, `AsyncRtlSdr`, `AsyncUhd`, `AsyncRegistry`, and the async
 device/streamer APIs are connected to those drivers on wasm; their synchronous
 backends remain native-only.
 
 Build it with:
 
 ```bash
-cargo check --target wasm32-unknown-unknown --no-default-features --features hackrf,hydrasdr,bladerf1,rtlsdr
+cargo check --target wasm32-unknown-unknown --no-default-features --features hackrf,hydrasdr,bladerf1,rtlsdr,uhd
 ```
 
 WebUSB's `web-sys` bindings require `--cfg=web_sys_unstable_apis`; this
@@ -94,6 +95,41 @@ and reads return converted complex samples with partial-read and timeout support
 Standalone bandwidth control and other tuner families are not supported by this
 driver. `index` takes precedence over `serial`; serials retain their USB spelling
 and leading zeros.
+
+The `uhd` backend uses [uhd-rs](https://github.com/bastibl/uhd-rs) without C++
+UHD or system USB libraries. Enable `uhd` for synchronous `impls::Uhd`, or
+`uhd,smol` / `uhd,tokio` for native `impls::AsyncUhd`. WebUSB needs only `uhd`.
+Firmware and FPGA images are embedded by default. The optional dependency is
+GPL-3.0-or-later; see its license for alternative licensing terms.
+
+Radio support covers B200 (including revisions before 5), B210, B200mini,
+and B205mini. It exposes RX channel 0, antenna `RX2`, 70 MHz–6 GHz tuning,
+and manual `PGA` gain of 0–76 dB in 1 dB steps or AGC.
+Sample rates up to 16 MS/s use a 16 MHz clock with supported integer DDC
+decimation (31,250–16,000,000 samples/s). Requests above 16 MS/s, up to 20 MS/s,
+select a 20 MHz clock and deliver 20 MS/s. Stop the stream before switching
+clock modes. Getters return actual quantized rates and frequencies. Frequency arguments accept `lo_offset` in Hz.
+TX, timed streaming, and independent bandwidth control are unavailable.
+B210 channel 0 is the A-side receiver. Model-specific RF routing and gain/AGC
+controls follow the board wiring; the second B210 channel is not yet exposed.
+Opened-device metadata includes the motherboard `model` and `revision`, even
+when a B210 USB descriptor identifies itself as B200.
+
+The backend uses the published `uhd-rs` 0.1.2 release from crates.io.
+
+Select with `driver=uhd,serial=...` (serials preserve leading zeros), or `index=N`
+which takes precedence. A stream must be activated before reading. Reads may
+be partial and return `Error::Timeout` when no samples arrive; a negative timeout
+waits indefinitely. Only one stream can be claimed at a time. Typed streams expose
+`close()` and typed backends expose `shutdown()` for explicit cleanup. In a
+browser, restart a stopped stream to reuse it; after closing a stream that
+submitted transfers, shut down and reopen the device before claiming another.
+Firmware re-enumeration may require another user gesture for WebUSB permission.
+
+```bash
+cargo run --no-default-features --features uhd --example probe -- --args driver=uhd
+cargo run --no-default-features --features uhd --example rx_generic -- --args driver=uhd
+```
 
 Use the generic API with an argument string to select a backend at runtime:
 

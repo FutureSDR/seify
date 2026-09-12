@@ -8,6 +8,7 @@ use crate::Error;
     feature = "hackrf",
     feature = "hydrasdr",
     feature = "rtlsdr",
+    feature = "uhd",
 ))]
 pub(crate) fn expect_buffer_count(actual: usize, expected: usize) -> Result<(), Error> {
     if actual == expected {
