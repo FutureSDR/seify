@@ -397,6 +397,12 @@ impl Default for AsyncRegistry {
         registry.register::<crate::impls::AsyncHackRf>();
 
         #[cfg(all(
+            feature = "pluto",
+            any(target_arch = "wasm32", feature = "smol", feature = "tokio")
+        ))]
+        registry.register::<crate::impls::AsyncPluto>();
+
+        #[cfg(all(
             feature = "hydrasdr",
             any(target_arch = "wasm32", feature = "smol", feature = "tokio")
         ))]
@@ -438,7 +444,13 @@ fn requested_driver(args: &Args) -> Result<Option<Driver>, Error> {
 fn unavailable_driver(driver: Driver) -> Error {
     if !matches!(
         driver,
-        Driver::Dummy | Driver::HackRf | Driver::HydraSdr | Driver::BladeRf | Driver::RtlSdr | Driver::Uhd
+        Driver::Dummy
+            | Driver::HackRf
+            | Driver::HydraSdr
+            | Driver::BladeRf
+            | Driver::Pluto
+            | Driver::RtlSdr
+            | Driver::Uhd
     ) && crate::Registry::default().contains(driver)
     {
         Error::unsupported_reason(
@@ -453,7 +465,13 @@ fn unavailable_driver(driver: Driver) -> Error {
 #[cfg(all(
     test,
     feature = "dummy",
-    any(feature = "hackrf", feature = "hydrasdr", feature = "bladerf1", feature = "rtlsdr"),
+    any(
+        feature = "hackrf",
+        feature = "hydrasdr",
+        feature = "bladerf1",
+        feature = "pluto",
+        feature = "rtlsdr"
+    ),
     any(target_arch = "wasm32", feature = "smol", feature = "tokio")
 ))]
 mod ordering_tests {
@@ -470,7 +488,13 @@ mod ordering_tests {
             .iter()
             .position(|driver| *driver == Driver::Dummy)
             .expect("dummy backend is enabled");
-        for driver in [Driver::HackRf, Driver::HydraSdr, Driver::BladeRf, Driver::RtlSdr] {
+        for driver in [
+            Driver::HackRf,
+            Driver::HydraSdr,
+            Driver::BladeRf,
+            Driver::Pluto,
+            Driver::RtlSdr,
+        ] {
             if let Some(index) = drivers.iter().position(|candidate| *candidate == driver) {
                 assert!(index < dummy, "{driver:?} should precede Dummy");
             }

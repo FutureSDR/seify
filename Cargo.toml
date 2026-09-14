@@ -15,15 +15,20 @@ bladerf1 = ["dep:libbladerf-rs"]
 dummy = []
 hackrf = ["dep:hackrf-nusb"]
 hydrasdr = ["dep:hydrasdr-rs"]
+pluto = ["dep:plutosdr"]
 rtlsdr = ["dep:rtlsdr-nusb"]
-smol = ["dep:async-io", "hackrf-nusb?/smol", "hydrasdr-rs?/smol", "libbladerf-rs?/smol", "rtlsdr-nusb?/smol", "uhd-rs?/smol"]
+smol = ["dep:async-io", "hackrf-nusb?/smol", "hydrasdr-rs?/smol", "libbladerf-rs?/smol", "plutosdr?/smol", "rtlsdr-nusb?/smol", "uhd-rs?/smol"]
 soapy = ["dep:soapysdr"]
-tokio = ["dep:tokio", "hackrf-nusb?/tokio", "hydrasdr-rs?/tokio", "libbladerf-rs?/tokio", "rtlsdr-nusb?/tokio", "uhd-rs?/tokio"]
+tokio = ["dep:tokio", "hackrf-nusb?/tokio", "hydrasdr-rs?/tokio", "libbladerf-rs?/tokio", "plutosdr?/tokio", "rtlsdr-nusb?/tokio", "uhd-rs?/tokio"]
 uhd = ["dep:uhd-rs"]
 
 [[example]]
 name = "rx_typed"
 required-features = ["rtlsdr"]
+
+[[example]]
+name = "pluto_info"
+required-features = ["pluto"]
 
 [dependencies]
 futures = "0.3"
@@ -33,6 +38,8 @@ libbladerf-rs = { version = "0.6.0", optional = true, default-features = false, 
 log = "0.4"
 nom = "8.0"
 num-complex = "0.4"
+# Unpublished driver: keep the plutosdr-rs checkout next to seify.
+plutosdr = { package = "plutosdr-rs", path = "../plutosdr-rs", optional = true }
 rtlsdr-nusb = { version = "0.3.0", optional = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -75,6 +82,7 @@ features = [
     "dummy",
     "hackrf",
     "hydrasdr",
+    "pluto",
     "rtlsdr",
     "uhd",
     "smol",

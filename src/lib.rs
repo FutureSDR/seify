@@ -9,7 +9,7 @@
 //! # Driver features
 //!
 //! The default feature set enables the `soapy` backend. Other backends are
-//! enabled with Cargo features such as `rtlsdr`, `hackrf`, `hydrasdr`,
+//! enabled with Cargo features such as `rtlsdr`, `hackrf`, `hydrasdr`, `pluto`,
 //! `uhd`, `bladerf1`, `aaronia_http`, and `dummy`.
 //! Async applications that use `nusb`-based drivers on native targets should
 //! enable exactly one of `smol` or `tokio` for runtime integration. For example,
@@ -224,6 +224,10 @@ pub enum DriverError {
     #[error("Hackrf ({0})")]
     /// Error returned by the HackRF backend.
     HackRf(hackrf_nusb::Error),
+    #[cfg(feature = "pluto")]
+    #[error("Pluto ({0})")]
+    /// Error returned by the native IIO-over-USB PlutoSDR backend.
+    Pluto(plutosdr::Error),
     #[cfg(feature = "hydrasdr")]
     #[error("HydraSdr ({0})")]
     /// Error returned by the HydraSDR backend.
@@ -423,6 +427,13 @@ impl From<hydrasdr_rs::Error> for Error {
     }
 }
 
+#[cfg(feature = "pluto")]
+impl From<plutosdr::Error> for Error {
+    fn from(value: plutosdr::Error) -> Self {
+        Error::Driver(DriverError::Pluto(value))
+    }
+}
+
 /// Supported hardware drivers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
@@ -437,6 +448,8 @@ pub enum Driver {
     HackRf,
     /// HydraSDR backend.
     HydraSdr,
+    /// Native IIO-over-USB PlutoSDR discovery and context backend.
+    Pluto,
     /// RTL-SDR backend.
     RtlSdr,
     /// SoapySDR backend.
@@ -467,6 +480,9 @@ impl FromStr for Driver {
         }
         if s == "hydrasdr" || s == "hydra-sdr" || s == "hydra" {
             return Ok(Driver::HydraSdr);
+        }
+        if s == "pluto" || s == "plutosdr" || s == "adalm-pluto" {
+            return Ok(Driver::Pluto);
         }
         if s == "uhd" || s == "usrp" {
             return Ok(Driver::Uhd);

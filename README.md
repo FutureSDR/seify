@@ -38,6 +38,7 @@ Available features:
 | `bladerf1` | `driver=bladerf` | Full-duplex bladeRF 1 RX/TX backend; requires `smol` or `tokio` on native targets; async WebUSB support on `wasm32-unknown-unknown`. |
 | `hackrf` | `driver=hackrf` | Half-duplex HackRF RX/TX backend; async WebUSB support on `wasm32-unknown-unknown`. |
 | `hydrasdr` | `driver=hydrasdr` | HydraSDR backend; async WebUSB support on `wasm32-unknown-unknown`. |
+| `pluto` | `driver=pluto` | Native PlutoSDR IIO USB discovery/context inspection; sync, async, and WebUSB. RF controls and streaming are not implemented yet. |
 | `rtlsdr` | `driver=rtlsdr` | RTL-SDR backend using `rtlsdr-nusb`; native sync/async and WebUSB support. |
 | `uhd` | `driver=uhd` | USRP B2xx channel-zero RX using `uhd-rs`; native sync/async and WebUSB support. |
 | `smol` / `tokio` | n/a | Pick one for async `nusb` runtime integration. |
@@ -50,17 +51,52 @@ libbladerf-rs resolves nusb's blocking USB operations through the selected
 runtime. WebAssembly uses WebUSB and needs only the corresponding driver
 feature.
 
+## PlutoSDR
+
+The `pluto` backend uses the unpublished Rust `plutosdr-rs` driver through a
+development path dependency. Keep its checkout at `../plutosdr-rs` relative to
+Seify. Cargo needs this sibling checkout even when `pluto` is disabled; builds,
+including CI, must supply it until the dependency can use a published version.
+No libiio, libusb, SoapySDR, or USB Ethernet transport is involved in this backend.
+
+Enable `pluto` for `impls::Pluto`, `pluto,smol` or `pluto,tokio` for native
+`impls::AsyncPluto`, or just `pluto` for WebUSB. Driver aliases are `pluto`,
+`plutosdr`, and `adalm-pluto`. `serial` preserves its exact USB spelling and
+leading zeros; `index` takes precedence when both are present.
+
+```sh
+cargo run --no-default-features --features pluto --example pluto_info
+# Explicit hardware test, including native async when smol is enabled:
+cargo test --no-default-features --features pluto,smol --test pluto_hardware -- --ignored --nocapture
+```
+
+`Registry` and `AsyncRegistry` can probe and open the device. `info()` includes
+USB identity, reported board/firmware, IIO context metadata, and an `iio_devices`
+JSON array. Typed backends expose the complete cached XML model through
+`context()`. The driver currently supports discovery and context inspection;
+the Seify backend exposes **zero RX/TX channels** and no RF control or streaming
+capabilities. Discovered IIO channels in `context()` are metadata, not available
+Seify streaming channels. `full_duplex=false` describes this backend's current
+capabilities, not the radio's physical duplex capabilities.
+
+Clones share one USB session. `device.as_inner().shutdown()` (await it for
+`AsyncPluto`) closes that session for every clone and permits reopening while
+old handles remain alive. The cached context and `info()` stay readable.
+Dropping the final handle invokes the underlying driver's best-effort cleanup.
+Browser interface release follows nusb's asynchronous drop behavior.
+
 ## WebUSB
 
-HackRF, HydraSDR, bladeRF 1, RTL-SDR, and UHD are available on `wasm32-unknown-unknown`. Only
-`AsyncHackRf`, `AsyncHydraSdr`, `AsyncBladeRf`, `AsyncRtlSdr`, `AsyncUhd`, `AsyncRegistry`, and the async
+HackRF, HydraSDR, bladeRF 1, PlutoSDR, RTL-SDR, and UHD are available on
+`wasm32-unknown-unknown`. Only `AsyncHackRf`, `AsyncHydraSdr`, `AsyncBladeRf`,
+`AsyncPluto`, `AsyncRtlSdr`, `AsyncUhd`, `AsyncRegistry`, and the async
 device/streamer APIs are connected to those drivers on wasm; their synchronous
 backends remain native-only.
 
 Build it with:
 
 ```bash
-cargo check --target wasm32-unknown-unknown --no-default-features --features hackrf,hydrasdr,bladerf1,rtlsdr,uhd
+cargo check --target wasm32-unknown-unknown --no-default-features --features hackrf,hydrasdr,bladerf1,pluto,rtlsdr,uhd
 ```
 
 WebUSB's `web-sys` bindings require `--cfg=web_sys_unstable_apis`; this

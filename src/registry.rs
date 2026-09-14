@@ -215,6 +215,9 @@ impl Default for Registry {
         #[cfg(all(feature = "hackrf", not(target_arch = "wasm32")))]
         registry.register::<crate::impls::HackRf>();
 
+        #[cfg(all(feature = "pluto", not(target_arch = "wasm32")))]
+        registry.register::<crate::impls::Pluto>();
+
         #[cfg(all(feature = "hydrasdr", not(target_arch = "wasm32")))]
         registry.register::<crate::impls::HydraSdr>();
 
@@ -263,6 +266,14 @@ pub(crate) use impl_typed_device_backend;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pluto_registration_matches_feature_and_target() {
+        assert_eq!(
+            Registry::default().contains(Driver::Pluto),
+            cfg!(all(feature = "pluto", not(target_arch = "wasm32")))
+        );
+    }
 
     #[test]
     fn uhd_registration_matches_feature_and_target() {
