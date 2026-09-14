@@ -30,6 +30,10 @@ required-features = ["rtlsdr"]
 name = "pluto_info"
 required-features = ["pluto"]
 
+[[example]]
+name = "pluto_rx"
+required-features = ["pluto"]
+
 [dependencies]
 futures = "0.3"
 hackrf-nusb = { version = "0.4.0", optional = true }

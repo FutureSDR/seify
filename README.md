@@ -38,7 +38,7 @@ Available features:
 | `bladerf1` | `driver=bladerf` | Full-duplex bladeRF 1 RX/TX backend; requires `smol` or `tokio` on native targets; async WebUSB support on `wasm32-unknown-unknown`. |
 | `hackrf` | `driver=hackrf` | Half-duplex HackRF RX/TX backend; async WebUSB support on `wasm32-unknown-unknown`. |
 | `hydrasdr` | `driver=hydrasdr` | HydraSDR backend; async WebUSB support on `wasm32-unknown-unknown`. |
-| `pluto` | `driver=pluto` | Native PlutoSDR IIO USB discovery/context inspection; sync, async, and WebUSB. RF controls and streaming are not implemented yet. |
+| `pluto` | `driver=pluto` | Native PlutoSDR IIO USB RX and configuration; sync, async, and WebUSB. TX is not implemented. |
 | `rtlsdr` | `driver=rtlsdr` | RTL-SDR backend using `rtlsdr-nusb`; native sync/async and WebUSB support. |
 | `uhd` | `driver=uhd` | USRP B2xx channel-zero RX using `uhd-rs`; native sync/async and WebUSB support. |
 | `smol` / `tokio` | n/a | Pick one for async `nusb` runtime integration. |
@@ -73,17 +73,41 @@ cargo test --no-default-features --features pluto,smol --test pluto_hardware -- 
 `Registry` and `AsyncRegistry` can probe and open the device. `info()` includes
 USB identity, reported board/firmware, IIO context metadata, and an `iio_devices`
 JSON array. Typed backends expose the complete cached XML model through
-`context()`. The driver currently supports discovery and context inspection;
-the Seify backend exposes **zero RX/TX channels** and no RF control or streaming
-capabilities. Discovered IIO channels in `context()` are metadata, not available
-Seify streaming channels. `full_duplex=false` describes this backend's current
-capabilities, not the radio's physical duplex capabilities.
+`context()`.
 
-Clones share one USB session. `device.as_inner().shutdown()` (await it for
-`AsyncPluto`) closes that session for every clone and permits reopening while
-old handles remain alive. The cached context and `info()` stay readable.
-Dropping the final handle invokes the underlying driver's best-effort cleanup.
-Browser interface release follows nusb's asynchronous drop behavior.
+One RX channel provides frequency, sample rate, RF bandwidth, gain, AGC, and
+antenna/port controls. All numeric ranges come from firmware. Setting gain
+selects manual mode; enabling Seify AGC selects slow attack. The standalone Pluto driver also exposes fast-attack/hybrid modes. The Seify gain element
+is `RX`, and the frequency component is `RF`. Port names are internal AD936x
+inputs; Pluto has one physical RX connector. TX and timed activation are unsupported.
+
+```rust,ignore
+let device = seify::Device::<seify::impls::Pluto>::from_args("driver=pluto")?;
+let channel = device.rx(0)?;
+channel.frequency().set(2_450_000_000.0)?;
+channel.sample_rate().set(2_500_000.0)?;
+channel.bandwidth().set(2_000_000.0)?;
+channel.gain().set(30.0)?;
+let mut rx = device.rx_streamer(&[0])?;
+rx.activate()?;
+```
+
+Run `cargo run --no-default-features --features pluto --example pluto_rx` for a
+complete capture example. Async channel creation and controls use `.await`.
+`rx_streamer_with_args` accepts `buffer_samples` (default 65,536 complex frames).
+The RX stream returns normalized `Complex32`, retains block tails across short
+reads, and uses a separate USB pipe from controls. Negative read timeouts use the
+driver's default three seconds; zero returns cached samples or Timeout. A failed
+or cancelled exchange requires deactivation before reactivation. No FIR loading,
+resampling, timestamps, or reliable sample-loss reporting is implemented.
+
+Clones share one control session. Stream handles own their RX pipe and may
+outlive device handles. Drop all streams before calling
+`device.as_inner().shutdown()` (await it for `AsyncPluto`); otherwise it returns
+Busy, including for stopped stream handles. Successful shutdown releases the
+shared control session while keeping cached metadata readable. Stop RX before
+retuning if samples from the previous configuration must be discarded.
+Browser cleanup is asynchronous; explicit deactivation is preferred.
 
 ## WebUSB
 

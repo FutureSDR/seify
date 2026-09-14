@@ -6,6 +6,7 @@ use crate::Error;
     all(feature = "aaronia_http", not(target_arch = "wasm32")),
     all(feature = "bladerf1", not(target_arch = "wasm32")),
     feature = "hackrf",
+    feature = "pluto",
     feature = "hydrasdr",
     feature = "rtlsdr",
     feature = "uhd",

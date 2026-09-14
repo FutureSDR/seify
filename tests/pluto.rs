@@ -70,6 +70,17 @@ fn sync_invalid_arguments_fail_without_usb() {
     ));
     fn send_sync<T: Send + Sync>() {}
     send_sync::<seify::impls::Pluto>();
+    fn capabilities<
+        T: seify::RxDevice
+            + seify::GainControl
+            + seify::AgcControl
+            + seify::FrequencyControl
+            + seify::SampleRateControl
+            + seify::BandwidthControl
+            + seify::AntennaControl,
+    >() {
+    }
+    capabilities::<seify::impls::Pluto>();
 }
 
 #[test]
@@ -83,6 +94,17 @@ fn async_invalid_arguments_fail_without_usb_and_futures_are_send() {
     fn send<T: Send>(_: T) {}
     fn send_sync<T: Send + Sync>() {}
     send_sync::<AsyncPluto>();
+    fn capabilities<
+        T: seify::AsyncRxDevice
+            + seify::AsyncGainControl
+            + seify::AsyncAgcControl
+            + seify::AsyncFrequencyControl
+            + seify::AsyncSampleRateControl
+            + seify::AsyncBandwidthControl
+            + seify::AsyncAntennaControl,
+    >() {
+    }
+    capabilities::<AsyncPluto>();
     send(AsyncPluto::open("driver=pluto"));
     futures::executor::block_on(async {
         assert!(matches!(

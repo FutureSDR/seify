@@ -448,7 +448,7 @@ pub enum Driver {
     HackRf,
     /// HydraSDR backend.
     HydraSdr,
-    /// Native IIO-over-USB PlutoSDR discovery and context backend.
+    /// Native IIO-over-USB PlutoSDR RX and configuration backend.
     Pluto,
     /// RTL-SDR backend.
     RtlSdr,

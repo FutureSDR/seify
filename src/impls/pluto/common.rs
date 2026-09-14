@@ -1,7 +1,7 @@
 use plutosdr::{Device, DeviceDescriptor, ErrorKind};
 
 use super::IioContext;
-use crate::{Args, Capability, Driver, Error};
+use crate::{Args, Capability, Direction, Driver, Error, Range, RangeItem};
 
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum Selector {
@@ -104,7 +104,7 @@ impl Metadata {
 fn context_args(context: &IioContext) -> Result<Args, Error> {
     let mut args = Args::new();
     args.set("transport", "usb");
-    args.set("support", "context-only");
+    args.set("support", "rx");
     args.set("iio_device_count", context.devices.len().to_string());
     if let Some(description) = &context.description {
         args.set("description", description.clone());
@@ -133,6 +133,12 @@ fn context_args(context: &IioContext) -> Result<Args, Error> {
 }
 
 pub(super) fn map_error(error: plutosdr::Error) -> Error {
+    match error {
+        plutosdr::Error::StreamInactive => return Error::StreamInactive,
+        plutosdr::Error::Remote(-110) => return Error::Timeout,
+        plutosdr::Error::Remote(-16) => return Error::Busy,
+        _ => {}
+    }
     match error.kind() {
         ErrorKind::NotFound => Error::DeviceNotFound,
         ErrorKind::Closed | ErrorKind::Disconnected => Error::DeviceDisconnected,
@@ -140,6 +146,55 @@ pub(super) fn map_error(error: plutosdr::Error) -> Error {
         ErrorKind::Timeout => Error::Timeout,
         ErrorKind::InvalidConfig => Error::invalid_argument("pluto", error.to_string()),
         _ => error.into(),
+    }
+}
+
+pub(super) fn check_channel(direction: Direction, channel: usize) -> Result<(), Error> {
+    let available = usize::from(direction == Direction::Rx);
+    if channel < available {
+        Ok(())
+    } else {
+        Err(Error::invalid_channel(direction, channel, available))
+    }
+}
+pub(super) fn range(value: plutosdr::ValueRange) -> Result<Range, Error> {
+    Range::new(vec![RangeItem::Step(value.min, value.max, value.step)])
+}
+pub(super) fn numeric(value: String) -> Result<f64, Error> {
+    value
+        .split_whitespace()
+        .next()
+        .and_then(|s| s.parse::<f64>().ok())
+        .filter(|n| n.is_finite())
+        .ok_or_else(|| Error::from(plutosdr::Error::Protocol("invalid numeric RX setting")))
+}
+pub(super) fn named(name: &str, expected: &str) -> Result<(), Error> {
+    if name.eq_ignore_ascii_case(expected) {
+        Ok(())
+    } else {
+        Err(Error::invalid_argument(
+            "name",
+            format!("expected {expected}"),
+        ))
+    }
+}
+pub(super) fn buffer_samples(channels: &[usize], args: &Args) -> Result<usize, Error> {
+    if channels != [0] {
+        return Err(Error::invalid_argument(
+            "channels",
+            "Pluto exposes only RX channel 0",
+        ));
+    }
+    if args.iter().any(|(key, _)| key != "buffer_samples") {
+        return Err(Error::invalid_argument(
+            "args",
+            "only buffer_samples is supported",
+        ));
+    }
+    match args.get::<usize>("buffer_samples") {
+        Ok(samples) => Ok(samples),
+        Err(Error::MissingArgument { .. }) => Ok(plutosdr::DEFAULT_RX_BUFFER_SAMPLES),
+        Err(error) => Err(error),
     }
 }
 
@@ -213,8 +268,41 @@ mod tests {
             Error::DeviceNotFound
         ));
         assert!(matches!(
+            map_error(plutosdr::Error::Remote(-110)),
+            Error::Timeout
+        ));
+        assert!(matches!(
+            map_error(plutosdr::Error::Remote(-16)),
+            Error::Busy
+        ));
+        assert!(matches!(
             map_error(plutosdr::Error::Remote(-22)),
             Error::Driver(crate::DriverError::Pluto(plutosdr::Error::Remote(-22)))
         ));
+    }
+    #[test]
+    fn rx_controls_validate_channel_names_and_stream_arguments() {
+        assert!(check_channel(Direction::Rx, 0).is_ok());
+        assert!(matches!(
+            check_channel(Direction::Rx, 1),
+            Err(Error::InvalidChannel { available: 1, .. })
+        ));
+        assert!(matches!(
+            check_channel(Direction::Tx, 0),
+            Err(Error::InvalidChannel { available: 0, .. })
+        ));
+        assert!(named("rf", "RF").is_ok());
+        assert!(named("IF", "RF").is_err());
+        assert!(buffer_samples(&[], &Args::new()).is_err());
+        assert!(buffer_samples(&[0, 1], &Args::new()).is_err());
+        assert!(buffer_samples(&[0], &Args::from("unknown=1").unwrap()).is_err());
+        assert!(buffer_samples(&[0], &Args::from("buffer_samples=bad").unwrap()).is_err());
+        assert_eq!(
+            buffer_samples(&[0], &Args::from("buffer_samples=4096").unwrap()).unwrap(),
+            4096
+        );
+        assert_eq!(numeric("-3.000000 dB".into()).unwrap(), -3.0);
+        assert!(numeric("NaN".into()).is_err());
+        assert!(numeric("bad".into()).is_err());
     }
 }

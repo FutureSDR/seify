@@ -47,7 +47,7 @@ pub use hackrf::AsyncHackRf;
 #[cfg(all(feature = "hackrf", not(target_arch = "wasm32")))]
 pub use hackrf::HackRf;
 
-/// Native IIO-over-USB PlutoSDR discovery and context backend.
+/// Native IIO-over-USB PlutoSDR RX and configuration backend.
 #[cfg(feature = "pluto")]
 pub mod pluto;
 #[cfg(all(
