@@ -13,9 +13,10 @@
 //! `bladerf1`, `aaronia_http`, and `dummy`.
 //! Async applications that use `nusb`-based drivers on native targets should
 //! enable exactly one of `smol` or `tokio` for runtime integration. For example,
-//! native HackRF and HydraSDR async support combines the driver feature with
-//! either runtime. On `wasm32-unknown-unknown`, both drivers use WebUSB without
-//! a runtime feature and only their async Seify backends are available. A
+//! native HackRF, HydraSDR and bladeRF 1 async support combines the driver
+//! feature with either runtime. On `wasm32-unknown-unknown`, these drivers use
+//! WebUSB without a runtime feature and only their async Seify backends are
+//! available. A
 //! worker-based WebUSB application should call
 //! `AsyncRegistry::request_permission` from a browser-window user gesture, then
 //! probe or open the authorized device inside its worker.

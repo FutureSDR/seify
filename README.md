@@ -35,7 +35,7 @@ Available features:
 | `dummy` | `driver=dummy` | Driver for unit tests. |
 | `soapy` | `driver=soapy` | SoapySDR backend. Enabled by default. Requires SoapySDR system libraries. |
 | `aaronia_http` | `driver=aaronia_http` | Aaronia HTTP backend. |
-| `bladerf1` | `driver=bladerf` | bladeRF 1 backend. |
+| `bladerf1` | `driver=bladerf` | Full-duplex bladeRF 1 RX/TX backend; async WebUSB support on `wasm32-unknown-unknown`. |
 | `hackrf` | `driver=hackrf` | Half-duplex HackRF RX/TX backend; async WebUSB support on `wasm32-unknown-unknown`. |
 | `hydrasdr` | `driver=hydrasdr` | HydraSDR backend; async WebUSB support on `wasm32-unknown-unknown`. |
 | `rtlsdr` | `driver=rtlsdr` | RTL-SDR backend. |
@@ -43,26 +43,26 @@ Available features:
 
 For native async use with `nusb`-based drivers, enable exactly one of `smol` or
 `tokio`. For example, native HackRF async support is enabled with `hackrf,smol`
-or `hackrf,tokio`. WebAssembly uses WebUSB and needs only the corresponding
-driver feature.
+or `hackrf,tokio`, and bladeRF 1 with `bladerf1,smol` or `bladerf1,tokio`.
+WebAssembly uses WebUSB and needs only the corresponding driver feature.
 
 ## WebUSB
 
-HackRF and HydraSDR are available on `wasm32-unknown-unknown`. Only `AsyncHackRf`,
-`AsyncHydraSdr`, `AsyncRegistry`, and the async device/streamer APIs are
-connected to those drivers on wasm; their synchronous backends remain
-native-only.
+HackRF, HydraSDR and bladeRF 1 are available on `wasm32-unknown-unknown`. Only
+`AsyncHackRf`, `AsyncHydraSdr`, `AsyncBladeRf`, `AsyncRegistry`, and the async
+device/streamer APIs are connected to those drivers on wasm; their synchronous
+backends remain native-only.
 
 Build it with:
 
 ```bash
-cargo check --target wasm32-unknown-unknown --no-default-features --features hackrf,hydrasdr
+cargo check --target wasm32-unknown-unknown --no-default-features --features hackrf,hydrasdr,bladerf1
 ```
 
 WebUSB's `web-sys` bindings require `--cfg=web_sys_unstable_apis`; this
 repository supplies it for `wasm32-unknown-unknown` in `.cargo/config.toml`.
 Applications consuming Seify as a dependency must add the same target setting
-to their own Cargo configuration. A browser only probes HydraSDRs already
+to their own Cargo configuration. A browser only probes devices already
 authorized for the page. Call `AsyncRegistry::request_permission` from a browser
 user gesture, then probe or open the authorized device in the window or a Web
 Worker. Without a `driver` argument, the chooser includes devices supported by

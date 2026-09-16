@@ -6,8 +6,13 @@ pub mod aaronia_http;
 pub use aaronia_http::AaroniaHttp;
 
 /// bladeRF 1 backend.
-#[cfg(all(feature = "bladerf1", not(target_arch = "wasm32")))]
+#[cfg(feature = "bladerf1")]
 pub mod bladerf1;
+#[cfg(all(
+    feature = "bladerf1",
+    any(target_arch = "wasm32", feature = "smol", feature = "tokio")
+))]
+pub use bladerf1::AsyncBladeRf;
 #[cfg(all(feature = "bladerf1", not(target_arch = "wasm32")))]
 pub use bladerf1::BladeRf;
 
