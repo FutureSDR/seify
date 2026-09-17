@@ -34,6 +34,7 @@ pub(super) fn bladerf_err(e: libbladerf_rs::Error) -> Error {
             Error::unsupported_reason(Capability::DriverOperation, reason)
         }
         libbladerf_rs::Error::StreamClosed => Error::StreamClosed,
+        libbladerf_rs::Error::StreamNotStarted => Error::StreamInactive,
         libbladerf_rs::Error::WouldBlock => Error::Timeout,
         e => Error::Driver(DriverError::Other(e.to_string())),
     }
