@@ -15,8 +15,9 @@ and `src/impls/hackrf/`, so FutureSDR's `Source`/`Sink` and
 * One API: every I/O method returns `impl MaybeFuture<Output = Result<T>>`.
   Sync adapter → `.wait()`, async adapter → `.await`
   (`use std::future::IntoFuture` not even needed; `.await` works directly).
-* No runtime feature to forward. seify's `smol`/`tokio` features stay as they
-  are; libbladerf-rs's async path works under either, and on wasm.
+* libbladerf-rs mirrors nusb's `smol`/`tokio` features (smol is its default);
+  seify forwards them exactly as for hackrf-nusb and hydrasdr-rs
+  (`libbladerf-rs?/smol`, `libbladerf-rs?/tokio`).
 * Streams own their USB endpoint and buffer pool. `read`/`get_buffer`/
   `submit`/`recycle` never touch the device. Only `build`, `start`, `stop`,
   `close` need `&mut RfLinkSession` (i.e. the device). Awaited
@@ -149,8 +150,8 @@ pub struct AsyncBladeRfRxStreamer {
 
 * `Cargo.toml`: move `libbladerf-rs` out of the `cfg(not(wasm32))` table
   into `[dependencies]` (it compiles for wasm now). Keep the local `path`
-  during development; switch to `version = "0.5"` for release. No feature
-  forwarding needed.
+  during development; switch to `version = "0.5"` for release. Forward
+  `smol`/`tokio` like for the other nusb drivers.
 * `src/impls/mod.rs`: `pub mod bladerf1` under `feature = "bladerf1"`;
   re-export `BladeRf` under `not(wasm32)` and `AsyncBladeRf` under
   `any(wasm32, smol, tokio)` (same shape as hackrf/hydrasdr).

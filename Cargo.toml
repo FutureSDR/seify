@@ -16,9 +16,9 @@ dummy = []
 hackrf = ["dep:hackrf-nusb"]
 hydrasdr = ["dep:hydrasdr-rs"]
 rtlsdr = ["dep:seify-rtlsdr"]
-smol = ["dep:async-io", "hackrf-nusb?/smol", "hydrasdr-rs?/smol"]
+smol = ["dep:async-io", "hackrf-nusb?/smol", "hydrasdr-rs?/smol", "libbladerf-rs?/smol"]
 soapy = ["dep:soapysdr"]
-tokio = ["dep:tokio", "hackrf-nusb?/tokio", "hydrasdr-rs?/tokio"]
+tokio = ["dep:tokio", "hackrf-nusb?/tokio", "hydrasdr-rs?/tokio", "libbladerf-rs?/tokio"]
 
 [[example]]
 name = "rx_typed"
