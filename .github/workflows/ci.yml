@@ -67,7 +67,6 @@ jobs:
       fail-fast: false
       matrix:
         features:
-          - bladerf1
           - bladerf1,smol
           - bladerf1,tokio
     steps:

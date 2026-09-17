@@ -468,7 +468,7 @@ mod ordering_tests {
 
 #[cfg(all(
     test,
-    any(feature = "hackrf", feature = "hydrasdr", feature = "bladerf1"),
+    any(feature = "hackrf", feature = "hydrasdr"),
     not(any(feature = "smol", feature = "tokio")),
     not(target_arch = "wasm32")
 ))]
@@ -492,27 +492,6 @@ mod tests {
                 registry.open_args("driver=hackrf").await,
                 Err(Error::DriverFeatureNotEnabled {
                     driver: Driver::HackRf
-                })
-            ));
-        });
-    }
-
-    #[test]
-    #[cfg(feature = "bladerf1")]
-    fn async_registry_reports_disabled_bladerf_without_runtime_feature() {
-        block_on(async {
-            let registry = AsyncRegistry::default();
-
-            assert!(matches!(
-                registry.probe("driver=bladerf").await,
-                Err(Error::DriverFeatureNotEnabled {
-                    driver: Driver::BladeRf
-                })
-            ));
-            assert!(matches!(
-                registry.open_args("driver=bladerf").await,
-                Err(Error::DriverFeatureNotEnabled {
-                    driver: Driver::BladeRf
                 })
             ));
         });

@@ -15,9 +15,12 @@ and `src/impls/hackrf/`, so FutureSDR's `Source`/`Sink` and
 * One API: every I/O method returns `impl MaybeFuture<Output = Result<T>>`.
   Sync adapter → `.wait()`, async adapter → `.await`
   (`use std::future::IntoFuture` not even needed; `.await` works directly).
-* libbladerf-rs mirrors nusb's `smol`/`tokio` features (smol is its default);
-  seify forwards them exactly as for hackrf-nusb and hydrasdr-rs
-  (`libbladerf-rs?/smol`, `libbladerf-rs?/tokio`).
+* libbladerf-rs mirrors nusb's `smol`/`tokio` features; seify depends on it
+  with `default-features = false` and forwards its own `smol`/`tokio` to it,
+  so exactly one nusb integration is selected. `bladerf1` without either is a
+  compile error on native (seify-level `compile_error!` in
+  `impls/bladerf1/mod.rs`); FutureSDR's `bladerf1` feature must therefore add
+  `seify/smol` (or `seify/tokio`) like its `hydrasdr` feature does.
 * Streams own their USB endpoint and buffer pool. `read`/`get_buffer`/
   `submit`/`recycle` never touch the device. Only `build`, `start`, `stop`,
   `close` need `&mut RfLinkSession` (i.e. the device). Awaited

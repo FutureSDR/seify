@@ -35,7 +35,7 @@ Available features:
 | `dummy` | `driver=dummy` | Driver for unit tests. |
 | `soapy` | `driver=soapy` | SoapySDR backend. Enabled by default. Requires SoapySDR system libraries. |
 | `aaronia_http` | `driver=aaronia_http` | Aaronia HTTP backend. |
-| `bladerf1` | `driver=bladerf` | Full-duplex bladeRF 1 RX/TX backend; async WebUSB support on `wasm32-unknown-unknown`. |
+| `bladerf1` | `driver=bladerf` | Full-duplex bladeRF 1 RX/TX backend; requires `smol` or `tokio` on native targets; async WebUSB support on `wasm32-unknown-unknown`. |
 | `hackrf` | `driver=hackrf` | Half-duplex HackRF RX/TX backend; async WebUSB support on `wasm32-unknown-unknown`. |
 | `hydrasdr` | `driver=hydrasdr` | HydraSDR backend; async WebUSB support on `wasm32-unknown-unknown`. |
 | `rtlsdr` | `driver=rtlsdr` | RTL-SDR backend. |
@@ -44,7 +44,10 @@ Available features:
 For native async use with `nusb`-based drivers, enable exactly one of `smol` or
 `tokio`. For example, native HackRF async support is enabled with `hackrf,smol`
 or `hackrf,tokio`, and bladeRF 1 with `bladerf1,smol` or `bladerf1,tokio`.
-WebAssembly uses WebUSB and needs only the corresponding driver feature.
+The bladeRF 1 backend needs one of the two even for synchronous use, because
+libbladerf-rs resolves nusb's blocking USB operations through the selected
+runtime. WebAssembly uses WebUSB and needs only the corresponding driver
+feature.
 
 ## WebUSB
 
