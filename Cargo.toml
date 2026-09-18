@@ -60,7 +60,6 @@ web-sys = { version = "0.3", features = [
 
 [dev-dependencies]
 clap = { version = "4.6", features = ["derive"] }
-tokio = { version = "1", default-features = false, features = ["rt", "time"] }
 ctrlc = "3.5"
 env_logger = "0.11"
 gnuplot = "0.0.46"
