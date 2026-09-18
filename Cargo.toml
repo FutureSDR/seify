@@ -26,8 +26,8 @@ required-features = ["rtlsdr"]
 
 [dependencies]
 futures = "0.3"
-hackrf-nusb = { version = "0.3.0", optional = true }
-hydrasdr-rs = { version = "0.4.0", optional = true }
+hackrf-nusb = { version = "0.4.0", optional = true }
+hydrasdr-rs = { version = "0.5.0", optional = true }
 # TODO: switch to `version = "0.5"` once libbladerf-rs 0.5 is published.
 libbladerf-rs = { path = "../libbladerf-rs", optional = true, default-features = false, features = ["bladerf1", "xb100", "xb200", "xb300"] }
 log = "0.4"
