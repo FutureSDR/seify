@@ -33,8 +33,8 @@ jobs:
       - name: Test
         run: cargo test --all-targets --features=aaronia_http,rtlsdr,soapy
 
-  hydrasdr:
-    name: HydraSDR (${{ matrix.features }})
+  nusb-drivers:
+    name: nusb drivers (${{ matrix.features }})
     runs-on: ubuntu-latest
     env:
       RUST_BACKTRACE: full
@@ -43,32 +43,8 @@ jobs:
       matrix:
         features:
           - hydrasdr
-          - hydrasdr,smol
-          - hydrasdr,tokio
-    steps:
-      - uses: actions/checkout@v5
-
-      - uses: dtolnay/rust-toolchain@nightly
-        with:
-          components: clippy
-
-      - name: Clippy
-        run: cargo clippy --all-targets --no-default-features --features=${{ matrix.features }} -- -D warnings
-
-      - name: Test
-        run: cargo test --all-targets --no-default-features --features=${{ matrix.features }}
-
-  bladerf1:
-    name: bladeRF 1 (${{ matrix.features }})
-    runs-on: ubuntu-latest
-    env:
-      RUST_BACKTRACE: full
-    strategy:
-      fail-fast: false
-      matrix:
-        features:
-          - bladerf1,smol
-          - bladerf1,tokio
+          - hydrasdr,bladerf1,smol
+          - hydrasdr,bladerf1,tokio
     steps:
       - uses: actions/checkout@v5
 
