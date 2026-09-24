@@ -18,6 +18,49 @@ async fn read_samples(stream: &mut seify::DynAsyncRxStreamer) -> Result<(), Erro
     Ok(())
 }
 
+#[cfg(target_os = "linux")]
+async fn exercise_owned_fd() -> Result<(), Box<dyn std::error::Error>> {
+    let info = libbladerf_rs::bladerf1::BladeRf1::list_bladerf1()
+        .await?
+        .next()
+        .ok_or(Error::DeviceNotFound)?;
+    let path = format!(
+        "/dev/bus/usb/{:0>3}/{:03}",
+        info.bus_id(),
+        info.device_address()
+    );
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(path)?;
+    let backend = seify::impls::AsyncBladeRf::from_fd(file.into()).await?;
+    let device = seify::DynAsyncDevice::from_impl(backend);
+    assert_eq!(device.id().await?, info.serial_number().unwrap());
+    let mut stream = device.rx(0).await?.streamer().await?;
+    stream.activate().await?;
+    read_samples(&mut stream).await?;
+    stream.deactivate().await?;
+    drop(stream);
+    device.info().await?;
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+#[ignore = "requires an attached bladeRF 1"]
+fn async_bladerf_owned_fd() -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(feature = "smol")]
+    futures::executor::block_on(exercise_owned_fd())?;
+
+    #[cfg(all(not(feature = "smol"), feature = "tokio"))]
+    tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .build()?
+        .block_on(exercise_owned_fd())?;
+
+    Ok(())
+}
+
 async fn exercise_lifecycle() -> Result<(), Error> {
     let registry = AsyncRegistry::default();
     let descriptors = registry.probe("driver=bladerf").await?;

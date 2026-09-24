@@ -5,6 +5,36 @@ use seify::{Capability, Error, Registry, RxStreamer, TxStreamer};
 
 const TIMEOUT_US: i64 = 2_000_000;
 
+#[cfg(target_os = "linux")]
+#[test]
+#[ignore = "requires an attached bladeRF 1"]
+fn sync_bladerf_owned_fd() -> Result<(), Box<dyn std::error::Error>> {
+    use libbladerf_rs::MaybeFuture;
+
+    let info = libbladerf_rs::bladerf1::BladeRf1::list_bladerf1()
+        .wait()?
+        .next()
+        .ok_or(Error::DeviceNotFound)?;
+    let path = format!(
+        "/dev/bus/usb/{:0>3}/{:03}",
+        info.bus_id(),
+        info.device_address()
+    );
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(path)?;
+    let backend = seify::impls::BladeRf::from_fd(file.into())?;
+    let device = seify::DynDevice::from_impl(backend);
+    assert_eq!(device.id()?, info.serial_number().unwrap());
+    let mut stream = device.rx(0)?.streamer()?;
+    let mut samples = [Complex32::default(); 8192];
+    stream.activate()?;
+    assert!(stream.read(&mut [&mut samples], TIMEOUT_US)? > 0);
+    stream.deactivate()?;
+    Ok(())
+}
+
 #[test]
 #[ignore = "requires an attached bladeRF 1"]
 fn sync_bladerf_lifecycle() -> Result<(), Error> {

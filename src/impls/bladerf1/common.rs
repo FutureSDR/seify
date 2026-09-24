@@ -1,4 +1,6 @@
-use crate::{Args, Capability, Direction, DriverError, Error, Range, RangeItem};
+#[cfg(not(target_os = "android"))]
+use crate::Args;
+use crate::{Capability, Direction, DriverError, Error, Range, RangeItem};
 use libbladerf_rs::bladerf1::hardware::lms6002d::gain::GainStage;
 use libbladerf_rs::bladerf1::{RfLinkSession, SampleFormat};
 use libbladerf_rs::channel::Channel;
@@ -67,6 +69,7 @@ pub(super) fn bladerf_err(e: libbladerf_rs::Error) -> Error {
 
 /// How `open()` picks a device, derived from [`Args`].
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg(not(target_os = "android"))]
 pub(super) enum DeviceSelector {
     First,
     Serial(String),
@@ -76,6 +79,7 @@ pub(super) enum DeviceSelector {
     Fd(i32),
 }
 
+#[cfg(not(target_os = "android"))]
 pub(super) fn device_selector(args: &Args) -> Result<DeviceSelector, Error> {
     #[cfg(target_os = "linux")]
     match args.get::<i32>("fd") {
@@ -109,6 +113,7 @@ pub(super) fn device_selector(args: &Args) -> Result<DeviceSelector, Error> {
     }
 }
 
+#[cfg(not(target_os = "android"))]
 pub(super) fn probe_descriptor(info: &libbladerf_rs::nusb::DeviceInfo) -> Args {
     let mut args = Args::default();
     args.set("driver", "bladerf");
@@ -123,6 +128,7 @@ pub(super) fn probe_descriptor(info: &libbladerf_rs::nusb::DeviceInfo) -> Args {
     args
 }
 
+#[cfg(not(target_os = "android"))]
 pub(super) fn filter_descriptors(selector: &DeviceSelector, descriptors: Vec<Args>) -> Vec<Args> {
     descriptors
         .into_iter()
@@ -148,6 +154,24 @@ pub(super) fn check_channels(channels: &[usize], direction: &str) -> Result<(), 
         return Err(invalid_argument());
     }
     Ok(())
+}
+
+pub(super) fn check_buffer_count(actual: usize) -> Result<(), Error> {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        crate::streamer::expect_buffer_count(actual, 1)
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        if actual == 1 {
+            Ok(())
+        } else {
+            Err(Error::invalid_argument(
+                "buffers",
+                format!("expected 1 stream buffer(s), got {actual}"),
+            ))
+        }
+    }
 }
 
 fn convert_sc16q11_to_complex32(src: &[u8], dst: &mut [Complex32]) -> usize {
@@ -457,6 +481,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(target_os = "android"))]
     fn device_selector_defaults_to_first_device() {
         assert_eq!(
             device_selector(&Args::default()).unwrap(),
@@ -465,6 +490,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(target_os = "android"))]
     fn device_selector_reads_serial() {
         let args: Args = "driver=bladerf, serial=abc123".try_into().unwrap();
         assert_eq!(
@@ -473,7 +499,7 @@ mod tests {
         );
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(any(target_arch = "wasm32", target_os = "android")))]
     #[test]
     fn device_selector_prefers_bus_address() {
         let args: Args = "driver=bladerf, serial=abc, bus_id=3, address=7"
@@ -488,6 +514,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(target_os = "android"))]
     fn filter_descriptors_by_serial() {
         let a: Args = "driver=bladerf, serial=one".try_into().unwrap();
         let b: Args = "driver=bladerf, serial=two".try_into().unwrap();

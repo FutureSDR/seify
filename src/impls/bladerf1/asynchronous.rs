@@ -171,6 +171,7 @@ impl AsyncBladeRf {
     /// On WebUSB only devices the page has already been granted are listed;
     /// call [`AsyncRegistry::request_permission`](crate::AsyncRegistry::request_permission)
     /// from a user gesture first.
+    #[cfg(not(target_os = "android"))]
     pub async fn probe(args: &Args) -> Result<Vec<Args>, Error> {
         let selector = device_selector(args)?;
         let descriptors = BladeRf1::list_bladerf1()
@@ -181,12 +182,54 @@ impl AsyncBladeRf {
         Ok(filter_descriptors(&selector, descriptors))
     }
 
+    /// Returns no descriptors on Android, which requires [`Self::from_fd`].
+    #[cfg(target_os = "android")]
+    pub async fn probe(_args: &Args) -> Result<Vec<Args>, Error> {
+        Ok(Vec::new())
+    }
+
     /// Open a bladeRF 1 device from arguments asynchronously.
+    #[cfg(not(target_os = "android"))]
     pub async fn open<A: TryInto<Args>>(args: A) -> Result<Self, Error> {
         let args: Args = args
             .try_into()
             .map_err(|_| Error::invalid_argument("args", "failed to convert args"))?;
-        let mut dev = open_selected_device(device_selector(&args)?).await?;
+        Self::init_and_wrap(open_selected_device(device_selector(&args)?).await?).await
+    }
+
+    /// Reports that Android opening requires [`Self::from_fd`].
+    ///
+    /// # Errors
+    /// Returns an unsupported-operation error because Android cannot enumerate USB devices.
+    #[cfg(target_os = "android")]
+    pub async fn open<A: TryInto<Args>>(_args: A) -> Result<Self, Error> {
+        Err(Error::unsupported_reason(
+            Capability::DriverOperation,
+            "Android requires AsyncBladeRf::from_fd with an owned USB connection",
+        ))
+    }
+
+    /// Opens a bladeRF 1 asynchronously from an owned USB file descriptor.
+    ///
+    /// Android applications obtain USB permission before calling this constructor.
+    /// Duplicate the descriptor first if Java retains its connection ownership.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// # async fn open(fd: std::os::fd::OwnedFd) -> Result<seify::DynAsyncDevice, seify::Error> {
+    /// let backend = seify::impls::AsyncBladeRf::from_fd(fd).await?;
+    /// Ok(seify::DynAsyncDevice::from_impl(backend))
+    /// # }
+    /// ```
+    ///
+    /// # Errors
+    /// Propagates USB opening, interface claiming, and initialization failures.
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    pub async fn from_fd(fd: std::os::fd::OwnedFd) -> Result<Self, Error> {
+        Self::init_and_wrap(BladeRf1::from_fd(fd).await.map_err(bladerf_err)?).await
+    }
+
+    async fn init_and_wrap(mut dev: BladeRf1) -> Result<Self, Error> {
         dev.rf_link_session()
             .await
             .map_err(bladerf_err)?
@@ -209,6 +252,7 @@ impl AsyncBladeRf {
     }
 }
 
+#[cfg(not(target_os = "android"))]
 async fn open_selected_device(selector: DeviceSelector) -> Result<BladeRf1, Error> {
     match selector {
         #[cfg(target_os = "linux")]
@@ -879,7 +923,7 @@ impl crate::AsyncRxStreamer for AsyncBladeRfRxStreamer {
         buffers: &'a mut [&'a mut [Complex32]],
         timeout_us: i64,
     ) -> Result<usize, Error> {
-        crate::streamer::expect_buffer_count(buffers.len(), 1)?;
+        check_buffer_count(buffers.len())?;
         let out = &mut buffers[0];
         if out.is_empty() {
             return Ok(0);
@@ -965,7 +1009,7 @@ impl crate::AsyncTxStreamer for AsyncBladeRfTxStreamer {
         _end_burst: bool,
         timeout_us: i64,
     ) -> Result<usize, Error> {
-        crate::streamer::expect_buffer_count(buffers.len(), 1)?;
+        check_buffer_count(buffers.len())?;
         if buffers[0].is_empty() {
             return Ok(0);
         }

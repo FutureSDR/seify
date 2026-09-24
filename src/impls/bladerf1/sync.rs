@@ -33,6 +33,7 @@ impl BladeRf {
     }
 
     /// Return descriptors for detected bladeRF 1 devices.
+    #[cfg(not(target_os = "android"))]
     pub fn probe(args: &Args) -> Result<Vec<Args>, Error> {
         let selector = device_selector(args)?;
         let descriptors = BladeRf1::list_bladerf1()
@@ -43,7 +44,14 @@ impl BladeRf {
         Ok(filter_descriptors(&selector, descriptors))
     }
 
+    /// Returns no descriptors on Android, which requires [`Self::from_fd`].
+    #[cfg(target_os = "android")]
+    pub fn probe(_args: &Args) -> Result<Vec<Args>, Error> {
+        Ok(Vec::new())
+    }
+
     /// Open a bladeRF 1 device from arguments.
+    #[cfg(not(target_os = "android"))]
     pub fn open<A: TryInto<Args>>(args: A) -> Result<Self, Error> {
         let args: Args = args
             .try_into()
@@ -66,6 +74,38 @@ impl BladeRf {
         }
         .map_err(bladerf_err)?;
         Self::init_and_wrap(bladerf)
+    }
+
+    /// Reports that Android opening requires [`Self::from_fd`].
+    ///
+    /// # Errors
+    /// Returns an unsupported-operation error because Android cannot enumerate USB devices.
+    #[cfg(target_os = "android")]
+    pub fn open<A: TryInto<Args>>(_args: A) -> Result<Self, Error> {
+        Err(Error::unsupported_reason(
+            Capability::DriverOperation,
+            "Android requires BladeRf::from_fd with an owned USB connection",
+        ))
+    }
+
+    /// Opens a bladeRF 1 from an owned USB file descriptor.
+    ///
+    /// Android applications obtain USB permission before calling this constructor.
+    /// Duplicate the descriptor first if Java retains its connection ownership.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// # fn open(fd: std::os::fd::OwnedFd) -> Result<seify::DynDevice, seify::Error> {
+    /// let backend = seify::impls::BladeRf::from_fd(fd)?;
+    /// Ok(seify::DynDevice::from_impl(backend))
+    /// # }
+    /// ```
+    ///
+    /// # Errors
+    /// Propagates USB opening, interface claiming, and initialization failures.
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    pub fn from_fd(fd: std::os::fd::OwnedFd) -> Result<Self, Error> {
+        Self::init_and_wrap(BladeRf1::from_fd(fd).wait().map_err(bladerf_err)?)
     }
 
     /// Attach and enable a bladeRF expansion board.
