@@ -5,17 +5,16 @@ use crate::{
     TxDevice,
 };
 use libbladerf_rs::bladerf1::hardware::lms6002d::dc_calibration::DcCalModule;
-use libbladerf_rs::bladerf1::hardware::lms6002d::gain::GainStage;
 use libbladerf_rs::bladerf1::{
     BladeRf1, ExpansionBoard, GainDb, GainMode, RfLinkSession, RxStream, SampleFormat, TuningMode,
     TxStream,
 };
+use libbladerf_rs::Channel;
 use libbladerf_rs::MaybeFuture;
 use num_complex::Complex32;
 #[cfg(target_os = "linux")]
 use std::os::fd::{FromRawFd, OwnedFd};
 use std::sync::{Arc, Mutex};
-use std::thread::sleep;
 use std::time::Duration;
 
 /// bladeRF 1 device backend.
@@ -92,7 +91,6 @@ pub struct RxStreamer {
     streamer: Option<RxStream>,
     dev: Arc<Mutex<BladeRf1>>,
     converter: RxConverter,
-    started: bool,
 }
 
 /// bladeRF 1 transmit streamer.
@@ -100,7 +98,6 @@ pub struct TxStreamer {
     streamer: Option<TxStream>,
     dev: Arc<Mutex<BladeRf1>>,
     format: SampleFormat,
-    started: bool,
 }
 
 impl crate::RxStreamer for RxStreamer {
@@ -109,38 +106,37 @@ impl crate::RxStreamer for RxStreamer {
     }
 
     fn activate_at(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
-        if let Some(t) = time_ns {
-            sleep(Duration::from_nanos(t as u64));
-        }
-        if self.started {
-            return Ok(());
+        if time_ns.is_some() {
+            return Err(Error::unsupported(Capability::TimedActivation));
         }
         let mut dev = self.dev.lock().unwrap();
         let mut session = dev.rf_link_session().wait().map_err(bladerf_err)?;
-        self.streamer
+        match self
+            .streamer
             .as_mut()
             .ok_or(Error::StreamInactive)?
             .start(&mut session)
             .wait()
-            .map_err(bladerf_err)?;
-        self.started = true;
-        Ok(())
+        {
+            Ok(()) | Err(libbladerf_rs::Error::StreamAlreadyStarted) => Ok(()),
+            Err(error) => Err(bladerf_err(error)),
+        }
     }
 
     fn deactivate_at(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
-        if let Some(t) = time_ns {
-            sleep(Duration::from_nanos(t as u64));
+        if time_ns.is_some() {
+            return Err(Error::unsupported(Capability::TimedDeactivation));
         }
-        if !self.started {
-            return Ok(());
+        let streamer = self.streamer.as_mut().ok_or(Error::StreamClosed)?;
+        if let Some(buffer) = self.converter.take_pending() {
+            streamer.recycle(buffer);
         }
-        if let Some(streamer) = self.streamer.as_mut() {
-            let mut dev = self.dev.lock().unwrap();
-            let mut session = dev.rf_link_session().wait().map_err(bladerf_err)?;
-            streamer.stop(&mut session).wait().map_err(bladerf_err)?;
+        let mut dev = self.dev.lock().unwrap();
+        let mut session = dev.rf_link_session().wait().map_err(bladerf_err)?;
+        match streamer.stop(&mut session).wait() {
+            Ok(()) | Err(libbladerf_rs::Error::StreamNotStarted) => Ok(()),
+            Err(error) => Err(bladerf_err(error)),
         }
-        self.started = false;
-        Ok(())
     }
 
     fn read(&mut self, buffers: &mut [&mut [Complex32]], timeout_us: i64) -> Result<usize, Error> {
@@ -171,7 +167,10 @@ impl crate::RxStreamer for RxStreamer {
 
 impl Drop for RxStreamer {
     fn drop(&mut self) {
-        if let (true, Some(streamer)) = (self.started, self.streamer.as_mut()) {
+        if let Some(streamer) = self.streamer.as_mut() {
+            if let Some(buffer) = self.converter.take_pending() {
+                streamer.recycle(buffer);
+            }
             if let Ok(mut dev) = self.dev.lock() {
                 if let Ok(mut session) = dev.rf_link_session().wait() {
                     let _ = streamer.close(&mut session).wait();
@@ -187,38 +186,34 @@ impl crate::TxStreamer for TxStreamer {
     }
 
     fn activate_at(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
-        if let Some(t) = time_ns {
-            sleep(Duration::from_nanos(t as u64));
-        }
-        if self.started {
-            return Ok(());
+        if time_ns.is_some() {
+            return Err(Error::unsupported(Capability::TimedActivation));
         }
         let mut dev = self.dev.lock().unwrap();
         let mut session = dev.rf_link_session().wait().map_err(bladerf_err)?;
-        self.streamer
+        match self
+            .streamer
             .as_mut()
             .ok_or(Error::StreamInactive)?
             .start(&mut session)
             .wait()
-            .map_err(bladerf_err)?;
-        self.started = true;
-        Ok(())
+        {
+            Ok(()) | Err(libbladerf_rs::Error::StreamAlreadyStarted) => Ok(()),
+            Err(error) => Err(bladerf_err(error)),
+        }
     }
 
     fn deactivate_at(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
-        if let Some(t) = time_ns {
-            sleep(Duration::from_nanos(t as u64));
+        if time_ns.is_some() {
+            return Err(Error::unsupported(Capability::TimedDeactivation));
         }
-        if !self.started {
-            return Ok(());
+        let streamer = self.streamer.as_mut().ok_or(Error::StreamClosed)?;
+        let mut dev = self.dev.lock().unwrap();
+        let mut session = dev.rf_link_session().wait().map_err(bladerf_err)?;
+        match streamer.stop(&mut session).wait() {
+            Ok(()) | Err(libbladerf_rs::Error::StreamNotStarted) => Ok(()),
+            Err(error) => Err(bladerf_err(error)),
         }
-        if let Some(streamer) = self.streamer.as_mut() {
-            let mut dev = self.dev.lock().unwrap();
-            let mut session = dev.rf_link_session().wait().map_err(bladerf_err)?;
-            streamer.stop(&mut session).wait().map_err(bladerf_err)?;
-        }
-        self.started = false;
-        Ok(())
     }
 
     fn write(
@@ -282,7 +277,7 @@ impl crate::TxStreamer for TxStreamer {
 
 impl Drop for TxStreamer {
     fn drop(&mut self) {
-        if let (true, Some(streamer)) = (self.started, self.streamer.as_mut()) {
+        if let Some(streamer) = self.streamer.as_mut() {
             if let Ok(mut dev) = self.dev.lock() {
                 if let Ok(mut session) = dev.rf_link_session().wait() {
                     let _ = streamer.close(&mut session).wait();
@@ -345,18 +340,20 @@ impl BladeRf {
         Err(Error::unsupported(Capability::Antenna))
     }
 
-    fn agc_available(&self, _direction: Direction, channel: usize) -> Result<bool, Error> {
-        let mut dev = self.inner.lock().unwrap();
-        let session = dev.rf_link_session().wait().map_err(bladerf_err)?;
-        Ok(session.get_gain_modes(ch(channel)?).is_ok())
+    fn agc_available(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+        Ok(ch(direction, channel)? == Channel::Rx)
     }
 
     fn set_agc_enabled(
         &self,
-        _direction: Direction,
+        direction: Direction,
         channel: usize,
         agc: bool,
     ) -> Result<(), Error> {
+        let channel = ch(direction, channel)?;
+        if channel != Channel::Rx {
+            return Err(Error::unsupported(Capability::Agc));
+        }
         let mode = if agc {
             GainMode::Default
         } else {
@@ -365,61 +362,65 @@ impl BladeRf {
         let mut dev = self.inner.lock().unwrap();
         let mut session = dev.rf_link_session().wait().map_err(bladerf_err)?;
         session
-            .set_gain_mode(ch(channel)?, mode)
+            .set_gain_mode(channel, mode)
             .wait()
             .map_err(bladerf_err)
     }
 
-    fn agc_enabled(&self, _direction: Direction, _channel: usize) -> Result<bool, Error> {
+    fn agc_enabled(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+        if ch(direction, channel)? != Channel::Rx {
+            return Err(Error::unsupported(Capability::Agc));
+        }
         let mut dev = self.inner.lock().unwrap();
         let mut session = dev.rf_link_session().wait().map_err(bladerf_err)?;
-        Ok(session.get_gain_mode().wait().is_ok())
+        Ok(session.get_gain_mode().wait().map_err(bladerf_err)? == GainMode::Default)
     }
 
-    fn gain_elements(&self, _direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
-        Ok(RfLinkSession::get_gain_stages(ch(channel)?)
+    fn gain_elements(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
+        Ok(RfLinkSession::get_gain_stages(ch(direction, channel)?)
             .iter()
             .map(|s| <&str>::from(*s).to_string())
             .collect())
     }
 
-    fn set_gain(&self, _direction: Direction, channel: usize, gain: f64) -> Result<(), Error> {
-        let range = RfLinkSession::get_gain_range(ch(channel)?);
+    fn set_gain(&self, direction: Direction, channel: usize, gain: f64) -> Result<(), Error> {
+        let channel = ch(direction, channel)?;
+        let range = RfLinkSession::get_gain_range(channel);
         let min = range.min().unwrap_or(f64::MIN);
         let max = range.max().unwrap_or(f64::MAX);
         let clamped = gain.clamp(min, max);
         let mut dev = self.inner.lock().unwrap();
         let mut session = dev.rf_link_session().wait().map_err(bladerf_err)?;
         session
-            .set_gain(ch(channel)?, GainDb::from(clamped as i8))
+            .set_gain(channel, GainDb::from(clamped as i8))
             .wait()
             .map_err(bladerf_err)
     }
 
-    fn gain(&self, _direction: Direction, channel: usize) -> Result<Option<f64>, Error> {
+    fn gain(&self, direction: Direction, channel: usize) -> Result<Option<f64>, Error> {
         let mut dev = self.inner.lock().unwrap();
         let mut session = dev.rf_link_session().wait().map_err(bladerf_err)?;
         Ok(Some(
             session
-                .get_gain(ch(channel)?)
+                .get_gain(ch(direction, channel)?)
                 .wait()
                 .map_err(bladerf_err)?
                 .db() as f64,
         ))
     }
 
-    fn gain_range(&self, _direction: Direction, channel: usize) -> Result<Range, Error> {
-        Ok(RfLinkSession::get_gain_range(ch(channel)?).into())
+    fn gain_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
+        Ok(RfLinkSession::get_gain_range(ch(direction, channel)?).into())
     }
 
     fn set_gain_element(
         &self,
-        _direction: Direction,
-        _channel: usize,
+        direction: Direction,
+        channel: usize,
         name: &str,
         gain: f64,
     ) -> Result<(), Error> {
-        let stage = GainStage::try_from(name).map_err(|_| invalid_argument())?;
+        let stage = gain_stage(direction, channel, name)?;
         let range = RfLinkSession::get_gain_stage_range(stage);
         let min = range.min().unwrap_or(f64::MIN);
         let max = range.max().unwrap_or(f64::MAX);
@@ -434,11 +435,11 @@ impl BladeRf {
 
     fn gain_element(
         &self,
-        _direction: Direction,
-        _channel: usize,
+        direction: Direction,
+        channel: usize,
         name: &str,
     ) -> Result<Option<f64>, Error> {
-        let stage = GainStage::try_from(name).map_err(|_| invalid_argument())?;
+        let stage = gain_stage(direction, channel, name)?;
         let mut dev = self.inner.lock().unwrap();
         let mut session = dev.rf_link_session().wait().map_err(bladerf_err)?;
         Ok(Some(
@@ -452,11 +453,11 @@ impl BladeRf {
 
     fn gain_element_range(
         &self,
-        _direction: Direction,
-        _channel: usize,
+        direction: Direction,
+        channel: usize,
         name: &str,
     ) -> Result<Range, Error> {
-        let stage = GainStage::try_from(name).map_err(|_| invalid_argument())?;
+        let stage = gain_stage(direction, channel, name)?;
         Ok(RfLinkSession::get_gain_stage_range(stage).into())
     }
 
@@ -470,18 +471,18 @@ impl BladeRf {
             .into())
     }
 
-    fn frequency(&self, _direction: Direction, channel: usize) -> Result<f64, Error> {
+    fn frequency(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
         let mut dev = self.inner.lock().unwrap();
         let mut session = dev.rf_link_session().wait().map_err(bladerf_err)?;
         Ok(session
-            .get_frequency(ch(channel)?)
+            .get_frequency(ch(direction, channel)?)
             .wait()
             .map_err(bladerf_err)? as f64)
     }
 
     fn set_frequency(
         &self,
-        _direction: Direction,
+        direction: Direction,
         channel: usize,
         frequency: f64,
         _args: Args,
@@ -505,7 +506,7 @@ impl BladeRf {
             }
         }
         log::trace!("Setting frequency to {frequency}");
-        let ch = ch(channel)?;
+        let ch = ch(direction, channel)?;
         if session
             .set_frequency(ch, frequency as u64, TuningMode::Fpga)
             .wait()
@@ -556,24 +557,24 @@ impl BladeRf {
         Err(Error::unsupported(Capability::Frequency))
     }
 
-    fn sample_rate(&self, _direction: Direction, channel: usize) -> Result<f64, Error> {
+    fn sample_rate(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
         let mut dev = self.inner.lock().unwrap();
         let mut session = dev.rf_link_session().wait().map_err(bladerf_err)?;
         Ok(session
-            .get_sample_rate(ch(channel)?)
+            .get_sample_rate(ch(direction, channel)?)
             .wait()
             .map_err(bladerf_err)? as f64)
     }
 
     fn set_sample_rate(
         &self,
-        _direction: Direction,
+        direction: Direction,
         channel: usize,
         rate: f64,
     ) -> Result<(), Error> {
         let mut dev = self.inner.lock().unwrap();
         let mut session = dev.rf_link_session().wait().map_err(bladerf_err)?;
-        let ch = ch(channel)?;
+        let ch = ch(direction, channel)?;
         let actual = session
             .set_sample_rate(ch, rate as u32)
             .wait()
@@ -599,20 +600,20 @@ impl BladeRf {
         Ok(RfLinkSession::get_sample_rate_range().into())
     }
 
-    fn bandwidth(&self, _direction: Direction, channel: usize) -> Result<f64, Error> {
+    fn bandwidth(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
         let mut dev = self.inner.lock().unwrap();
         let mut session = dev.rf_link_session().wait().map_err(bladerf_err)?;
         Ok(session
-            .get_bandwidth(ch(channel)?)
+            .get_bandwidth(ch(direction, channel)?)
             .wait()
             .map_err(bladerf_err)? as f64)
     }
 
-    fn set_bandwidth(&self, _direction: Direction, channel: usize, bw: f64) -> Result<(), Error> {
+    fn set_bandwidth(&self, direction: Direction, channel: usize, bw: f64) -> Result<(), Error> {
         let mut dev = self.inner.lock().unwrap();
         let mut session = dev.rf_link_session().wait().map_err(bladerf_err)?;
         let actual = session
-            .set_bandwidth(ch(channel)?, bw as u32)
+            .set_bandwidth(ch(direction, channel)?, bw as u32)
             .wait()
             .map_err(bladerf_err)?;
         if actual != bw as u32 {
@@ -671,7 +672,6 @@ impl RxDevice for BladeRf {
             streamer: Some(streamer),
             dev: Arc::clone(&self.inner),
             converter: RxConverter::new(STREAM_FORMAT),
-            started: false,
         })
     }
 }
@@ -694,7 +694,6 @@ impl TxDevice for BladeRf {
             streamer: Some(streamer),
             dev: Arc::clone(&self.inner),
             format: STREAM_FORMAT,
-            started: false,
         })
     }
 }

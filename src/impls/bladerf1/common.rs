@@ -1,5 +1,6 @@
-use crate::{Args, Capability, DriverError, Error, Range, RangeItem};
-use libbladerf_rs::bladerf1::SampleFormat;
+use crate::{Args, Capability, Direction, DriverError, Error, Range, RangeItem};
+use libbladerf_rs::bladerf1::hardware::lms6002d::gain::GainStage;
+use libbladerf_rs::bladerf1::{RfLinkSession, SampleFormat};
 use libbladerf_rs::channel::Channel;
 use libbladerf_rs::range::{Range as BladeRfRange, RangeItem as BladeRfRangeItem};
 use libbladerf_rs::Buffer;
@@ -15,9 +16,33 @@ pub(super) const USB_PID: u16 = libbladerf_rs::bladerf1::BLADERF1_USB_PID;
 const INV_2048: f32 = 1.0 / 2048.0;
 const INV_128: f32 = 1.0 / 128.0;
 
-pub(super) fn ch(channel: usize) -> Result<Channel, Error> {
-    Channel::try_from(channel as u8)
-        .map_err(|_| Error::invalid_argument("channel", "invalid BladeRF channel"))
+pub(super) fn ch(direction: Direction, channel: usize) -> Result<Channel, Error> {
+    if channel != 0 {
+        return Err(Error::invalid_argument(
+            "channel",
+            "BladeRF1 has one channel per direction",
+        ));
+    }
+    Ok(match direction {
+        Direction::Rx => Channel::Rx,
+        Direction::Tx => Channel::Tx,
+    })
+}
+
+pub(super) fn gain_stage(
+    direction: Direction,
+    channel: usize,
+    name: &str,
+) -> Result<GainStage, Error> {
+    let channel = ch(direction, channel)?;
+    let stage = GainStage::try_from(name).map_err(|_| invalid_argument())?;
+    if !RfLinkSession::get_gain_stages(channel).contains(&stage) {
+        return Err(Error::invalid_argument(
+            "gain element",
+            "element is not available in this direction",
+        ));
+    }
+    Ok(stage)
 }
 
 pub(super) fn invalid_argument() -> Error {
@@ -250,6 +275,10 @@ impl RxConverter {
         }
     }
 
+    pub(super) fn take_pending(&mut self) -> Option<Buffer> {
+        self.pending.take().map(|(buffer, _)| buffer)
+    }
+
     /// Copies samples left over from a previous buffer into `out`.
     ///
     /// Returns the number of samples written and, if the buffer is now fully
@@ -326,6 +355,41 @@ impl From<BladeRfRange> for Range {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn channel_indices_are_scoped_to_the_direction() {
+        assert_eq!(ch(Direction::Rx, 0).unwrap(), Channel::Rx);
+        assert_eq!(ch(Direction::Tx, 0).unwrap(), Channel::Tx);
+        for index in [1, 2, 256, usize::MAX] {
+            for direction in [Direction::Rx, Direction::Tx] {
+                assert!(ch(direction, index).is_err());
+            }
+        }
+        for direction in [Direction::Rx, Direction::Tx] {
+            let other = if direction == Direction::Rx {
+                Direction::Tx
+            } else {
+                Direction::Rx
+            };
+            for &stage in RfLinkSession::get_gain_stages(ch(direction, 0).unwrap()) {
+                let name: &str = stage.into();
+                assert_eq!(gain_stage(direction, 0, name).unwrap(), stage);
+                assert!(gain_stage(other, 0, name).is_err());
+            }
+        }
+    }
+
+    #[test]
+    fn rx_restart_returns_the_partial_buffer_without_replaying_old_samples() {
+        let mut converter = RxConverter::new(SampleFormat::Sc16Q11);
+        let mut buffer = Buffer::new(16);
+        buffer.extend_from_slice(&[1u8; 16]);
+        let mut out = [Complex32::default(); 1];
+        assert!(converter.consume(buffer, &mut out).unwrap().1.is_none());
+        assert_eq!(&*converter.take_pending().unwrap(), &[1u8; 16]);
+        assert!(converter.take_pending().is_none());
+        assert_eq!(converter.drain_pending(&mut out).unwrap().0, 0);
+    }
 
     #[test]
     fn sc16q11_round_trip_full_scale() {

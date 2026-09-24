@@ -4,8 +4,9 @@
     not(target_arch = "wasm32")
 ))]
 
+use futures::FutureExt;
 use num_complex::Complex32;
-use seify::{AsyncRegistry, AsyncRxStreamer, AsyncTxStreamer, Error};
+use seify::{AsyncRegistry, AsyncRxStreamer, AsyncTxStreamer, Capability, Error};
 
 const TIMEOUT_US: i64 = 2_000_000;
 
@@ -33,16 +34,44 @@ async fn exercise_lifecycle() -> Result<(), Error> {
     assert!((rx.frequency().value().await? - 915e6).abs() < 1e3);
     rx.sample_rate().set(4e6).await?;
     assert!((rx.sample_rate().value().await? - 4e6).abs() < 1e3);
+    rx.agc().disable().await?;
+    assert!(!rx.agc().enabled().await?);
     rx.gain().set(30.0).await?;
     assert!((rx.gain().value().await?.unwrap() - 30.0).abs() <= 3.0);
     assert!(!rx.gain().elements().await?.is_empty());
     assert!(rx.bandwidth().value().await? > 0.0);
+    let rx_bandwidth = rx.bandwidth().value().await?;
+    tx.frequency().set(916e6).await?;
+    tx.sample_rate().set(2e6).await?;
+    tx.bandwidth().set(1.5e6).await?;
+    tx.gain().set(20.0).await?;
+    assert!((tx.frequency().value().await? - 916e6).abs() < 1e3);
+    assert!((tx.sample_rate().value().await? - 2e6).abs() < 1e3);
+    assert_eq!(tx.bandwidth().value().await?, 1.5e6);
+    assert_eq!(tx.gain().value().await?, Some(20.0));
+    assert!((rx.frequency().value().await? - 915e6).abs() < 1e3);
+    assert!((rx.sample_rate().value().await? - 4e6).abs() < 1e3);
+    assert_eq!(rx.bandwidth().value().await?, rx_bandwidth);
+    assert_eq!(rx.gain().value().await?, Some(30.0));
+    assert_ne!(rx.gain().elements().await?, tx.gain().elements().await?);
+    assert!(matches!(
+        tx.agc().enabled().await,
+        Err(Error::Unsupported {
+            capability: Capability::Agc,
+            ..
+        })
+    ));
 
     let mut stream = rx.streamer().await?;
     assert!(matches!(
         stream.read(&mut [&mut [Complex32::default(); 16]], 0).await,
         Err(Error::StreamInactive)
     ));
+    if let Some(result) = stream.activate().now_or_never() {
+        result?;
+    }
+    stream.deactivate().await?;
+    stream.activate().await?;
     stream.activate().await?;
     read_samples(&mut stream).await?;
 
@@ -65,10 +94,21 @@ async fn exercise_lifecycle() -> Result<(), Error> {
     tx_stream
         .write_all(&[&zeros], None, false, TIMEOUT_US)
         .await?;
+    if let Some(result) = tx_stream.deactivate().now_or_never() {
+        result?;
+    }
     tx_stream.deactivate().await?;
     drop(tx_stream);
 
+    if let Some(result) = stream.deactivate().now_or_never() {
+        result?;
+    }
     stream.deactivate().await?;
+    stream.deactivate().await?;
+    assert!(matches!(
+        stream.read(&mut [&mut samples], 0).await,
+        Err(Error::StreamInactive)
+    ));
 
     // A stopped stream keeps its USB queue for subsequent reactivation.
     stream.activate().await?;
@@ -81,10 +121,17 @@ async fn exercise_lifecycle() -> Result<(), Error> {
     read_samples(&mut stream).await?;
     drop(stream);
 
+    if let Some(result) = device.info().now_or_never() {
+        result?;
+    }
+    device.info().await?;
+
     let mut recovered = rx.streamer().await?;
     recovered.activate().await?;
     read_samples(&mut recovered).await?;
     recovered.deactivate().await?;
+    drop(recovered);
+    device.info().await?;
 
     Ok(())
 }
