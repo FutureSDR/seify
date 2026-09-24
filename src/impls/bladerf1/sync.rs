@@ -24,6 +24,20 @@ pub struct BladeRf {
 }
 
 impl BladeRf {
+    #[allow(missing_docs)]
+    pub fn from_shared_device(inner: Arc<Mutex<BladeRf1>>) -> Result<Self, Error> {
+        {
+            let mut dev = inner.lock().map_err(|_| Error::Busy)?;
+            dev.rf_link_session()
+                .wait()
+                .map_err(bladerf_err)?
+                .initialize(false)
+                .wait()
+                .map_err(bladerf_err)?;
+        }
+        Ok(Self { inner })
+    }
+
     fn init_and_wrap(mut bladerf: BladeRf1) -> Result<Self, Error> {
         let mut session = bladerf.rf_link_session().wait().map_err(bladerf_err)?;
         session.initialize(false).wait().map_err(bladerf_err)?;
