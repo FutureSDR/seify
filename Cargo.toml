@@ -42,8 +42,7 @@ libbladerf-rs = { version = "0.6.0", optional = true, default-features = false, 
 log = "0.4"
 nom = "8.0"
 num-complex = "0.4"
-# Unpublished driver: keep the plutosdr-rs checkout next to seify.
-plutosdr = { package = "plutosdr-rs", path = "../plutosdr-rs", optional = true }
+plutosdr = { package = "plutosdr-rs", version = "0.2.0", optional = true }
 rtlsdr-nusb = { version = "0.3.0", optional = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

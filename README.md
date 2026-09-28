@@ -53,10 +53,7 @@ feature.
 
 ## PlutoSDR
 
-The `pluto` backend uses the unpublished Rust `plutosdr-rs` driver through a
-development path dependency. Keep its checkout at `../plutosdr-rs` relative to
-Seify. Cargo needs this sibling checkout even when `pluto` is disabled; builds,
-including CI, must supply it until the dependency can use a published version.
+The `pluto` backend uses the published Rust `plutosdr-rs` driver from crates.io.
 No libiio, libusb, SoapySDR, or USB Ethernet transport is involved in this backend.
 
 Enable `pluto` for `impls::Pluto`, `pluto,smol` or `pluto,tokio` for native
