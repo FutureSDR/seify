@@ -1,4 +1,7 @@
-on: [push, pull_request]
+on:
+  push:
+  pull_request:
+  workflow_call:
 
 name: CI
 
@@ -33,6 +36,14 @@ jobs:
       - name: Test
         run: cargo test --all-targets --features=aaronia_http,rtlsdr,soapy
 
+      - name: Doc tests
+        run: cargo test --doc --features=aaronia_http,rtlsdr,soapy
+
+      - name: Public API docs
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --no-deps --features=aaronia_http,rtlsdr,soapy
+
   native_usb:
     name: Native USB (${{ matrix.features }})
     runs-on: ubuntu-latest
@@ -42,6 +53,12 @@ jobs:
       fail-fast: false
       matrix:
         features:
+          - hackrf
+          - hackrf,smol
+          - hackrf,tokio
+          - pluto
+          - pluto,smol
+          - pluto,tokio
           - uhd
           - uhd,smol
           - uhd,tokio
@@ -66,6 +83,14 @@ jobs:
       - name: Test
         run: cargo test --all-targets --no-default-features --features=${{ matrix.features }}
 
+      - name: Doc tests
+        run: cargo test --doc --no-default-features --features=${{ matrix.features }}
+
+      - name: Public API docs
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --no-deps --no-default-features --features=${{ matrix.features }}
+
   webusb:
     name: WebUSB
     runs-on: ubuntu-latest
@@ -78,7 +103,18 @@ jobs:
           targets: wasm32-unknown-unknown
 
       - name: Clippy Seify WebUSB API
-        run: cargo clippy --target wasm32-unknown-unknown --lib --no-default-features --features=hydrasdr,bladerf1,rtlsdr,uhd -- -D warnings
+        run: |
+          for features in bladerf1 hackrf hydrasdr pluto rtlsdr uhd bladerf1,hackrf,hydrasdr,pluto,rtlsdr,uhd; do
+            cargo clippy --target wasm32-unknown-unknown --lib --no-default-features --features="$features" -- -D warnings
+          done
+
+      - name: Public WebUSB API docs
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: |
+          for features in bladerf1 hackrf hydrasdr pluto rtlsdr uhd bladerf1,hackrf,hydrasdr,pluto,rtlsdr,uhd; do
+            cargo doc --no-deps --target wasm32-unknown-unknown --no-default-features --features="$features"
+          done
 
       - name: Clippy WebUSB example
         run: cargo clippy --manifest-path examples/webusb/Cargo.toml --target wasm32-unknown-unknown --all-targets -- -D warnings
