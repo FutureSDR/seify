@@ -34,7 +34,7 @@ impl AsyncPluto {
             .collect())
     }
 
-    /// Open an IIO session and retrieve its XML context without RF configuration.
+    /// Open an IIO session and enable hardware DC tracking when supported.
     /// On WebUSB, obtain permission through AsyncRegistry before opening.
     pub async fn open<A: TryInto<Args>>(args: A) -> Result<Self, Error> {
         let args = args
@@ -46,11 +46,17 @@ impl AsyncPluto {
             .select(devices)
             .next()
             .ok_or(Error::DeviceNotFound)?;
-        let device = PlutoDevice::builder()
+        let mut device = PlutoDevice::builder()
             .descriptor(descriptor)
             .open()
             .await
             .map_err(map_error)?;
+        if device.dc_offset_available() {
+            device
+                .set_dc_offset_enabled(true)
+                .await
+                .map_err(map_error)?;
+        }
         let metadata = Shared::new(Metadata::from_device(&device, index)?);
         Ok(Self {
             session: Shared::new(Mutex::new(Some(device))),
@@ -94,7 +100,7 @@ impl AsyncDeviceInfo for AsyncPluto {
     }
 }
 
-crate::impl_dyn_async_device_backend!(AsyncPluto => [rx, antenna, agc, gain, frequency, sample_rate, bandwidth]);
+crate::impl_dyn_async_device_backend!(AsyncPluto => [rx, antenna, agc, gain, frequency, sample_rate, bandwidth, dc_offset]);
 
 impl AsyncTypedDeviceBackend for AsyncPluto {
     fn driver() -> Driver {
@@ -142,8 +148,16 @@ impl AsyncPluto {
         channel: usize,
         attr: RxAttribute,
     ) -> Result<Range, Error> {
-        let value = self.read_setting(direction, channel, attr, true).await?;
-        range(plutosdr::ValueRange::parse(&value).map_err(map_error)?)
+        check_channel(direction, channel)?;
+        let mut session = self.session.lock().await;
+        range(
+            session
+                .as_mut()
+                .ok_or(Error::DeviceDisconnected)?
+                .rx_range(attr)
+                .await
+                .map_err(map_error)?,
+        )
     }
     async fn write_setting(
         &self,
@@ -219,6 +233,50 @@ impl crate::AsyncAgcControl for AsyncPluto {
             if enabled { "slow_attack" } else { "manual" },
         )
         .await
+    }
+}
+
+impl crate::AsyncDcOffsetControl for AsyncPluto {
+    async fn async_dc_offset_available(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> Result<bool, Error> {
+        check_channel(direction, channel)?;
+        let mut session = self.session.lock().await;
+        Ok(session
+            .as_mut()
+            .ok_or(Error::DeviceDisconnected)?
+            .dc_offset_available())
+    }
+    async fn async_dc_offset_enabled(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> Result<bool, Error> {
+        check_channel(direction, channel)?;
+        let mut session = self.session.lock().await;
+        session
+            .as_mut()
+            .ok_or(Error::DeviceDisconnected)?
+            .dc_offset_enabled()
+            .await
+            .map_err(map_error)
+    }
+    async fn async_set_dc_offset_enabled(
+        &self,
+        direction: Direction,
+        channel: usize,
+        enabled: bool,
+    ) -> Result<(), Error> {
+        check_channel(direction, channel)?;
+        let mut session = self.session.lock().await;
+        session
+            .as_mut()
+            .ok_or(Error::DeviceDisconnected)?
+            .set_dc_offset_enabled(enabled)
+            .await
+            .map_err(map_error)
     }
 }
 

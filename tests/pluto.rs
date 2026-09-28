@@ -73,6 +73,7 @@ fn sync_invalid_arguments_fail_without_usb() {
     fn capabilities<
         T: seify::RxDevice
             + seify::GainControl
+            + seify::DcOffsetControl
             + seify::AgcControl
             + seify::FrequencyControl
             + seify::SampleRateControl
@@ -97,6 +98,7 @@ fn async_invalid_arguments_fail_without_usb_and_futures_are_send() {
     fn capabilities<
         T: seify::AsyncRxDevice
             + seify::AsyncGainControl
+            + seify::AsyncDcOffsetControl
             + seify::AsyncAgcControl
             + seify::AsyncFrequencyControl
             + seify::AsyncSampleRateControl

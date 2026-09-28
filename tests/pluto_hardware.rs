@@ -46,8 +46,14 @@ fn pluto_registry_and_shared_lifecycle() -> Result<(), Box<dyn std::error::Error
     );
     // Exercise the regular Seify channel API, not driver-specific calls.
     let channel = device.rx(0)?;
+    assert!(channel.dc_offset().enabled()?);
+    channel.dc_offset().disable()?;
+    assert!(!dynamic.rx(0)?.dc_offset().enabled()?);
+    dynamic.rx(0)?.dc_offset().enable()?;
+    assert!(channel.dc_offset().enabled()?);
     channel.frequency().set(2_450_000_000.0)?;
     channel.sample_rate().set(2_500_000.0)?;
+    assert_eq!(channel.bandwidth().value()?, channel.sample_rate().value()?);
     channel.bandwidth().set(2_000_000.0)?;
     channel.gain().set(30.0)?;
     assert_eq!(channel.frequency().value()?, 2_450_000_000.0);
@@ -131,8 +137,17 @@ async fn async_lifecycle(args: Args) -> Result<(), Error> {
     ));
     assert!(!clone.as_inner().context().devices.is_empty());
     let channel = device.rx(0).await?;
+    assert!(channel.dc_offset().enabled().await?);
+    channel.dc_offset().disable().await?;
+    assert!(!dynamic.rx(0).await?.dc_offset().enabled().await?);
+    dynamic.rx(0).await?.dc_offset().enable().await?;
+    assert!(channel.dc_offset().enabled().await?);
     channel.frequency().set(2_450_000_000.0).await?;
     channel.sample_rate().set(2_500_000.0).await?;
+    assert_eq!(
+        channel.bandwidth().value().await?,
+        channel.sample_rate().value().await?
+    );
     channel.bandwidth().set(2_000_000.0).await?;
     channel.gain().set(25.0).await?;
     assert_eq!(channel.gain().value().await?, Some(25.0));

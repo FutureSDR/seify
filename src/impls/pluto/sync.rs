@@ -30,7 +30,7 @@ impl Pluto {
             .collect())
     }
 
-    /// Open the named IIO interface and read its context, without RF configuration.
+    /// Open the named IIO interface and enable hardware DC tracking when supported.
     pub fn open<A: TryInto<Args>>(args: A) -> Result<Self, Error> {
         let args = args
             .try_into()
@@ -41,11 +41,17 @@ impl Pluto {
             .select(devices)
             .next()
             .ok_or(Error::DeviceNotFound)?;
-        let device = PlutoDevice::builder()
+        let mut device = PlutoDevice::builder()
             .descriptor(descriptor)
             .open()
             .wait()
             .map_err(map_error)?;
+        if device.dc_offset_available() {
+            device
+                .set_dc_offset_enabled(true)
+                .wait()
+                .map_err(map_error)?;
+        }
         let metadata = Arc::new(Metadata::from_device(&device, index)?);
         Ok(Self {
             session: Arc::new(Mutex::new(Some(device))),
@@ -89,7 +95,7 @@ impl DeviceInfo for Pluto {
     }
 }
 
-crate::impl_dyn_device_backend!(Pluto => [rx, antenna, agc, gain, frequency, sample_rate, bandwidth]);
+crate::impl_dyn_device_backend!(Pluto => [rx, antenna, agc, gain, frequency, sample_rate, bandwidth, dc_offset]);
 crate::registry::impl_typed_device_backend!(Pluto, Driver::Pluto);
 
 impl Pluto {
@@ -115,8 +121,16 @@ impl Pluto {
         channel: usize,
         attr: RxAttribute,
     ) -> Result<Range, Error> {
-        let value = self.read_setting(direction, channel, attr, true)?;
-        range(plutosdr::ValueRange::parse(&value).map_err(map_error)?)
+        check_channel(direction, channel)?;
+        let mut session = self.session.lock().map_err(|_| Error::DeviceDisconnected)?;
+        range(
+            session
+                .as_mut()
+                .ok_or(Error::DeviceDisconnected)?
+                .rx_range(attr)
+                .wait()
+                .map_err(map_error)?,
+        )
     }
     fn write_setting(
         &self,
@@ -172,6 +186,42 @@ impl crate::AgcControl for Pluto {
             RxAttribute::GainMode,
             if enabled { "slow_attack" } else { "manual" },
         )
+    }
+}
+
+impl crate::DcOffsetControl for Pluto {
+    fn dc_offset_available(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+        check_channel(direction, channel)?;
+        let mut session = self.session.lock().map_err(|_| Error::DeviceDisconnected)?;
+        Ok(session
+            .as_mut()
+            .ok_or(Error::DeviceDisconnected)?
+            .dc_offset_available())
+    }
+    fn dc_offset_enabled(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+        check_channel(direction, channel)?;
+        let mut session = self.session.lock().map_err(|_| Error::DeviceDisconnected)?;
+        session
+            .as_mut()
+            .ok_or(Error::DeviceDisconnected)?
+            .dc_offset_enabled()
+            .wait()
+            .map_err(map_error)
+    }
+    fn set_dc_offset_enabled(
+        &self,
+        direction: Direction,
+        channel: usize,
+        enabled: bool,
+    ) -> Result<(), Error> {
+        check_channel(direction, channel)?;
+        let mut session = self.session.lock().map_err(|_| Error::DeviceDisconnected)?;
+        session
+            .as_mut()
+            .ok_or(Error::DeviceDisconnected)?
+            .set_dc_offset_enabled(enabled)
+            .wait()
+            .map_err(map_error)
     }
 }
 

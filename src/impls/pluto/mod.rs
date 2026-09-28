@@ -1,7 +1,9 @@
 //! PlutoSDR RX streaming and AD936x configuration over native IIO USB.
 //!
-//! One RX channel supports frequency, rate, bandwidth, gain, AGC, and port
+//! One RX channel supports frequency, rate, bandwidth, gain, AGC, DC tracking, and port
 //! selection. Streams own a separate USB pipe and expose normalized Complex32.
+//! RF and baseband DC tracking are enabled on open when supported. Setting
+//! sample rate also matches analog bandwidth; set bandwidth afterwards to override.
 //! TX and timed activation are not implemented.
 
 mod common;

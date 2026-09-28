@@ -72,7 +72,7 @@ impl Soapy {
             })
             .collect())
     }
-    /// Create a Soapy Device
+    /// Create a Soapy Device with automatic DC correction enabled where supported.
     ///
     /// It is possible to specify the Soapy `driver` argument by passing the `soapy_driver` argument
     /// to this function.
@@ -90,8 +90,16 @@ impl Soapy {
             args.remove("driver");
         }
 
+        let dev = soapysdr::Device::new(soapysdr::Args::try_from(args)?)?;
+        for direction in [Direction::Rx, Direction::Tx] {
+            for channel in 0..dev.num_channels(direction.into())? {
+                if dev.has_dc_offset_mode(direction.into(), channel)? {
+                    dev.set_dc_offset_mode(direction.into(), channel, true)?;
+                }
+            }
+        }
         Ok(Self {
-            dev: soapysdr::Device::new(soapysdr::Args::try_from(args)?)?,
+            dev,
             args: orig_args,
             index,
         })

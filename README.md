@@ -51,6 +51,13 @@ libbladerf-rs resolves nusb's blocking USB operations through the selected
 runtime. WebAssembly uses WebUSB and needs only the corresponding driver
 feature.
 
+Automatic DC correction is enabled by default where the backend exposes it:
+Pluto enables RF/baseband tracking, and Soapy enables automatic correction on
+each supported RX/TX channel. UHD already enables AD936x tracking internally,
+HydraSDR removes ADC DC during IQ conversion, and bladeRF applies available DC
+calibration tables. The latter mechanisms are internal to their drivers and do
+not expose Seify's automatic DC correction toggle.
+
 ## PlutoSDR
 
 The `pluto` backend uses the published Rust `plutosdr-rs` driver from crates.io.
@@ -72,11 +79,18 @@ USB identity, reported board/firmware, IIO context metadata, and an `iio_devices
 JSON array. Typed backends expose the complete cached XML model through
 `context()`.
 
-One RX channel provides frequency, sample rate, RF bandwidth, gain, AGC, and
-antenna/port controls. All numeric ranges come from firmware. Setting gain
-selects manual mode; enabling Seify AGC selects slow attack. The standalone Pluto driver also exposes fast-attack/hybrid modes. The Seify gain element
-is `RX`, and the frequency component is `RF`. Port names are internal AD936x
-inputs; Pluto has one physical RX connector. TX and timed activation are unsupported.
+One RX channel provides frequency, sample rate, RF bandwidth, gain, AGC,
+antenna/port, and automatic DC offset controls. The sample-rate range covers the
+FIR profiles managed by the driver; other numeric ranges come from firmware.
+RF and baseband DC tracking are enabled on open when supported; use
+`channel.dc_offset().disable()` or `.enable()` to change this (await on async devices).
+Setting sample rate loads the matching AD936x FIR profile and also sets analog
+bandwidth to the nearest supported value to its actual readback; an explicit
+bandwidth set afterwards takes precedence. Setting gain selects manual mode;
+enabling Seify AGC selects slow attack. The standalone Pluto driver also exposes
+fast-attack/hybrid modes. The Seify gain element is `RX`, and the frequency
+component is `RF`. Port names are internal AD936x inputs; Pluto has one physical
+RX connector. TX and timed activation are unsupported.
 
 ```rust,ignore
 let device = seify::Device::<seify::impls::Pluto>::from_args("driver=pluto")?;
