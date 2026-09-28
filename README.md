@@ -62,7 +62,7 @@ Enable `pluto` for `impls::Pluto`, `pluto,smol` or `pluto,tokio` for native
 leading zeros; `index` takes precedence when both are present.
 
 ```sh
-cargo run --no-default-features --features pluto --example pluto_info
+cargo run --no-default-features --features pluto --example probe -- --args driver=pluto
 # Explicit hardware test, including native async when smol is enabled:
 cargo test --no-default-features --features pluto,smol --test pluto_hardware -- --ignored --nocapture
 ```
@@ -89,7 +89,7 @@ let mut rx = device.rx_streamer(&[0])?;
 rx.activate()?;
 ```
 
-Run `cargo run --no-default-features --features pluto --example pluto_rx` for a
+Run `cargo run --no-default-features --features pluto --example rx_generic -- --args driver=pluto` for a
 complete capture example. Async channel creation and controls use `.await`.
 `rx_streamer_with_args` accepts `buffer_samples` (default 65,536 complex frames).
 The RX stream returns normalized `Complex32`, retains block tails across short
