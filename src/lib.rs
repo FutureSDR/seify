@@ -16,8 +16,7 @@
 //! native HackRF, HydraSDR and bladeRF 1 async support combines the driver
 //! feature with either runtime. On `wasm32-unknown-unknown`, these drivers use
 //! WebUSB without a runtime feature and only their async Seify backends are
-//! available. A
-//! worker-based WebUSB application should call
+//! available. A worker-based WebUSB application should call
 //! `AsyncRegistry::request_permission` from a browser-window user gesture, then
 //! probe or open the authorized device inside its worker.
 //!

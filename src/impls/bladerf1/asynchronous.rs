@@ -169,7 +169,7 @@ impl AsyncBladeRf {
     /// Return descriptors for detected bladeRF 1 devices asynchronously.
     ///
     /// On WebUSB only devices the page has already been granted are listed;
-    /// call [`AsyncRegistry::request_permission`](crate::AsyncRegistry::request_permission)
+    /// call `AsyncRegistry::request_permission`
     /// from a user gesture first.
     #[cfg(not(target_os = "android"))]
     pub async fn probe(args: &Args) -> Result<Vec<Args>, Error> {
@@ -439,7 +439,10 @@ impl AsyncBladeRf {
     ) -> Result<Range, Error> {
         let mut dev = self.lease_device().await?;
         let mut rf = session(&mut dev).await?;
-        rf.get_frequency_range().await.map_err(bladerf_err)?.try_into()
+        rf.get_frequency_range()
+            .await
+            .map_err(bladerf_err)?
+            .try_into()
     }
 
     async fn frequency(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
