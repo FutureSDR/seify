@@ -1,12 +1,14 @@
 use libbladerf_rs::bladerf1::{
-    BladeRf1, ExpansionBoard, GainDb, GainMode, RfLinkSession, RxStream, SampleFormat, TuningMode,
-    TxStream,
+    BladeRf1, ExpansionBoard, GainMode, RfLinkSession, RxStream, SampleFormat, TuningMode, TxStream,
 };
 use libbladerf_rs::Channel;
 use num_complex::Complex32;
-use std::future::IntoFuture;
+use std::future::{Future, IntoFuture};
+use std::ops::AsyncFnOnce;
 
 use super::common::*;
+use super::convert::*;
+use super::selector::*;
 #[cfg(target_arch = "wasm32")]
 use crate::dev::WebUsbDeviceFilter;
 use crate::{
@@ -139,6 +141,24 @@ async fn session(dev: &mut DeviceLease) -> Result<RfLinkSession<'_>, Error> {
     dev.value_mut().rf_link_session().await.map_err(bladerf_err)
 }
 
+/// Opens a fresh [`RfLinkSession`] over `lease` and runs `operation` with it.
+///
+/// The caller supplies the lease, so both entry points share one path:
+///
+/// - [`AsyncBladeRf::with_session`] passes [`AsyncBladeRf::lease_device`], which
+///   first reaps streams parked in the abandoned slots by dropped streamers.
+/// - the streamers pass an `async` block around `AsyncSlotLease::acquire`,
+///   which only takes the slot, because a streamer must not reap other streams
+///   while it is starting or stopping its own.
+async fn with_lease<T>(
+    lease: impl Future<Output = Result<DeviceLease, Error>>,
+    operation: impl AsyncFnOnce(&mut RfLinkSession<'_>) -> Result<T, Error>,
+) -> Result<T, Error> {
+    let mut dev = lease.await?;
+    let mut rf = session(&mut dev).await?;
+    operation(&mut rf).await
+}
+
 async fn cleanup_abandoned(
     dev: &mut DeviceLease,
     rx: &Shared<AsyncSlot<RxStream>>,
@@ -250,6 +270,17 @@ impl AsyncBladeRf {
         cleanup_abandoned(&mut dev, &self.abandoned_rx, &self.abandoned_tx).await?;
         Ok(dev)
     }
+
+    /// Leases the device and runs `operation` with a fresh [`RfLinkSession`].
+    ///
+    /// The lease reaps streams abandoned by dropped streamers before the
+    /// session is handed out; see [`with_lease`].
+    async fn with_session<T>(
+        &self,
+        operation: impl AsyncFnOnce(&mut RfLinkSession<'_>) -> Result<T, Error>,
+    ) -> Result<T, Error> {
+        with_lease(self.lease_device(), operation).await
+    }
 }
 
 #[cfg(not(target_os = "android"))]
@@ -336,18 +367,18 @@ impl AsyncBladeRf {
         } else {
             GainMode::Mgc
         };
-        let mut dev = self.lease_device().await?;
-        let mut rf = session(&mut dev).await?;
-        rf.set_gain_mode(channel, mode).await.map_err(bladerf_err)
+        self.with_session(async |rf| rf.set_gain_mode(channel, mode).await.map_err(bladerf_err))
+            .await
     }
 
     async fn agc_enabled(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
         if ch(direction, channel)? != Channel::Rx {
             return Err(Error::unsupported(Capability::Agc));
         }
-        let mut dev = self.lease_device().await?;
-        let mut rf = session(&mut dev).await?;
-        Ok(rf.get_gain_mode().await.map_err(bladerf_err)? == GainMode::Default)
+        self.with_session(async |rf| {
+            Ok(rf.get_gain_mode().await.map_err(bladerf_err)? == GainMode::Default)
+        })
+        .await
     }
 
     async fn gain_elements(
@@ -363,26 +394,21 @@ impl AsyncBladeRf {
 
     async fn set_gain(&self, direction: Direction, channel: usize, gain: f64) -> Result<(), Error> {
         let channel = ch(direction, channel)?;
-        let range = RfLinkSession::get_gain_range(channel);
-        let min = range.min().unwrap_or(f64::MIN);
-        let max = range.max().unwrap_or(f64::MAX);
-        let clamped = gain.clamp(min, max);
-        let mut dev = self.lease_device().await?;
-        let mut rf = session(&mut dev).await?;
-        rf.set_gain(channel, GainDb::from(clamped as i8))
+        let gain = clamp_gain(RfLinkSession::get_gain_range(channel), gain);
+        self.with_session(async |rf| rf.set_gain(channel, gain).await.map_err(bladerf_err))
             .await
-            .map_err(bladerf_err)
     }
 
     async fn gain(&self, direction: Direction, channel: usize) -> Result<Option<f64>, Error> {
-        let mut dev = self.lease_device().await?;
-        let mut rf = session(&mut dev).await?;
-        Ok(Some(
-            rf.get_gain(ch(direction, channel)?)
-                .await
-                .map_err(bladerf_err)?
-                .db() as f64,
-        ))
+        self.with_session(async |rf| {
+            Ok(Some(
+                rf.get_gain(ch(direction, channel)?)
+                    .await
+                    .map_err(bladerf_err)?
+                    .db() as f64,
+            ))
+        })
+        .await
     }
 
     async fn gain_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
@@ -397,15 +423,9 @@ impl AsyncBladeRf {
         gain: f64,
     ) -> Result<(), Error> {
         let stage = gain_stage(direction, channel, name)?;
-        let range = RfLinkSession::get_gain_stage_range(stage);
-        let min = range.min().unwrap_or(f64::MIN);
-        let max = range.max().unwrap_or(f64::MAX);
-        let clamped = gain.clamp(min, max);
-        let mut dev = self.lease_device().await?;
-        let mut rf = session(&mut dev).await?;
-        rf.set_gain_stage(stage, GainDb::from(clamped as i8))
+        let gain = clamp_gain(RfLinkSession::get_gain_stage_range(stage), gain);
+        self.with_session(async |rf| rf.set_gain_stage(stage, gain).await.map_err(bladerf_err))
             .await
-            .map_err(bladerf_err)
     }
 
     async fn gain_element(
@@ -415,11 +435,12 @@ impl AsyncBladeRf {
         name: &str,
     ) -> Result<Option<f64>, Error> {
         let stage = gain_stage(direction, channel, name)?;
-        let mut dev = self.lease_device().await?;
-        let mut rf = session(&mut dev).await?;
-        Ok(Some(
-            rf.get_gain_stage(stage).await.map_err(bladerf_err)?.db() as f64,
-        ))
+        self.with_session(async |rf| {
+            Ok(Some(
+                rf.get_gain_stage(stage).await.map_err(bladerf_err)?.db() as f64,
+            ))
+        })
+        .await
     }
 
     async fn gain_element_range(
@@ -437,21 +458,23 @@ impl AsyncBladeRf {
         _direction: Direction,
         _channel: usize,
     ) -> Result<Range, Error> {
-        let mut dev = self.lease_device().await?;
-        let mut rf = session(&mut dev).await?;
-        rf.get_frequency_range()
-            .await
-            .map_err(bladerf_err)?
-            .try_into()
+        self.with_session(async |rf| {
+            rf.get_frequency_range()
+                .await
+                .map_err(bladerf_err)?
+                .try_into()
+        })
+        .await
     }
 
     async fn frequency(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
-        let mut dev = self.lease_device().await?;
-        let mut rf = session(&mut dev).await?;
-        Ok(rf
-            .get_frequency(ch(direction, channel)?)
-            .await
-            .map_err(bladerf_err)? as f64)
+        self.with_session(async |rf| {
+            Ok(rf
+                .get_frequency(ch(direction, channel)?)
+                .await
+                .map_err(bladerf_err)? as f64)
+        })
+        .await
     }
 
     async fn set_frequency(
@@ -461,31 +484,33 @@ impl AsyncBladeRf {
         frequency: f64,
         _args: Args,
     ) -> Result<(), Error> {
-        let ch = ch(direction, channel)?;
-        let mut dev = self.lease_device().await?;
-        let mut rf = session(&mut dev).await?;
-        let f_range = rf.get_frequency_range().await.map_err(bladerf_err)?;
-        if frequency < f_range.min().unwrap_or(f64::MIN) {
-            log::trace!("Frequency {frequency} requires XB200 expansion board");
-            if rf.expansion_get_attached().await.map_err(bladerf_err)? != ExpansionBoard::Xb200 {
-                log::debug!("Automatically attaching XB200 expansion board");
-                rf.expansion_attach(ExpansionBoard::Xb200)
+        self.with_session(async |rf| {
+            let f_range = rf.get_frequency_range().await.map_err(bladerf_err)?;
+            if needs_xb200(frequency, f_range) {
+                log::trace!("Frequency {frequency} requires XB200 expansion board");
+                if rf.expansion_get_attached().await.map_err(bladerf_err)? != ExpansionBoard::Xb200
+                {
+                    log::debug!("Automatically attaching XB200 expansion board");
+                    rf.expansion_attach(ExpansionBoard::Xb200)
+                        .await
+                        .map_err(bladerf_err)?;
+                }
+            }
+            log::trace!("Setting frequency to {frequency}");
+            let ch = ch(direction, channel)?;
+            if rf
+                .set_frequency(ch, frequency as u64, TuningMode::Fpga)
+                .await
+                .is_err()
+            {
+                log::warn!("FPGA retune failed, falling back to host tuning");
+                rf.set_frequency(ch, frequency as u64, TuningMode::Host)
                     .await
                     .map_err(bladerf_err)?;
             }
-        }
-        log::trace!("Setting frequency to {frequency}");
-        if rf
-            .set_frequency(ch, frequency as u64, TuningMode::Fpga)
-            .await
-            .is_err()
-        {
-            log::warn!("FPGA retune failed, falling back to host tuning");
-            rf.set_frequency(ch, frequency as u64, TuningMode::Host)
-                .await
-                .map_err(bladerf_err)?;
-        }
-        Ok(())
+            Ok(())
+        })
+        .await
     }
 
     async fn frequency_components(
@@ -525,12 +550,13 @@ impl AsyncBladeRf {
     }
 
     async fn sample_rate(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
-        let mut dev = self.lease_device().await?;
-        let mut rf = session(&mut dev).await?;
-        Ok(rf
-            .get_sample_rate(ch(direction, channel)?)
-            .await
-            .map_err(bladerf_err)? as f64)
+        self.with_session(async |rf| {
+            Ok(rf
+                .get_sample_rate(ch(direction, channel)?)
+                .await
+                .map_err(bladerf_err)? as f64)
+        })
+        .await
     }
 
     async fn set_sample_rate(
@@ -539,21 +565,22 @@ impl AsyncBladeRf {
         channel: usize,
         rate: f64,
     ) -> Result<(), Error> {
-        let ch = ch(direction, channel)?;
-        let mut dev = self.lease_device().await?;
-        let mut rf = session(&mut dev).await?;
-        let actual = rf
-            .set_sample_rate(ch, rate as u32)
-            .await
-            .map_err(bladerf_err)?;
-        if actual != rate as u32 {
-            log::debug!("Requested sample rate {rate}, actual {actual}");
-        }
-        let bw_actual = rf.set_bandwidth(ch, actual).await.map_err(bladerf_err)?;
-        if bw_actual != actual {
-            log::debug!("Auto-set bandwidth to {bw_actual} (requested {actual})");
-        }
-        Ok(())
+        self.with_session(async |rf| {
+            let ch = ch(direction, channel)?;
+            let actual = rf
+                .set_sample_rate(ch, rate as u32)
+                .await
+                .map_err(bladerf_err)?;
+            if actual != rate as u32 {
+                log::debug!("Requested sample rate {rate}, actual {actual}");
+            }
+            let bw_actual = rf.set_bandwidth(ch, actual).await.map_err(bladerf_err)?;
+            if bw_actual != actual {
+                log::debug!("Auto-set bandwidth to {bw_actual} (requested {actual})");
+            }
+            Ok(())
+        })
+        .await
     }
 
     async fn get_sample_rate_range(
@@ -565,12 +592,13 @@ impl AsyncBladeRf {
     }
 
     async fn bandwidth(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
-        let mut dev = self.lease_device().await?;
-        let mut rf = session(&mut dev).await?;
-        Ok(rf
-            .get_bandwidth(ch(direction, channel)?)
-            .await
-            .map_err(bladerf_err)? as f64)
+        self.with_session(async |rf| {
+            Ok(rf
+                .get_bandwidth(ch(direction, channel)?)
+                .await
+                .map_err(bladerf_err)? as f64)
+        })
+        .await
     }
 
     async fn set_bandwidth(
@@ -579,16 +607,17 @@ impl AsyncBladeRf {
         channel: usize,
         bw: f64,
     ) -> Result<(), Error> {
-        let mut dev = self.lease_device().await?;
-        let mut rf = session(&mut dev).await?;
-        let actual = rf
-            .set_bandwidth(ch(direction, channel)?, bw as u32)
-            .await
-            .map_err(bladerf_err)?;
-        if actual != bw as u32 {
-            log::debug!("Requested bandwidth {bw}, actual {actual}");
-        }
-        Ok(())
+        self.with_session(async |rf| {
+            let actual = rf
+                .set_bandwidth(ch(direction, channel)?, bw as u32)
+                .await
+                .map_err(bladerf_err)?;
+            if actual != bw as u32 {
+                log::debug!("Requested bandwidth {bw}, actual {actual}");
+            }
+            Ok(())
+        })
+        .await
     }
 
     async fn get_bandwidth_range(
@@ -635,15 +664,17 @@ impl AsyncRxDevice for AsyncBladeRf {
         _args: Args,
     ) -> Result<Self::RxStreamer, Error> {
         check_channels(channels, "RX")?;
-        let mut dev = self.lease_device().await?;
-        let mut rf = session(&mut dev).await?;
-        let stream = RxStream::builder(&mut rf)
-            .buffer_size(BUFFER_SIZE)
-            .buffer_count(BUFFER_COUNT)
-            .format(STREAM_FORMAT)
-            .build()
-            .await
-            .map_err(bladerf_err)?;
+        let stream = self
+            .with_session(async |rf| {
+                RxStream::builder(rf)
+                    .buffer_size(BUFFER_SIZE)
+                    .buffer_count(BUFFER_COUNT)
+                    .format(STREAM_FORMAT)
+                    .build()
+                    .await
+                    .map_err(bladerf_err)
+            })
+            .await?;
         Ok(AsyncBladeRfRxStreamer {
             device_slot: Shared::clone(&self.device_slot),
             abandoned: Shared::clone(&self.abandoned_rx),
@@ -662,15 +693,17 @@ impl AsyncTxDevice for AsyncBladeRf {
         _args: Args,
     ) -> Result<Self::TxStreamer, Error> {
         check_channels(channels, "TX")?;
-        let mut dev = self.lease_device().await?;
-        let mut rf = session(&mut dev).await?;
-        let stream = TxStream::builder(&mut rf)
-            .buffer_size(BUFFER_SIZE)
-            .buffer_count(BUFFER_COUNT)
-            .format(STREAM_FORMAT)
-            .build()
-            .await
-            .map_err(bladerf_err)?;
+        let stream = self
+            .with_session(async |rf| {
+                TxStream::builder(rf)
+                    .buffer_size(BUFFER_SIZE)
+                    .buffer_count(BUFFER_COUNT)
+                    .format(STREAM_FORMAT)
+                    .build()
+                    .await
+                    .map_err(bladerf_err)
+            })
+            .await?;
         Ok(AsyncBladeRfTxStreamer {
             device_slot: Shared::clone(&self.device_slot),
             abandoned: Shared::clone(&self.abandoned_tx),
@@ -888,37 +921,43 @@ impl AsyncBandwidthControl for AsyncBladeRf {
 }
 
 impl crate::AsyncRxStreamer for AsyncBladeRfRxStreamer {
-    async fn mtu(&self) -> Result<usize, Error> {
-        Ok(BUFFER_SIZE / STREAM_FORMAT.sample_size())
+    fn mtu(
+        &self,
+    ) -> impl std::future::Future<Output = Result<usize, Error>> + crate::MaybeSend + '_ {
+        std::future::ready(Ok(BUFFER_SIZE / STREAM_FORMAT.sample_size()))
     }
 
     async fn activate_at(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
         if time_ns.is_some() {
             return Err(Error::unsupported(Capability::TimedActivation));
         }
-        let stream = self.stream.as_mut().ok_or(Error::DeviceDisconnected)?;
-        let mut dev = AsyncSlotLease::acquire(&self.device_slot)?;
-        let mut rf = session(&mut dev).await?;
-        match stream.start(&mut rf).await {
-            Ok(()) | Err(libbladerf_rs::Error::StreamAlreadyStarted) => Ok(()),
-            Err(error) => Err(bladerf_err(error)),
-        }
+        let stream = self.stream.as_mut().ok_or(Error::StreamInactive)?;
+        with_lease(
+            async { AsyncSlotLease::acquire(&self.device_slot) },
+            async |rf| match stream.start(rf).await {
+                Ok(()) | Err(libbladerf_rs::Error::StreamAlreadyStarted) => Ok(()),
+                Err(error) => Err(bladerf_err(error)),
+            },
+        )
+        .await
     }
 
     async fn deactivate_at(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
         if time_ns.is_some() {
             return Err(Error::unsupported(Capability::TimedDeactivation));
         }
-        let stream = self.stream.as_mut().ok_or(Error::DeviceDisconnected)?;
+        let stream = self.stream.as_mut().ok_or(Error::StreamInactive)?;
         if let Some(buffer) = self.converter.take_pending() {
             stream.recycle(buffer);
         }
-        let mut dev = AsyncSlotLease::acquire(&self.device_slot)?;
-        let mut rf = session(&mut dev).await?;
-        match stream.stop(&mut rf).await {
-            Ok(()) | Err(libbladerf_rs::Error::StreamNotStarted) => Ok(()),
-            Err(error) => Err(bladerf_err(error)),
-        }
+        with_lease(
+            async { AsyncSlotLease::acquire(&self.device_slot) },
+            async |rf| match stream.stop(rf).await {
+                Ok(()) | Err(libbladerf_rs::Error::StreamNotStarted) => Ok(()),
+                Err(error) => Err(bladerf_err(error)),
+            },
+        )
+        .await
     }
 
     async fn read<'a>(
@@ -931,7 +970,7 @@ impl crate::AsyncRxStreamer for AsyncBladeRfRxStreamer {
         if out.is_empty() {
             return Ok(0);
         }
-        let stream = self.stream.as_mut().ok_or(Error::DeviceDisconnected)?;
+        let stream = self.stream.as_mut().ok_or(Error::StreamInactive)?;
 
         let (mut written, recycled) = self.converter.drain_pending(out)?;
         if let Some(buf) = recycled {
@@ -975,34 +1014,41 @@ impl Drop for AsyncBladeRfRxStreamer {
 }
 
 impl crate::AsyncTxStreamer for AsyncBladeRfTxStreamer {
-    async fn mtu(&self) -> Result<usize, Error> {
-        Ok(BUFFER_SIZE / self.format.sample_size())
+    fn mtu(
+        &self,
+    ) -> impl std::future::Future<Output = Result<usize, Error>> + crate::MaybeSend + '_ {
+        let samples = BUFFER_SIZE / self.format.sample_size();
+        std::future::ready(Ok(samples))
     }
 
     async fn activate_at(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
         if time_ns.is_some() {
             return Err(Error::unsupported(Capability::TimedActivation));
         }
-        let stream = self.stream.as_mut().ok_or(Error::DeviceDisconnected)?;
-        let mut dev = AsyncSlotLease::acquire(&self.device_slot)?;
-        let mut rf = session(&mut dev).await?;
-        match stream.start(&mut rf).await {
-            Ok(()) | Err(libbladerf_rs::Error::StreamAlreadyStarted) => Ok(()),
-            Err(error) => Err(bladerf_err(error)),
-        }
+        let stream = self.stream.as_mut().ok_or(Error::StreamInactive)?;
+        with_lease(
+            async { AsyncSlotLease::acquire(&self.device_slot) },
+            async |rf| match stream.start(rf).await {
+                Ok(()) | Err(libbladerf_rs::Error::StreamAlreadyStarted) => Ok(()),
+                Err(error) => Err(bladerf_err(error)),
+            },
+        )
+        .await
     }
 
     async fn deactivate_at(&mut self, time_ns: Option<i64>) -> Result<(), Error> {
         if time_ns.is_some() {
             return Err(Error::unsupported(Capability::TimedDeactivation));
         }
-        let stream = self.stream.as_mut().ok_or(Error::DeviceDisconnected)?;
-        let mut dev = AsyncSlotLease::acquire(&self.device_slot)?;
-        let mut rf = session(&mut dev).await?;
-        match stream.stop(&mut rf).await {
-            Ok(()) | Err(libbladerf_rs::Error::StreamNotStarted) => Ok(()),
-            Err(error) => Err(bladerf_err(error)),
-        }
+        let stream = self.stream.as_mut().ok_or(Error::StreamInactive)?;
+        with_lease(
+            async { AsyncSlotLease::acquire(&self.device_slot) },
+            async |rf| match stream.stop(rf).await {
+                Ok(()) | Err(libbladerf_rs::Error::StreamNotStarted) => Ok(()),
+                Err(error) => Err(bladerf_err(error)),
+            },
+        )
+        .await
     }
 
     async fn write<'a>(
@@ -1016,7 +1062,7 @@ impl crate::AsyncTxStreamer for AsyncBladeRfTxStreamer {
         if buffers[0].is_empty() {
             return Ok(0);
         }
-        let stream = self.stream.as_mut().ok_or(Error::DeviceDisconnected)?;
+        let stream = self.stream.as_mut().ok_or(Error::StreamInactive)?;
         let bytes_per_sample = self.format.sample_size();
         let samples_to_write = buffers[0].len().min(BUFFER_SIZE / bytes_per_sample);
         let bytes_needed = samples_to_write * bytes_per_sample;
