@@ -30,8 +30,7 @@ required-features = ["rtlsdr"]
 futures = "0.3"
 hackrf-nusb = { version = "0.4.0", optional = true }
 hydrasdr-rs = { version = "0.5.0", optional = true }
-libbladerf-rs = { path = "../libbladerf-rs", optional = true, default-features = false, features = ["bladerf1", "xb100", "xb200", "xb300"] }
-# libbladerf-rs = { version = "0.6.0", optional = true, default-features = false, features = ["bladerf1", "xb100", "xb200", "xb300"] }
+libbladerf-rs = { version = "0.6.1", optional = true, default-features = false, features = ["bladerf1", "xb100", "xb200", "xb300"] }
 log = "0.4"
 nom = "8.0"
 num-complex = "0.4"
