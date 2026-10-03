@@ -1,11 +1,16 @@
 //! bladeRF 1 driver.
 //!
-//! libbladerf-rs mirrors nusb's runtime integration, so on native targets
-//! the backend needs exactly one of Seify's `smol` or `tokio` features for
-//! both its synchronous and asynchronous halves; libbladerf-rs reports a
-//! compile error otherwise.
+//! On native targets the synchronous backend (`BladeRf`) needs no async
+//! runtime: it drives every `libbladerf-rs` operation through `.wait()`, which
+//! runs nusb's blocking syscalls inline on the calling thread. The
+//! asynchronous backend (`AsyncBladeRf`) additionally needs exactly one of
+//! Seify's `smol` or `tokio` features, because awaiting `libbladerf-rs`
+//! operations requires nusb's runtime integration. On `wasm32` only the
+//! asynchronous backend is compiled.
 
 mod common;
+mod convert;
+mod selector;
 
 #[cfg(any(target_arch = "wasm32", feature = "smol", feature = "tokio"))]
 mod asynchronous;
