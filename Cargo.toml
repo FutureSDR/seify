@@ -1,6 +1,6 @@
 [package]
 name = "seify"
-version = "0.25.0"
+version = "0.26.0"
 description = "Shiny Samples from your Rusty SDR"
 documentation = "https://docs.rs/seify/"
 edition = "2021"
