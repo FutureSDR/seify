@@ -65,6 +65,7 @@ jobs:
           - hydrasdr
           - hydrasdr,smol
           - hydrasdr,tokio
+          - bladerf1
           - bladerf1,smol
           - bladerf1,tokio
           - rtlsdr
