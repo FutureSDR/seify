@@ -191,9 +191,7 @@ TX, timed streaming, and the second B210 channel are not yet exposed.
 B210 channel 0 is the A-side receiver. Opened-device metadata includes the
 motherboard `model` and `revision`, even when its USB descriptor says B200.
 
-The backend requires `uhd-rs` 0.1.3. This checkout uses the sibling `../uhd-pure`
-checkout while that release is prepared; Cargo packages use the versioned
-crates.io dependency once 0.1.3 is published.
+The backend uses the published `uhd-rs` 0.1.3 release from crates.io.
 
 Select with `driver=uhd,serial=...` (serials preserve leading zeros), or `index=N`
 which takes precedence. A stream must be activated before reading. Reads may
