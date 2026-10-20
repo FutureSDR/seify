@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use uhd_rs::{DeviceDescriptor, RxGain, RxTuneRequest};
+use uhd_rs::{DeviceDescriptor, RxAntenna, RxConfig, RxGain, RxTuneRequest};
 
 use crate::{Args, Capability, Direction, DriverError, Error, Range, RangeItem};
 
@@ -12,7 +12,7 @@ pub(super) const DEFAULT_GAIN: f64 = 30.0;
 
 pub(super) struct State {
     pub device: uhd_rs::Device,
-    // uhd-rs has no getters. Invalidate before I/O so failures/cancellation
+    // uhd-rs has no frequency/rate/gain getters. Invalidate before I/O so failures/cancellation
     // cannot leave getters reporting a stale hardware configuration.
     pub frequency: Option<f64>,
     pub rate: Option<f64>,
@@ -59,35 +59,45 @@ pub(super) fn gain_range() -> Range {
 }
 
 pub(super) fn sample_rate_range() -> Range {
-    // The 16 MHz mode uses two halfbands and a CIC with decimation <= 255.
-    // The 20 MHz mode delivers samples without FPGA decimation.
-    Range::new(
-        (1_u32..=512)
-            .rev()
-            .filter(|d| *d <= 255 || d % 2 == 0)
-            .map(|d| RangeItem::Value(16_000_000.0 / f64::from(d)))
-            .chain(std::iter::once(RangeItem::Value(20_000_000.0)))
-            .collect(),
-    )
+    Range::new(vec![RangeItem::Interval(
+        RxConfig::MIN_SAMPLE_RATE_HZ,
+        RxConfig::MAX_SAMPLE_RATE_HZ,
+    )])
     .expect("valid driver range")
 }
 
 pub(super) fn validate_rate(rate: f64) -> Result<(), Error> {
-    if !rate.is_finite() || !(31_250.0..=20_000_000.0).contains(&rate) {
-        return Err(Error::out_of_range(
-            "sample_rate",
-            sample_rate_range(),
-            rate,
-        ));
+    let range = sample_rate_range();
+    if range.contains(rate) {
+        Ok(())
+    } else {
+        Err(Error::out_of_range("sample_rate", range, rate))
     }
-    let decimation = (16_000_000.0 / rate).round() as u32;
-    if decimation > 255 && !decimation.is_multiple_of(2) {
-        return Err(Error::invalid_argument(
-            "sample_rate",
-            "unsupported CIC decimation",
-        ));
+}
+
+pub(super) fn bandwidth_range() -> Range {
+    Range::new(vec![RangeItem::Interval(
+        RxConfig::MIN_BANDWIDTH_HZ,
+        RxConfig::MAX_BANDWIDTH_HZ,
+    )])
+    .expect("valid driver range")
+}
+
+pub(super) fn validate_bandwidth(hz: f64) -> Result<(), Error> {
+    let range = bandwidth_range();
+    if hz == 0.0 || range.contains(hz) {
+        Ok(())
+    } else {
+        Err(Error::out_of_range("bandwidth", range, hz))
     }
-    Ok(())
+}
+
+pub(super) fn antenna(name: &str) -> Result<RxAntenna, Error> {
+    match name {
+        "RX2" => Ok(RxAntenna::Rx2),
+        "TX/RX" => Ok(RxAntenna::TxRx),
+        _ => Err(Error::invalid_argument("antenna", "expected RX2 or TX/RX")),
+    }
 }
 
 pub(super) fn tune_request(frequency: f64, args: &Args) -> Result<RxTuneRequest, Error> {
@@ -95,7 +105,9 @@ pub(super) fn tune_request(frequency: f64, args: &Args) -> Result<RxTuneRequest,
     if !range.contains(frequency) {
         return Err(Error::out_of_range("frequency", range, frequency));
     }
-    let offset = optional_arg::<f64>(args, "lo_offset")?.unwrap_or(0.0);
+    let offset = optional_arg::<f64>(args, "lo_offset")?
+        .or(optional_arg::<f64>(args, "OFFSET")?)
+        .unwrap_or(0.0);
     RxTuneRequest::with_lo_offset(frequency, offset)
         .validate()
         .map_err(Error::from)
@@ -299,19 +311,38 @@ mod tests {
         assert!(tune_request(100_000_000.0, &Args::from("lo_offset=bad").unwrap()).is_err());
         assert!(gain_range().contains(76.0));
         assert!(!gain_range().contains(76.5));
-        for d in 1..=512 {
-            let rate = 16_000_000.0 / f64::from(d);
-            let supported = d <= 255 || d % 2 == 0;
-            assert_eq!(validate_rate(rate).is_ok(), supported);
-            assert_eq!(sample_rate_range().contains(rate), supported);
+        for rate in [
+            RxConfig::MIN_SAMPLE_RATE_HZ,
+            1e3,
+            31_249.0,
+            16e6 / 257.0,
+            1.1e6,
+            17e6,
+            20e6,
+            61.44e6,
+        ] {
+            assert!(validate_rate(rate).is_ok());
+            assert!(sample_rate_range().contains(rate));
         }
-        assert!(validate_rate(1_100_000.0).is_ok());
-        assert!(validate_rate(20_000_000.0).is_ok());
-        assert!(sample_rate_range().contains(20_000_000.0));
-        assert!(!sample_rate_range().contains(17_000_000.0));
-        assert!(validate_rate(20_000_001.0).is_err());
+        assert!(validate_rate(RxConfig::MIN_SAMPLE_RATE_HZ - 0.001).is_err());
+        assert!(validate_rate(RxConfig::MAX_SAMPLE_RATE_HZ + 0.001).is_err());
+        assert!(tune_request(100e6, &Args::from("lo_offset=20000000").unwrap()).is_ok());
+        assert!(tune_request(100e6, &Args::from("OFFSET=20000000").unwrap()).is_ok());
         assert!(validate_rate(f64::NAN).is_err());
         assert!(validate_rate(0.0).is_err());
+    }
+
+    #[test]
+    fn controls_match_driver_ranges_and_connector_names() {
+        assert_eq!(antenna("RX2").unwrap(), RxAntenna::Rx2);
+        assert_eq!(antenna("TX/RX").unwrap(), RxAntenna::TxRx);
+        assert!(antenna("RX1").is_err());
+        for bandwidth in [0.0, 200e3, 2e6, 56e6] {
+            assert!(validate_bandwidth(bandwidth).is_ok());
+        }
+        for bandwidth in [f64::NAN, f64::INFINITY, -1.0, 199_999.0, 56_000_001.0] {
+            assert!(validate_bandwidth(bandwidth).is_err());
+        }
     }
 
     #[test]

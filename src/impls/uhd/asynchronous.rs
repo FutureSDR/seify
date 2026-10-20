@@ -6,9 +6,9 @@ use uhd_rs::{Device as UhdDevice, RxGain, RxStream};
 
 use super::common::*;
 use crate::{
-    Args, AsyncAgcControl, AsyncAntennaControl, AsyncDeviceInfo, AsyncFrequencyControl,
-    AsyncGainControl, AsyncRxDevice, AsyncSampleRateControl, Capability, Direction, Driver, Error,
-    Range,
+    Args, AsyncAgcControl, AsyncAntennaControl, AsyncBandwidthControl, AsyncDcOffsetControl,
+    AsyncDeviceInfo, AsyncFrequencyControl, AsyncGainControl, AsyncRxDevice,
+    AsyncSampleRateControl, Capability, Direction, Driver, Error, Range,
 };
 
 /// Asynchronous native Rust USRP B2xx RX device. Clones share hardware and configuration.
@@ -50,7 +50,7 @@ impl AsyncUhd {
         let mut metadata = device_args(index, &descriptor);
         let mut device = UhdDevice::builder().descriptor(descriptor).open().await?;
         update_identity(&mut metadata, &device.identity().await?);
-        // The driver has no configuration getters. Retune once to obtain the
+        // The driver has no frequency/rate getters. Retune once to obtain the
         // actual quantized frequency instead of caching the requested value.
         let frequency = device.set_center_frequency(DEFAULT_FREQUENCY).await?;
         let rate = device.set_sample_rate(DEFAULT_RATE).await?;
@@ -104,7 +104,7 @@ impl AsyncDeviceInfo for AsyncUhd {
     }
 }
 
-crate::impl_dyn_async_device_backend!(AsyncUhd => [rx, antenna, agc, gain, frequency, sample_rate]);
+crate::impl_dyn_async_device_backend!(AsyncUhd => [rx, antenna, agc, gain, frequency, sample_rate, bandwidth, dc_offset]);
 
 impl AsyncRxDevice for AsyncUhd {
     type RxStreamer = AsyncUhdRxStreamer;
@@ -134,11 +134,19 @@ impl AsyncAntennaControl for AsyncUhd {
         channel: usize,
     ) -> Result<Vec<String>, Error> {
         check_rx(direction, channel)?;
-        Ok(vec!["RX2".into()])
+        Ok(vec!["RX2".into(), "TX/RX".into()])
     }
     async fn async_antenna(&self, direction: Direction, channel: usize) -> Result<String, Error> {
         check_rx(direction, channel)?;
-        Ok("RX2".into())
+        Ok(self
+            .state
+            .lock()
+            .await
+            .device
+            .antenna()
+            .await?
+            .as_str()
+            .into())
     }
     async fn async_set_antenna(
         &self,
@@ -147,7 +155,8 @@ impl AsyncAntennaControl for AsyncUhd {
         name: &str,
     ) -> Result<(), Error> {
         check_rx(direction, channel)?;
-        check_name(name, "RX2")
+        let antenna = antenna(name)?;
+        Ok(self.state.lock().await.device.set_antenna(antenna).await?)
     }
 }
 
@@ -354,6 +363,66 @@ impl AsyncSampleRateControl for AsyncUhd {
     ) -> Result<Range, Error> {
         check_rx(direction, channel)?;
         Ok(sample_rate_range())
+    }
+}
+
+impl AsyncBandwidthControl for AsyncUhd {
+    async fn async_bandwidth(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
+        check_rx(direction, channel)?;
+        Ok(self.state.lock().await.device.bandwidth().await?)
+    }
+    async fn async_set_bandwidth(
+        &self,
+        direction: Direction,
+        channel: usize,
+        hz: f64,
+    ) -> Result<(), Error> {
+        check_rx(direction, channel)?;
+        validate_bandwidth(hz)?;
+        self.state.lock().await.device.set_bandwidth(hz).await?;
+        Ok(())
+    }
+    async fn async_get_bandwidth_range(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> Result<Range, Error> {
+        check_rx(direction, channel)?;
+        Ok(bandwidth_range())
+    }
+}
+
+impl AsyncDcOffsetControl for AsyncUhd {
+    async fn async_dc_offset_available(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> Result<bool, Error> {
+        check_rx(direction, channel)?;
+        Ok(true)
+    }
+    async fn async_dc_offset_enabled(
+        &self,
+        direction: Direction,
+        channel: usize,
+    ) -> Result<bool, Error> {
+        check_rx(direction, channel)?;
+        Ok(self.state.lock().await.device.dc_offset_enabled().await?)
+    }
+    async fn async_set_dc_offset_enabled(
+        &self,
+        direction: Direction,
+        channel: usize,
+        enabled: bool,
+    ) -> Result<(), Error> {
+        check_rx(direction, channel)?;
+        Ok(self
+            .state
+            .lock()
+            .await
+            .device
+            .set_dc_offset_enabled(enabled)
+            .await?)
     }
 }
 

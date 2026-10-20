@@ -1,6 +1,7 @@
 //! Native Rust USRP B2xx receive backend using `uhd-rs`.
 //!
-//! Exposes channel zero and RX2. Firmware and FPGA images are embedded by the
+//! Exposes channel zero with RX2 / TX/RX connector selection, analog bandwidth
+//! and automatic DC offset correction controls. Firmware and FPGA images are embedded by the
 //! driver. Supports B200, B210, B200mini, and B205mini; TX and multichannel
 //! streaming are not yet exposed.
 

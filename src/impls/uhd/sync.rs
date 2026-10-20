@@ -5,8 +5,8 @@ use uhd_rs::{Device as UhdDevice, MaybeFuture, RxGain, RxStream};
 
 use super::common::*;
 use crate::{
-    AgcControl, AntennaControl, Args, Capability, DeviceInfo, Direction, Driver, Error,
-    FrequencyControl, GainControl, Range, RxDevice, SampleRateControl,
+    AgcControl, AntennaControl, Args, BandwidthControl, Capability, DcOffsetControl, DeviceInfo,
+    Direction, Driver, Error, FrequencyControl, GainControl, Range, RxDevice, SampleRateControl,
 };
 
 /// Native Rust USRP B2xx RX device. Clones share hardware and configuration.
@@ -48,7 +48,7 @@ impl Uhd {
         let mut metadata = device_args(index, &descriptor);
         let mut device = UhdDevice::builder().descriptor(descriptor).open().wait()?;
         update_identity(&mut metadata, &device.identity().wait()?);
-        // The driver has no configuration getters. Retune once to obtain the
+        // The driver has no frequency/rate getters. Retune once to obtain the
         // actual quantized frequency instead of caching the requested value.
         let frequency = device.set_center_frequency(DEFAULT_FREQUENCY).wait()?;
         let rate = device.set_sample_rate(DEFAULT_RATE).wait()?;
@@ -102,7 +102,7 @@ impl DeviceInfo for Uhd {
     }
 }
 
-crate::impl_dyn_device_backend!(Uhd => [rx, antenna, agc, gain, frequency, sample_rate]);
+crate::impl_dyn_device_backend!(Uhd => [rx, antenna, agc, gain, frequency, sample_rate, bandwidth, dc_offset]);
 crate::registry::impl_typed_device_backend!(Uhd, Driver::Uhd);
 
 impl RxDevice for Uhd {
@@ -125,15 +125,30 @@ impl RxDevice for Uhd {
 impl AntennaControl for Uhd {
     fn antennas(&self, direction: Direction, channel: usize) -> Result<Vec<String>, Error> {
         check_rx(direction, channel)?;
-        Ok(vec!["RX2".into()])
+        Ok(vec!["RX2".into(), "TX/RX".into()])
     }
     fn antenna(&self, direction: Direction, channel: usize) -> Result<String, Error> {
         check_rx(direction, channel)?;
-        Ok("RX2".into())
+        Ok(self
+            .state
+            .lock()
+            .unwrap()
+            .device
+            .antenna()
+            .wait()?
+            .as_str()
+            .into())
     }
     fn set_antenna(&self, direction: Direction, channel: usize, name: &str) -> Result<(), Error> {
         check_rx(direction, channel)?;
-        check_name(name, "RX2")
+        let antenna = antenna(name)?;
+        Ok(self
+            .state
+            .lock()
+            .unwrap()
+            .device
+            .set_antenna(antenna)
+            .wait()?)
     }
 }
 
@@ -318,6 +333,55 @@ impl SampleRateControl for Uhd {
     fn get_sample_rate_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
         check_rx(direction, channel)?;
         Ok(sample_rate_range())
+    }
+}
+
+impl BandwidthControl for Uhd {
+    fn bandwidth(&self, direction: Direction, channel: usize) -> Result<f64, Error> {
+        check_rx(direction, channel)?;
+        Ok(self.state.lock().unwrap().device.bandwidth().wait()?)
+    }
+    fn set_bandwidth(&self, direction: Direction, channel: usize, hz: f64) -> Result<(), Error> {
+        check_rx(direction, channel)?;
+        validate_bandwidth(hz)?;
+        self.state.lock().unwrap().device.set_bandwidth(hz).wait()?;
+        Ok(())
+    }
+    fn get_bandwidth_range(&self, direction: Direction, channel: usize) -> Result<Range, Error> {
+        check_rx(direction, channel)?;
+        Ok(bandwidth_range())
+    }
+}
+
+impl DcOffsetControl for Uhd {
+    fn dc_offset_available(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+        check_rx(direction, channel)?;
+        Ok(true)
+    }
+    fn dc_offset_enabled(&self, direction: Direction, channel: usize) -> Result<bool, Error> {
+        check_rx(direction, channel)?;
+        Ok(self
+            .state
+            .lock()
+            .unwrap()
+            .device
+            .dc_offset_enabled()
+            .wait()?)
+    }
+    fn set_dc_offset_enabled(
+        &self,
+        direction: Direction,
+        channel: usize,
+        enabled: bool,
+    ) -> Result<(), Error> {
+        check_rx(direction, channel)?;
+        Ok(self
+            .state
+            .lock()
+            .unwrap()
+            .device
+            .set_dc_offset_enabled(enabled)
+            .wait()?)
     }
 }
 

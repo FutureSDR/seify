@@ -174,19 +174,26 @@ Firmware and FPGA images are embedded by default. The optional dependency is
 GPL-3.0-or-later; see its license for alternative licensing terms.
 
 Radio support covers B200 (including revisions before 5), B210, B200mini,
-and B205mini. It exposes RX channel 0, antenna `RX2`, 70 MHz–6 GHz tuning,
-and manual `PGA` gain of 0–76 dB in 1 dB steps or AGC.
-Sample rates up to 16 MS/s use a 16 MHz clock with supported integer DDC
-decimation (31,250–16,000,000 samples/s). Requests above 16 MS/s, up to 20 MS/s,
-select a 20 MHz clock and deliver 20 MS/s. Stop the stream before switching
-clock modes. Getters return actual quantized rates and frequencies. Frequency arguments accept `lo_offset` in Hz.
-TX, timed streaming, and independent bandwidth control are unavailable.
-B210 channel 0 is the A-side receiver. Model-specific RF routing and gain/AGC
-controls follow the board wiring; the second B210 channel is not yet exposed.
-Opened-device metadata includes the motherboard `model` and `revision`, even
-when a B210 USB descriptor identifies itself as B200.
+and B205mini. It exposes RX channel 0 with selectable `RX2` / `TX/RX` receive
+connectors, 70 MHz–6 GHz tuning, and manual `PGA` gain of 0–76 dB in 1 dB steps
+or AGC. Rates from 429.6875 S/s through 61.44 MS/s use automatic clock selection.
+Stop the stream before changing a rate that requires a different master clock.
+Rate and frequency getters return actual quantized values. Frequency arguments
+accept `lo_offset` or SoapyUHD's `OFFSET` in Hz; the offset must fit within half
+of the selected master clock.
 
-The backend uses the published `uhd-rs` 0.1.2 release from crates.io.
+`channel.bandwidth().set(hz)` controls the analog receive filters from 200 kHz
+through 56 MHz, limited by the master clock. Manual requests persist across rate
+changes; setting zero restores automatic bandwidth. `channel.dc_offset().enable()`
+and `.disable()` control automatic baseband DC correction. Bandwidth, antenna,
+and DC correction getters query the driver, including after clock changes.
+TX, timed streaming, and the second B210 channel are not yet exposed.
+B210 channel 0 is the A-side receiver. Opened-device metadata includes the
+motherboard `model` and `revision`, even when its USB descriptor says B200.
+
+The backend requires `uhd-rs` 0.1.3. This checkout uses the sibling `../uhd-pure`
+checkout while that release is prepared; Cargo packages use the versioned
+crates.io dependency once 0.1.3 is published.
 
 Select with `driver=uhd,serial=...` (serials preserve leading zeros), or `index=N`
 which takes precedence. A stream must be activated before reading. Reads may

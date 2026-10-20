@@ -17,7 +17,7 @@ fn args() -> Args {
 fn sync_uhd_lifecycle() -> Result<(), Error> {
     let device = Device::<seify::impls::Uhd>::from_args(args())?;
     let rx = device.rx(0)?;
-    assert_eq!(rx.antenna().ports()?, ["RX2"]);
+    assert_eq!(rx.antenna().ports()?, ["RX2", "TX/RX"]);
     assert_eq!(rx.gain().elements()?, ["PGA"]);
     rx.gain().set(30.4)?;
     assert_eq!(rx.gain().value()?, Some(30.0));
@@ -28,7 +28,47 @@ fn sync_uhd_lifecycle() -> Result<(), Error> {
     rx.frequency().set(100_000_000.0)?;
     assert!((rx.frequency().value()? - 100_000_000.0).abs() < 1.0);
     rx.sample_rate().set(1_100_000.0)?;
-    assert!((rx.sample_rate().value()? - 16_000_000.0 / 15.0).abs() < 1.0);
+    assert!((rx.sample_rate().value()? - 1_100_000.0).abs() < 1.0);
+
+    let dynamic = device.to_dyn();
+    let capabilities = dynamic.capabilities()?;
+    assert!(capabilities.rx_channels[0]
+        .controls
+        .bandwidth_range
+        .is_some());
+    assert!(capabilities.rx_channels[0].controls.dc_offset);
+    let channel = dynamic.rx(0)?;
+    assert!(channel.sample_rate().range()?.contains(429.6875));
+    assert!(channel.sample_rate().range()?.contains(61.44e6));
+    assert!(channel.sample_rate().range()?.contains(17e6));
+    for antenna in ["TX/RX", "RX2"] {
+        channel.antenna().select(antenna)?;
+        assert_eq!(rx.antenna().selected()?, antenna);
+    }
+    channel.bandwidth().set(2e6)?;
+    channel.dc_offset().disable()?;
+    for rate in [429.6875, 1e3, 31_249.0, 1.1e6, 7e6, 17e6, 30.72e6, 61.44e6] {
+        channel.sample_rate().set(rate)?;
+        assert!((channel.sample_rate().value()? - rate).abs() < 1.0);
+        assert!((channel.bandwidth().value()? - (rate * 512.0).min(2e6)).abs() < 1.0);
+    }
+    assert!(!rx.dc_offset().enabled()?);
+    channel.sample_rate().set(7e6)?;
+    channel.bandwidth().set(50e6)?;
+    channel.sample_rate().set(16e6)?;
+    assert_eq!(rx.bandwidth().value()?, 16e6);
+    channel.sample_rate().set(7e6)?;
+    assert_eq!(rx.bandwidth().value()?, 50e6);
+    channel.bandwidth().set(0.0)?;
+    assert_eq!(rx.bandwidth().value()?, 56e6);
+    channel.sample_rate().set(61.44e6)?;
+    channel
+        .frequency()
+        .set_with_args(100e6, Args::from("OFFSET=20000000")?)?;
+    assert!((channel.frequency().value()? - 100e6).abs() < 1.0);
+    channel.frequency().set(100e6)?;
+    channel.dc_offset().enable()?;
+    assert!(rx.dc_offset().enabled()?);
 
     rx.sample_rate().set(20_000_000.0)?;
     assert_eq!(rx.sample_rate().value()?, 20_000_000.0);
@@ -68,7 +108,7 @@ async fn async_lifecycle() -> Result<(), Error> {
     use seify::{AsyncDevice, AsyncRxStreamer};
     let device = AsyncDevice::<seify::impls::AsyncUhd>::from_args(args()).await?;
     let rx = device.rx(0).await?;
-    assert_eq!(rx.antenna().ports().await?, ["RX2"]);
+    assert_eq!(rx.antenna().ports().await?, ["RX2", "TX/RX"]);
     rx.gain().set(30.4).await?;
     assert_eq!(rx.gain().value().await?, Some(30.0));
     rx.agc().enable().await?;
@@ -76,7 +116,48 @@ async fn async_lifecycle() -> Result<(), Error> {
     rx.agc().disable().await?;
     rx.frequency().set(100_000_000.0).await?;
     rx.sample_rate().set(1_100_000.0).await?;
-    assert!((rx.sample_rate().value().await? - 16_000_000.0 / 15.0).abs() < 1.0);
+    assert!((rx.sample_rate().value().await? - 1_100_000.0).abs() < 1.0);
+
+    let dynamic = device.to_dyn();
+    let capabilities = dynamic.capabilities().await?;
+    assert!(capabilities.rx_channels[0]
+        .controls
+        .bandwidth_range
+        .is_some());
+    assert!(capabilities.rx_channels[0].controls.dc_offset);
+    let channel = dynamic.rx(0).await?;
+    assert!(channel.sample_rate().range().await?.contains(429.6875));
+    assert!(channel.sample_rate().range().await?.contains(61.44e6));
+    assert!(channel.sample_rate().range().await?.contains(17e6));
+    for antenna in ["TX/RX", "RX2"] {
+        channel.antenna().select(antenna).await?;
+        assert_eq!(rx.antenna().selected().await?, antenna);
+    }
+    channel.bandwidth().set(2e6).await?;
+    channel.dc_offset().disable().await?;
+    for rate in [429.6875, 1e3, 31_249.0, 1.1e6, 7e6, 17e6, 30.72e6, 61.44e6] {
+        channel.sample_rate().set(rate).await?;
+        assert!((channel.sample_rate().value().await? - rate).abs() < 1.0);
+        assert!((channel.bandwidth().value().await? - (rate * 512.0).min(2e6)).abs() < 1.0);
+    }
+    assert!(!rx.dc_offset().enabled().await?);
+    channel.sample_rate().set(7e6).await?;
+    channel.bandwidth().set(50e6).await?;
+    channel.sample_rate().set(16e6).await?;
+    assert_eq!(rx.bandwidth().value().await?, 16e6);
+    channel.sample_rate().set(7e6).await?;
+    assert_eq!(rx.bandwidth().value().await?, 50e6);
+    channel.bandwidth().set(0.0).await?;
+    assert_eq!(rx.bandwidth().value().await?, 56e6);
+    channel.sample_rate().set(61.44e6).await?;
+    channel
+        .frequency()
+        .set_with_args(100e6, Args::from("OFFSET=20000000")?)
+        .await?;
+    assert!((channel.frequency().value().await? - 100e6).abs() < 1.0);
+    channel.frequency().set(100e6).await?;
+    channel.dc_offset().enable().await?;
+    assert!(rx.dc_offset().enabled().await?);
 
     rx.sample_rate().set(20_000_000.0).await?;
     assert_eq!(rx.sample_rate().value().await?, 20_000_000.0);
