@@ -335,6 +335,16 @@ pub enum Error {
 }
 
 impl Error {
+    /// Whether continuing requires the user to authorize a reattached USB device.
+    /// This is a recoverable browser setup step, rather than a hardware failure.
+    pub fn requires_usb_permission(&self) -> bool {
+        match self {
+            #[cfg(feature = "uhd")]
+            Self::Driver(DriverError::Uhd(uhd_rs::Error::PermissionRequired)) => true,
+            _ => false,
+        }
+    }
+
     /// Create an unsupported-capability error without a backend-specific reason.
     pub fn unsupported(capability: Capability) -> Self {
         Self::Unsupported {
@@ -531,6 +541,14 @@ pub fn enumerate_with_args<A: TryInto<Args>>(a: A) -> Result<Vec<Args>, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[cfg(feature = "uhd")]
+    fn usb_permission_is_a_recoverable_setup_step() {
+        assert!(Error::from(uhd_rs::Error::PermissionRequired).requires_usb_permission());
+        assert!(!Error::from(uhd_rs::Error::Busy).requires_usb_permission());
+        assert!(!Error::Busy.requires_usb_permission());
+    }
 
     #[test]
     fn unsupported_error_displays_backend_reason() {
