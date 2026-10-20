@@ -417,10 +417,7 @@ impl crate::RxStreamer for RxStreamer {
             return Err(Error::StreamInactive);
         }
         crate::streamer::expect_buffer_count(buffers.len(), 1)?;
-        let count = buffers[0].len().min(RX_MTU);
-        Ok(self
-            .stream
-            .read(&mut buffers[0][..count], timeout(timeout_us))
-            .wait()?)
+        // Let the driver combine completed packets without waiting for more.
+        Ok(self.stream.read(buffers[0], timeout(timeout_us)).wait()?)
     }
 }
