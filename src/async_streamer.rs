@@ -16,6 +16,10 @@ use crate::MaybeSend;
 /// types enforce Seify's target-dependent `MaybeSend` future bound.
 pub trait AsyncRxStreamer: MaybeSend {
     /// Get the stream's maximum transmission unit in number of elements.
+    ///
+    /// This describes one underlying transport unit. A backend may combine
+    /// several ready units in one [`read`](Self::read) when the supplied buffers
+    /// are larger than the MTU.
     fn mtu(&self) -> impl Future<Output = Result<usize, Error>> + MaybeSend + '_;
 
     /// Activate a stream immediately.

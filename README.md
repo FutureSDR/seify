@@ -191,16 +191,19 @@ TX, timed streaming, and the second B210 channel are not yet exposed.
 B210 channel 0 is the A-side receiver. Opened-device metadata includes the
 motherboard `model` and `revision`, even when its USB descriptor says B200.
 
-The backend uses the published `uhd-rs` 0.1.3 release from crates.io.
+The backend uses the published `uhd-rs` 0.1.4 release from crates.io.
 
 Select with `driver=uhd,serial=...` (serials preserve leading zeros), or `index=N`
 which takes precedence. A stream must be activated before reading. Reads may
 be partial and return `Error::Timeout` when no samples arrive; a negative timeout
-waits indefinitely. Only one stream can be claimed at a time. Typed streams expose
+waits indefinitely. The RX MTU is 4086 samples per packet; larger buffers let a
+read combine already completed packets without waiting to fill the buffer.
+Only one stream can be claimed at a time. Typed streams expose
 `close()` and typed backends expose `shutdown()` for explicit cleanup. In a
 browser, restart a stopped stream to reuse it; after closing a stream that
 submitted transfers, shut down and reopen the device before claiming another.
 Firmware re-enumeration may require another user gesture for WebUSB permission.
+`Error::requires_usb_permission()` identifies this recoverable setup step.
 
 ```bash
 cargo run --no-default-features --features uhd --example probe -- --args driver=uhd

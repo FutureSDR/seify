@@ -26,9 +26,9 @@ pub(crate) fn expect_buffer_count(actual: usize, expected: usize) -> Result<(), 
 pub trait RxStreamer: Send {
     /// Get the stream's maximum transmission unit (MTU) in number of elements.
     ///
-    /// The MTU specifies the maximum payload transfer in a stream operation.
-    /// This value can be used as a stream buffer allocation size that can
-    /// best optimize throughput given the underlying stream implementation.
+    /// The MTU describes one underlying transport unit and is a useful starting
+    /// point for buffer allocation. A backend may combine several ready units in
+    /// one [`read`](Self::read) when the supplied buffers are larger than the MTU.
     fn mtu(&self) -> Result<usize, Error>;
 
     /// Activate a stream.

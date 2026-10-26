@@ -1,6 +1,6 @@
 [package]
 name = "seify"
-version = "0.26.1"
+version = "0.26.2"
 description = "Shiny Samples from your Rusty SDR"
 documentation = "https://docs.rs/seify/"
 edition = "2021"
@@ -28,19 +28,19 @@ required-features = ["rtlsdr"]
 
 [dependencies]
 futures = "0.3"
-hackrf-nusb = { version = "0.4.0", optional = true }
-hydrasdr-rs = { version = "0.5.0", optional = true }
+hackrf-nusb = { version = "0.4.1", optional = true }
+hydrasdr-rs = { version = "0.5.1", optional = true }
 libbladerf-rs = { version = "0.6.1", optional = true, default-features = false, features = ["bladerf1", "xb100", "xb200", "xb300"] }
 log = "0.4"
 nom = "8.0"
 num-complex = "0.4"
-plutosdr = { package = "plutosdr-rs", version = "0.3.0", optional = true }
-rtlsdr-nusb = { version = "0.3.0", optional = true }
+plutosdr = { package = "plutosdr-rs", version = "0.3.1", optional = true }
+rtlsdr-nusb = { version = "0.3.1", optional = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_with = "3.21"
 thiserror = "2.0"
-uhd-rs = { version = "0.1.3", optional = true }
+uhd-rs = { version = "0.1.4", optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 async-io = { version = "2.6", optional = true }
